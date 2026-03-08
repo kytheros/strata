@@ -1,0 +1,14 @@
+services:
+  strata:
+    build: .
+    ports:
+      - "3000:8080"
+    volumes:
+      - strata-data:/data
+    environment:
+      - STRATA_DATA_DIR=/data
+      - STRATA_LICENSE_KEY=${STRATA_LICENSE_KEY:-}
+    restart: unless-stopped
+
+volumes:
+  strata-data:

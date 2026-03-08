@@ -1,0 +1,41 @@
+title = "Gitleaks config for claude-code-spec-template"
+
+[allowlist]
+  description = "Global allowlist — consolidates strata and strata-pro configs"
+
+  # Paths to exclude from scanning
+  paths = [
+    '''node_modules''',
+    '''dist''',
+    '''build''',
+    '''research''',
+    '''\.git''',
+    # Test fixtures containing fake secrets (from strata)
+    '''tests/sanitizer/.*\.test\.ts''',
+    # License validation test keys (from strata-pro)
+    '''src/ee/license-validator\.ts''',
+    # Example env files with placeholder values
+    '''\.env\.example''',
+    '''\.env\.sample''',
+    '''\.env\.template''',
+  ]
+
+  # Regex patterns that should never be flagged
+  regexes = [
+    # GitHub Actions secrets references: ${{ secrets.FOO }}
+    '''\$\{\{\s*secrets\.\w+\s*\}\}''',
+    # process.env references: process.env.SECRET_KEY
+    '''process\.env\.\w+''',
+    # Placeholder / example values
+    '''EXAMPLE''',
+    '''PLACEHOLDER''',
+    '''YOUR_\w+_HERE''',
+    '''changeme''',
+    '''xxxx''',
+    '''sk-test-''',
+    '''pk-test-''',
+    # Common dummy values in docs and configs
+    '''your[_-]?api[_-]?key''',
+    '''your[_-]?secret''',
+    '''insert[_-]?your[_-]?''',
+  ]

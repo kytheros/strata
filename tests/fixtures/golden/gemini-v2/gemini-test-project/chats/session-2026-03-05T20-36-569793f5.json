@@ -1,0 +1,77 @@
+{
+  "sessionId": "569793f5-d3db-4707-ab4c-29745990595a",
+  "projectHash": "087af6d33d7ec419cfe77009c3a562d150b28d78cdb77864416519b60dbcd2f5",
+  "startTime": "2026-03-05T20:36:43.371Z",
+  "lastUpdated": "2026-03-05T20:36:47.517Z",
+  "messages": [
+    {
+      "id": "f59ed6ae-c07a-4740-937a-a5f0ae2e9bc1",
+      "timestamp": "2026-03-05T20:36:43.371Z",
+      "type": "user",
+      "content": [
+        {
+          "text": "What does index.js do? Explain in one sentence."
+        }
+      ]
+    },
+    {
+      "id": "422337df-e150-4dae-adae-99e8dd59c1c7",
+      "timestamp": "2026-03-05T20:36:46.604Z",
+      "type": "gemini",
+      "content": "I will read the contents of `index.js` to determine its function.",
+      "thoughts": [],
+      "tokens": {
+        "input": 6707,
+        "output": 37,
+        "cached": 4056,
+        "thoughts": 117,
+        "tool": 0,
+        "total": 6861
+      },
+      "model": "gemini-3-flash-preview",
+      "toolCalls": [
+        {
+          "id": "read_file_1772743006538_0",
+          "name": "read_file",
+          "args": {
+            "file_path": "index.js"
+          },
+          "result": [
+            {
+              "functionResponse": {
+                "id": "read_file_1772743006538_0",
+                "name": "read_file",
+                "response": {
+                  "output": "console.log(\"hello world\");\n"
+                }
+              }
+            }
+          ],
+          "status": "success",
+          "timestamp": "2026-03-05T20:36:46.616Z",
+          "resultDisplay": "",
+          "displayName": "ReadFile",
+          "description": "Reads and returns the content of a specified file. If the file is large, the content will be truncated. The tool's response will clearly indicate if truncation has occurred and will provide details on how to read more of the file using the 'start_line' and 'end_line' parameters. Handles text, images (PNG, JPG, GIF, WEBP, SVG, BMP), audio files (MP3, WAV, AIFF, AAC, OGG, FLAC), and PDF files. For text files, it can read specific line ranges.",
+          "renderOutputAsMarkdown": true
+        }
+      ]
+    },
+    {
+      "id": "1219c932-7549-488f-98bf-b44f008acdc8",
+      "timestamp": "2026-03-05T20:36:47.517Z",
+      "type": "gemini",
+      "content": "The `index.js` file simply prints the string \"hello world\" to the console.",
+      "thoughts": [],
+      "tokens": {
+        "input": 6882,
+        "output": 19,
+        "cached": 6077,
+        "thoughts": 0,
+        "tool": 0,
+        "total": 6901
+      },
+      "model": "gemini-3-flash-preview"
+    }
+  ],
+  "kind": "main"
+}

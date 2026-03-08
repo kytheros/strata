@@ -1,0 +1,451 @@
+rules:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Category: Secrets & Credentials
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: hardcoded-secret-in-config
+    patterns:
+      - pattern-regex: >
+          ["'](?:api[_-]?key|token|secret|password|access[_-]?token|auth[_-]?key|private[_-]?key|client[_-]?secret)["']\s*[:=]\s*["'][a-zA-Z0-9_\-/.+]{16,}["']
+    paths:
+      include:
+        - "*.json"
+        - "*.toml"
+        - "*.yaml"
+        - "*.yml"
+      exclude:
+        - "*.example"
+        - "*.template"
+        - "*test*"
+        - "node_modules"
+    message: >
+      Hardcoded secret detected in configuration file.
+      Move this value to an environment variable and reference it via process.env.
+      For MCP server configs (.mcp.json), use the pattern: "env:VAR_NAME" or "${VAR_NAME}".
+      Never commit real API keys, tokens, or passwords to version control.
+    severity: ERROR
+    languages: [json]
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+      category: secrets
+      confidence: HIGH
+
+  - id: hardcoded-secret-in-env-file
+    patterns:
+      - pattern-regex: >
+          ^(?:SUPABASE_ACCESS_TOKEN|API_KEY|SECRET_KEY|AUTH_TOKEN|PRIVATE_KEY|JWT_SECRET|DATABASE_URL|OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY|GPTZERO_API_KEY|SAPLING_API_KEY|AWS_SECRET_ACCESS_KEY|STRIPE_SECRET_KEY)\s*=\s*[^\s$]{8,}
+    paths:
+      include:
+        - ".env"
+        - ".env.local"
+        - ".env.production"
+    message: >
+      Secret value assigned directly in a tracked .env file.
+      This file may be committed to version control, exposing secrets.
+      Use .env.local (gitignored) for real secrets, and .env.example with placeholder values for documentation.
+      Ensure .env, .env.local, and .env.production are listed in .gitignore.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+      category: secrets
+      confidence: HIGH
+
+  - id: secret-in-source-code
+    patterns:
+      - pattern-regex: >
+          (?:api[_-]?[Kk]ey|[Ss]ecret|[Tt]oken|[Pp]assword|[Aa]ccess[_-]?[Tt]oken|[Aa]uth[_-]?[Kk]ey)\s*[:=]\s*["'`][A-Za-z0-9_\-/.+]{20,}["'`]
+      - pattern-not-regex: >
+          process\.env\.|["'`]\$\{|PLACEHOLDER|YOUR_|EXAMPLE|changeme|test|dummy|fake|mock|xxx
+    paths:
+      include:
+        - "*.ts"
+        - "*.js"
+        - "*.tsx"
+        - "*.jsx"
+      exclude:
+        - "*test*"
+        - "*spec*"
+        - "*fixture*"
+        - "*.d.ts"
+        - "node_modules"
+    message: >
+      Possible hardcoded secret in source code.
+      Use environment variables (process.env.SECRET_NAME) instead of embedding secrets directly.
+      If this is a test fixture, add it to the .semgrepignore or Gitleaks allowlist.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+      category: secrets
+      confidence: MEDIUM
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Category: MCP Server Security
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: mcp-path-traversal-risk
+    patterns:
+      - pattern: |
+          join($BASE, $USER_INPUT)
+      - pattern-not-inside: |
+          validatePathSafety(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          validatePathSafety(...)
+    message: >
+      Path join() with potentially untrusted input detected without a validatePathSafety() guard.
+      This may allow path traversal attacks (e.g., ../../etc/passwd).
+      Always call validatePathSafety(resultPath, allowedBaseDir) after constructing the path.
+      See powerbi-report-mcp-server/src/utils/sanitize.ts for the reference implementation.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      category: mcp-security
+      confidence: MEDIUM
+
+  - id: mcp-schema-missing-strict
+    pattern: |
+      z.object({...})
+    pattern-not: |
+      z.object({...}).strict()
+    pattern-not: |
+      z.object({...}).passthrough()
+    paths:
+      include:
+        - "**/tools/**"
+        - "**/server.ts"
+    message: >
+      Zod schema without .strict() allows extra properties, which could enable
+      prototype pollution via unexpected keys like __proto__ or constructor.
+      Add .strict() to MCP tool input schemas to reject unexpected properties.
+      If passthrough is intentionally needed (e.g., for registerTool inputSchema), document the reason.
+    severity: WARNING
+    languages: [typescript]
+    metadata:
+      cwe: "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes"
+      owasp: "A03:2021 - Injection"
+      category: mcp-security
+      confidence: MEDIUM
+
+  - id: mcp-unsanitized-user-content
+    patterns:
+      - pattern: |
+          { type: "text", text: $USER_INPUT }
+      - pattern-not: |
+          { type: "text", text: wrapUserContent($USER_INPUT) }
+      - pattern-not: |
+          { type: "text", text: enforceCharacterLimit(...) }
+    paths:
+      include:
+        - "**/tools/**"
+    message: >
+      User-provided content included directly in MCP tool response without sanitization.
+      Wrap user content with wrapUserContent() to add boundary markers that prevent
+      prompt injection. See powerbi-report-mcp-server/src/utils/sanitize.ts.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-74: Improper Neutralization of Special Elements in Output"
+      owasp: "A03:2021 - Injection"
+      category: mcp-security
+      confidence: LOW
+
+  - id: mcp-missing-input-validation
+    patterns:
+      - pattern: |
+          async ($PARAMS) => {
+            ...
+            $PARAMS. $FIELD
+            ...
+          }
+      - pattern-not-inside: |
+          $SCHEMA.parse(...)
+          ...
+      - pattern-not-inside: |
+          $SCHEMA.safeParse(...)
+          ...
+    paths:
+      include:
+        - "**/tools/**"
+        - "**/server.ts"
+    message: >
+      MCP tool handler accesses parameters without Zod schema validation.
+      Always validate input with schema.parse(params) or schema.safeParse(params)
+      before accessing parameter fields. This prevents type confusion and injection attacks.
+      See powerbi-report-mcp-server/src/tools/core.ts for the pattern:
+      const validated = schema.parse(coerced);
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-20: Improper Input Validation"
+      owasp: "A03:2021 - Injection"
+      category: mcp-security
+      confidence: LOW
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Category: Injection
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: sql-injection-template-literal
+    pattern-either:
+      - pattern: |
+          $DB.exec(`...${$USER_INPUT}...`)
+      - pattern: |
+          $DB.prepare(`...${$USER_INPUT}...`)
+      - pattern: |
+          $DB.run(`...${$USER_INPUT}...`)
+      - pattern: |
+          $DB.get(`...${$USER_INPUT}...`)
+      - pattern: |
+          $DB.all(`...${$USER_INPUT}...`)
+    message: >
+      SQL query uses template literal string interpolation, which may allow SQL injection.
+      Use parameterized queries instead:
+        WRONG:  db.prepare(`SELECT * FROM t WHERE id = '${id}'`)
+        RIGHT:  db.prepare("SELECT * FROM t WHERE id = ?").get(id)
+      better-sqlite3 supports ? placeholders and @named parameters.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      category: injection
+      confidence: HIGH
+
+  - id: sql-injection-string-concat
+    pattern-either:
+      - pattern: |
+          $DB.exec("..." + $USER_INPUT + "...")
+      - pattern: |
+          $DB.prepare("..." + $USER_INPUT + "...")
+      - pattern: |
+          $DB.run("..." + $USER_INPUT + "...")
+      - pattern: |
+          $DB.get("..." + $USER_INPUT + "...")
+      - pattern: |
+          $DB.all("..." + $USER_INPUT + "...")
+    message: >
+      SQL query uses string concatenation with potentially untrusted input.
+      Use parameterized queries instead:
+        WRONG:  db.prepare("SELECT * FROM t WHERE id = '" + id + "'")
+        RIGHT:  db.prepare("SELECT * FROM t WHERE id = ?").get(id)
+      better-sqlite3 supports ? placeholders and @named parameters.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      category: injection
+      confidence: HIGH
+
+  - id: eval-usage
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+      - pattern: vm.runInNewContext(...)
+      - pattern: vm.runInThisContext(...)
+      - pattern: vm.runInContext(...)
+    message: >
+      Dynamic code execution detected (eval/Function/vm.run*).
+      This is almost always a security vulnerability — attacker-controlled input
+      can lead to arbitrary code execution.
+      Alternatives:
+        - JSON.parse() for data parsing
+        - A sandboxed interpreter for expressions
+        - Static configuration instead of dynamic code
+      If absolutely required, document the security justification and ensure
+      input is from a trusted source only.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      owasp: "A03:2021 - Injection"
+      category: injection
+      confidence: HIGH
+
+  - id: dax-injection-unsanitized
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $EXPR = `...${$USER_INPUT}...`
+              ...
+              $ENGINE.$METHOD(..., $EXPR, ...)
+          - pattern: |
+              expression: $USER_INPUT
+      - pattern-not-inside: |
+          validateDax(...)
+          ...
+      - pattern-not-inside: |
+          requireValidDax(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          validateDax(...)
+      - pattern-not-inside: |
+          ...
+          requireValidDax(...)
+    paths:
+      include:
+        - "**/powerbi*/**"
+    message: >
+      DAX expression from user input may be passed to the engine without validation.
+      Always call validateDax(expression) or requireValidDax(expression) before
+      using DAX expressions from tool parameters.
+      See powerbi-report-mcp-server/src/engine/validation/dax-validator.ts.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-94: Improper Control of Generation of Code"
+      owasp: "A03:2021 - Injection"
+      category: injection
+      confidence: LOW
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Category: Prototype Pollution
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: prototype-pollution-bracket-notation
+    patterns:
+      - pattern: |
+          $OBJ[$USER_INPUT] = $VALUE
+      - metavariable-regex:
+          metavariable: $USER_INPUT
+          regex: (?!["'`]\w+["'`]).*
+    message: >
+      Dynamic property assignment using bracket notation with a variable key.
+      If $USER_INPUT is attacker-controlled, this enables prototype pollution
+      (e.g., obj["__proto__"]["isAdmin"] = true).
+      Mitigations:
+        1. Validate the key: if (key === "__proto__" || key === "constructor" || key === "prototype") throw;
+        2. Use Object.create(null) for the target object
+        3. Use Map instead of plain objects for dynamic keys
+        4. Use Zod .strict() schemas to reject unknown properties at the boundary
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes"
+      owasp: "A03:2021 - Injection"
+      category: prototype-pollution
+      confidence: LOW
+
+  - id: prototype-pollution-proto-access
+    pattern-either:
+      - pattern: $OBJ.__proto__
+      - pattern: $OBJ["__proto__"]
+      - pattern: $OBJ['__proto__']
+      - pattern: $OBJ.constructor.prototype
+      - pattern: $OBJ["constructor"]["prototype"]
+      - pattern: $OBJ['constructor']['prototype']
+    message: >
+      Direct __proto__ or constructor.prototype access detected.
+      This is a prototype pollution vector — modifying these properties affects
+      all objects inheriting from the same prototype.
+      If you need to inspect the prototype chain, use Object.getPrototypeOf().
+      If you need a clean object, use Object.create(null).
+      Never allow user input to set __proto__ or constructor.prototype.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes"
+      owasp: "A03:2021 - Injection"
+      category: prototype-pollution
+      confidence: HIGH
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Category: Node.js Security
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: child-process-unsanitized
+    pattern-either:
+      - pattern: exec($CMD, ...)
+      - pattern: execSync($CMD, ...)
+      - pattern: child_process.exec($CMD, ...)
+      - pattern: child_process.execSync($CMD, ...)
+    message: >
+      exec() or execSync() spawns a shell and is vulnerable to command injection
+      if the command string includes unsanitized user input.
+      Prefer execFile() or spawn() which do NOT invoke a shell:
+        WRONG:  exec(`git log ${userInput}`)
+        RIGHT:  execFile("git", ["log", userInput])
+      If a shell is truly required, validate and sanitize all interpolated values.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      category: nodejs-security
+      confidence: MEDIUM
+
+  - id: fs-readfile-unsanitized-path
+    patterns:
+      - pattern-either:
+          - pattern: readFile($PATH, ...)
+          - pattern: readFileSync($PATH, ...)
+          - pattern: writeFile($PATH, ...)
+          - pattern: writeFileSync($PATH, ...)
+          - pattern: fs.readFile($PATH, ...)
+          - pattern: fs.readFileSync($PATH, ...)
+          - pattern: fs.writeFile($PATH, ...)
+          - pattern: fs.writeFileSync($PATH, ...)
+      - pattern-not-inside: |
+          validatePathSafety(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          validatePathSafety(...)
+    paths:
+      include:
+        - "**/tools/**"
+        - "**/server.ts"
+    message: >
+      File system operation with a path that may originate from user input
+      (MCP tool parameters) without validatePathSafety() guard.
+      Always validate that the resolved path stays within the allowed base directory:
+        const safePath = resolve(baseDir, userPath);
+        validatePathSafety(safePath, baseDir);
+      See powerbi-report-mcp-server/src/utils/sanitize.ts for the reference implementation.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      category: nodejs-security
+      confidence: LOW
+
+  - id: missing-error-handling
+    patterns:
+      - pattern: |
+          async ($PARAMS) => {
+            ...
+            await $EXPR
+            ...
+          }
+      - pattern-not-inside: |
+          try { ... } catch (...) { ... }
+    paths:
+      include:
+        - "**/tools/**"
+    message: >
+      Async operation in tool handler without try/catch error handling.
+      Unhandled rejections crash the MCP server process and may leak
+      stack traces with sensitive information (file paths, SQL queries).
+      Wrap async tool handler bodies in try/catch and return structured errors:
+        try {
+          // ... await operations
+        } catch (error) {
+          return formatToolError(error);
+        }
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-755: Improper Handling of Exceptional Conditions"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      category: nodejs-security
+      confidence: LOW

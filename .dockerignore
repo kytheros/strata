@@ -1,0 +1,14 @@
+node_modules
+dist
+tests
+.git
+.github
+*.md
+!README.md
+.claude
+.verification
+coverage
+.env
+*.test.ts
+src/
+tsconfig.json

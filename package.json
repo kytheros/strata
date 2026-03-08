@@ -1,0 +1,72 @@
+{
+  "name": "strata-mcp",
+  "version": "1.0.0",
+  "description": "Mine your AI coding assistant conversation history for searchable knowledge",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "strata",
+    "history",
+    "search",
+    "knowledge",
+    "claude-code",
+    "codex",
+    "aider",
+    "model-context-protocol"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./server": "./dist/server.js",
+    "./tools/*": "./dist/tools/*.js",
+    "./storage/*": "./dist/storage/*.js",
+    "./indexing/*": "./dist/indexing/*.js",
+    "./search/*": "./dist/search/*.js",
+    "./knowledge/*": "./dist/knowledge/*.js",
+    "./parsers/*": "./dist/parsers/*.js",
+    "./utils/*": "./dist/utils/*.js",
+    "./config": "./dist/config.js",
+    "./watcher/*": "./dist/watcher/*.js",
+    "./ee/*": "./dist/ee/*.js"
+  },
+  "bin": {
+    "strata": "dist/cli.js",
+    "strata-mcp": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build && npm test",
+    "build-index": "tsx src/cli/build-index.ts",
+    "install-hook": "tsx src/cli/install.ts",
+    "security:scan": "docker run --rm -v \"${PWD}:/src\" returntocorp/semgrep semgrep --config /src/.semgrep/custom-rules.yml --config p/typescript /src",
+    "security:secrets": "gitleaks detect --source . --verbose --no-banner",
+    "security:audit": "npm audit --omit=dev --audit-level=moderate",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "better-sqlite3": "^11.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "husky": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

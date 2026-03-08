@@ -1,0 +1,27 @@
+{
+  "name": "strata",
+  "version": "1.0.0",
+  "description": "Mine your AI coding assistant history for searchable knowledge",
+  "mcp": {
+    "command": "npx",
+    "args": ["-y", "strata-mcp"]
+  },
+  "hooks": {
+    "SessionStart": {
+      "command": "npx",
+      "args": ["strata-mcp", "hook", "session-start"],
+      "timeout": 2000
+    },
+    "Stop": {
+      "command": "npx",
+      "args": ["strata-mcp", "hook", "session-stop"],
+      "timeout": 15000
+    },
+    "SubagentStart": {
+      "command": "npx",
+      "args": ["strata-mcp", "hook", "subagent-start"],
+      "timeout": 2000
+    }
+  },
+  "skills": ["skills/deep-retrieval.md"]
+}
