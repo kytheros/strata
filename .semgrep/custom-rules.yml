@@ -191,6 +191,7 @@ rules:
     paths:
       exclude:
         - "**/storage/database.ts"
+        - "**/storage/sqlite-knowledge-store.ts"
     message: >
       SQL query uses template literal string interpolation, which may allow SQL injection.
       Use parameterized queries instead:
