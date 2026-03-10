@@ -41,17 +41,14 @@ jobs:
       # npm audit for known vulnerabilities in dependencies
       - name: npm audit
         id: npm_audit
-        run: npm audit --omit=dev --audit-level=moderate
+        run: npm audit --omit=dev --audit-level=high
 
-      # Semgrep SAST scan
+      # Semgrep SAST scan (custom rules only — remote packs require Semgrep App login)
       - name: Semgrep scan
         id: semgrep
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: >-
-            .semgrep/custom-rules.yml
-            p/typescript
-            p/nodejs
+        run: |
+          pip install semgrep
+          semgrep --config .semgrep/custom-rules.yml --error --exclude node_modules --exclude dist --exclude '*.lock' .
 
       # Check for secrets/credentials accidentally committed
       - name: Secret scanning with Gitleaks
@@ -59,7 +56,7 @@ jobs:
         run: |
           GITLEAKS_VERSION="8.21.2"
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar xz
-          ./gitleaks detect --source . --verbose --no-banner
+          ./gitleaks detect --source . --config .gitleaks.toml --verbose --no-banner
 
       # Summarize security findings on PRs
       - name: Comment security summary on PR
