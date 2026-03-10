@@ -18,6 +18,7 @@
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import type { PlatformId } from "./cli/platform.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -46,7 +47,8 @@ Usage:
   strata store-memory <text> --type <t>   Store an explicit memory
   strata migrate                          Migrate legacy data to SQLite
   strata status                           Print index statistics
-  strata activate <key>                   Activate a Strata Pro license
+  strata activate <key>                   Activate a license (JWT or Polar key)
+  strata update                           Check for and install newer versions
   strata license                          Show current license status
   strata embed                            Generate embeddings for vector search
   strata --version                        Print version
@@ -79,6 +81,11 @@ Store-memory flags:
 
 Serve flags:
   --port <n>        HTTP port (default: 3000 or $PORT)
+
+Activate flags:
+  --binary          Download standalone binary instead of tarball
+  --platform <id>   Override platform detection (linux-x64, darwin-arm64,
+                    darwin-x64, win-x64)
 
 Migrate flags:
   --force           Re-run migration even if already completed
@@ -125,6 +132,10 @@ function parseArgs(argv: string[]): {
       flags.type = argv[++i];
     } else if (arg === "--tags" && i + 1 < argv.length) {
       flags.tags = argv[++i];
+    } else if (arg === "--binary") {
+      flags.binary = true;
+    } else if (arg === "--platform" && i + 1 < argv.length) {
+      flags.platform = argv[++i];
     } else if (arg === "--no-color") {
       flags["no-color"] = true;
     } else if (!arg.startsWith("-") && !command) {
@@ -302,7 +313,15 @@ async function runStatus(): Promise<void> {
   indexManager.close();
 }
 
-async function runActivate(key: string): Promise<void> {
+/**
+ * Detect whether a key is a Polar license key (download flow)
+ * or a JWT (direct activation).
+ */
+function isPolarKey(key: string): boolean {
+  return key.startsWith("STRATA-") || key.includes("pol_lic_");
+}
+
+async function runActivateJwt(key: string): Promise<void> {
   const { validateLicense } = await import("./extensions/license-validator.js");
   const { mkdirSync, writeFileSync } = await import("fs");
   const { join: pathJoin } = await import("path");
@@ -329,6 +348,135 @@ async function runActivate(key: string): Promise<void> {
   console.log(`  Features: ${result.features?.join(", ")}`);
   console.log(`  Expires: ${expDate}`);
   console.log(`  Saved to: ${licensePath}`);
+}
+
+async function runActivatePolar(
+  key: string,
+  flags: Record<string, string | boolean>
+): Promise<void> {
+  const { fetchVersionInfo, downloadAndInstall } = await import("./cli/download.js");
+
+  // 1. Fetch tier / version info
+  let info;
+  try {
+    info = await fetchVersionInfo(key);
+  } catch (err: any) {
+    console.log(`Activation failed: ${err.message}`);
+    process.exit(1);
+  }
+
+  const tier = info.tier;
+  const binary = Boolean(flags.binary);
+  const platformOverride = flags.platform
+    ? (String(flags.platform) as PlatformId)
+    : undefined;
+
+  console.log(`Tier: ${tier}`);
+  console.log(`Latest version: ${info.latest}`);
+  console.log(`Format: ${binary ? "binary" : "tarball"}`);
+
+  // 2. Download and install
+  try {
+    const result = await downloadAndInstall({
+      key,
+      tier,
+      binary,
+      platform: platformOverride,
+    });
+
+    console.log("");
+    console.log("Activation complete!");
+    console.log(`  Tier:     ${tier}`);
+    console.log(`  Version:  ${result.version}`);
+    console.log(`  Format:   ${binary ? "binary" : "tarball"}`);
+    console.log(`  Path:     ${result.installPath}`);
+    console.log("");
+    if (binary) {
+      console.log("Add to your MCP config:");
+      console.log(`  claude mcp add strata-${tier} -- "${result.installPath}"`);
+    } else {
+      console.log("The global strata command has been updated.");
+      console.log(`Run 'strata status' to verify the ${tier} installation.`);
+    }
+  } catch (err: any) {
+    console.log(`Download/install failed: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+async function runActivate(
+  key: string,
+  flags: Record<string, string | boolean>
+): Promise<void> {
+  if (isPolarKey(key)) {
+    await runActivatePolar(key, flags);
+  } else if (key.startsWith("eyJ")) {
+    await runActivateJwt(key);
+  } else {
+    console.log("Unrecognized key format.");
+    console.log("  - Polar keys start with STRATA- or contain pol_lic_");
+    console.log("  - JWT keys start with eyJ");
+    process.exit(1);
+  }
+}
+
+async function runUpdate(): Promise<void> {
+  const { readPolarKey, readInstallConfig, fetchVersionInfo, downloadAndInstall } =
+    await import("./cli/download.js");
+
+  // 1. Read saved key
+  const key = readPolarKey();
+  if (!key) {
+    console.log("No Polar license key found.");
+    console.log("  Run 'strata activate <key>' first to set up your license.");
+    process.exit(1);
+  }
+
+  // 2. Read current install config
+  const config = readInstallConfig();
+  if (!config) {
+    console.log("No install config found at ~/.strata/config.json");
+    console.log("  Run 'strata activate <key>' to do a fresh install.");
+    process.exit(1);
+  }
+
+  // 3. Check latest version
+  let info;
+  try {
+    info = await fetchVersionInfo(key);
+  } catch (err: any) {
+    console.log(`Update check failed: ${err.message}`);
+    process.exit(1);
+  }
+
+  // 4. Compare versions
+  if (info.latest === config.version) {
+    console.log(`Already up to date (${config.tier} v${config.version}).`);
+    return;
+  }
+
+  console.log(`Update available: ${config.version} -> ${info.latest}`);
+
+  // 5. Download same format as original install
+  const binary = config.format === "binary";
+  try {
+    const result = await downloadAndInstall({
+      key,
+      tier: config.tier,
+      binary,
+      platform: config.platform,
+    });
+
+    console.log("");
+    console.log("Update complete!");
+    console.log(`  Tier:     ${config.tier}`);
+    console.log(`  Version:  ${result.version}`);
+    console.log(`  Format:   ${config.format}`);
+    console.log(`  Path:     ${result.installPath}`);
+  } catch (err: any) {
+    console.log(`Update failed: ${err.message}`);
+    process.exit(1);
+  }
 }
 
 async function runLicenseStatus(): Promise<void> {
@@ -450,12 +598,15 @@ async function main(): Promise<void> {
     case "activate": {
       const key = args[0];
       if (!key) {
-        console.log("Usage: strata-mcp activate <license-key>");
+        console.log("Usage: strata activate <key> [--binary] [--platform <id>]");
         process.exit(1);
       }
-      await runActivate(key);
+      await runActivate(key, flags);
       break;
     }
+    case "update":
+      await runUpdate();
+      break;
     case "license":
       await runLicenseStatus();
       break;
