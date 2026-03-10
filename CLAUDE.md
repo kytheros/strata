@@ -1,10 +1,39 @@
+# Strata (Community Edition)
+
+This is the core memory engine for AI coding assistants. It indexes conversation history from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a local SQLite/FTS5 database and exposes MCP tools for search and recall.
+
+## Strata Family — Mono Repo Relationship
+
+All Strata repos live side-by-side under a shared parent directory and form a layered product:
+
+```
+strata/          ← THIS REPO — Community edition, core engine (free, 8 MCP tools)
+strata-pro/      ← Enterprise features: semantic search, cloud sync, procedures, analytics
+strata-team/     ← Team edition: shared knowledge, team sync, RBAC
+strata-web/      ← Marketing/auth frontend (React + Supabase)
+strata-worker/   ← Cloudflare Worker: licensed release distribution via R2/KV + Polar
+```
+
+### Dependency Chain
+
+```
+strata (this repo)
+  ↑ imported by strata-pro (via "strata-mcp": "file:../strata")
+      ↑ imported by strata-team (via "@kytheros/strata-pro": "file:../strata-pro")
+```
+
+- **strata-pro** wraps this repo's server and adds license-gated Pro tools
+- **strata-team** wraps strata-pro's server and adds team collaboration features
+- **strata-web** is independent (React SPA) — showcases and monetizes all tiers
+- **strata-worker** is independent (Cloudflare Worker) — serves licensed release tarballs
+
+### Key Exports Consumed by Downstream Repos
+
+Other repos import from this package (`strata-mcp`). Changes to exported types, the MCP server factory (`src/server.ts`), or core stores (KnowledgeStore, SqliteEntityStore, IndexManager) can break strata-pro and strata-team. Test downstream after modifying exports.
+
 ## Security Scanning
 
-This project uses a shared security scanning pipeline across the Strata family:
-- **strata/** (this repo) — Community edition, core memory engine
-- **strata-pro/** — Enterprise features (extends strata)
-- **strata-team/** — Team edition (extends strata + strata-pro)
-- **strata-web/** — Marketing/auth frontend (React + Supabase)
+Shared security scanning pipeline across all Strata repos.
 
 ### Tools
 - **Semgrep** — Custom SAST rules in `.semgrep/custom-rules.yml` (16 rules covering secrets, MCP security, injection, prototype pollution, Node.js security)
