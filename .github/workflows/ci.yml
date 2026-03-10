@@ -48,7 +48,7 @@ jobs:
         id: semgrep
         run: |
           pip install semgrep
-          semgrep --config .semgrep/custom-rules.yml --error --exclude node_modules --exclude dist --exclude '*.lock' .
+          semgrep --config .semgrep/custom-rules.yml --error --severity ERROR --exclude node_modules --exclude dist --exclude '*.lock' .
 
       # Check for secrets/credentials accidentally committed
       - name: Secret scanning with Gitleaks

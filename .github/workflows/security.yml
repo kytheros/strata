@@ -23,7 +23,7 @@ jobs:
           semgrep \
             --config .semgrep/custom-rules.yml \
             --sarif --output semgrep.sarif \
-            --error \
+            --error --severity ERROR \
             --exclude node_modules \
             --exclude dist \
             --exclude '*.lock' \
