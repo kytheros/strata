@@ -509,6 +509,87 @@ export class SqliteKnowledgeStore {
       : (this.stmts.getAll.all() as SqliteKnowledgeRow[]);
     return rows.map(rowToEntry);
   }
+
+  /**
+   * Paginated listing with filters for the dashboard.
+   */
+  getEntries(options: {
+    type?: string;
+    project?: string;
+    search?: string;
+    sort?: "newest" | "oldest" | "importance";
+    limit: number;
+    offset: number;
+  }): { entries: KnowledgeEntry[]; total: number } {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (options.type) {
+      conditions.push("type = ?");
+      params.push(options.type);
+    }
+
+    if (options.project) {
+      conditions.push("LOWER(project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'");
+      params.push(escapeLike(options.project));
+    }
+
+    if (options.search) {
+      conditions.push(
+        "LOWER(summary || ' ' || details || ' ' || COALESCE(tags, '')) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'"
+      );
+      params.push(escapeLike(options.search));
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    let orderBy: string;
+    switch (options.sort) {
+      case "oldest":
+        orderBy = "ORDER BY timestamp ASC";
+        break;
+      case "importance":
+        orderBy = "ORDER BY COALESCE(importance, 0) DESC";
+        break;
+      case "newest":
+      default:
+        orderBy = "ORDER BY timestamp DESC";
+        break;
+    }
+
+    const countRow = this.db
+      .prepare(`SELECT COUNT(*) as count FROM knowledge ${where}`)
+      .get(...params) as { count: number };
+
+    const rows = this.db
+      .prepare(`SELECT * FROM knowledge ${where} ${orderBy} LIMIT ? OFFSET ?`)
+      .all(...params, options.limit, options.offset) as SqliteKnowledgeRow[];
+
+    return { entries: rows.map(rowToEntry), total: countRow.count };
+  }
+
+  /**
+   * Aggregate knowledge counts by type, optionally filtered by project.
+   */
+  getTypeDistribution(project?: string): Record<string, number> {
+    let rows: Array<{ type: string; count: number }>;
+
+    if (project) {
+      rows = this.db
+        .prepare("SELECT type, COUNT(*) as count FROM knowledge WHERE project = ? GROUP BY type")
+        .all(project) as Array<{ type: string; count: number }>;
+    } else {
+      rows = this.db
+        .prepare("SELECT type, COUNT(*) as count FROM knowledge GROUP BY type")
+        .all() as Array<{ type: string; count: number }>;
+    }
+
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      result[row.type] = row.count;
+    }
+    return result;
+  }
 }
 
 // --- Internal helpers ---
@@ -528,6 +609,7 @@ interface SqliteKnowledgeRow {
   extracted_at: number | null;
   updated_at: number | null;
   user: string;
+  importance: number | null;
 }
 
 function rowToEntry(row: SqliteKnowledgeRow): KnowledgeEntry {
@@ -545,6 +627,7 @@ function rowToEntry(row: SqliteKnowledgeRow): KnowledgeEntry {
     occurrences: row.occurrences ?? undefined,
     projectCount: row.project_count ?? undefined,
     extractedAt: row.extracted_at ?? undefined,
+    importance: row.importance ?? undefined,
   };
 }
 

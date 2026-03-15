@@ -51,6 +51,7 @@ Usage:
   strata update                           Check for and install newer versions
   strata license                          Show current license status
   strata embed                            Generate embeddings for vector search
+  strata init                             Set up Strata in the current project
   strata --version                        Print version
   strata --help                           Print this help
 
@@ -86,6 +87,9 @@ Activate flags:
   --binary          Download standalone binary instead of tarball
   --platform <id>   Override platform detection (linux-x64, darwin-arm64,
                     darwin-x64, win-x64)
+
+Init flags:
+  --force           Overwrite existing skills, hooks, and CLAUDE.md sections
 
 Migrate flags:
   --force           Re-run migration even if already completed
@@ -613,6 +617,34 @@ async function main(): Promise<void> {
     case "embed":
       await runEmbed();
       break;
+    case "dashboard":
+      proFeatureMessage("dashboard");
+      break;
+    case "init": {
+      const { runInit } = await import("./cli/init.js");
+      await runInit({ force: Boolean(flags.force) });
+      break;
+    }
+    case "hook": {
+      const hookName = args[0];
+      if (!hookName) {
+        console.log("Usage: strata hook <session-start|session-stop|subagent-start>");
+        process.exit(1);
+      }
+      const hookMap: Record<string, string> = {
+        "session-start": "./hooks/session-start-hook.js",
+        "session-stop": "./hooks/session-stop-hook.js",
+        "subagent-start": "./hooks/subagent-start-hook.js",
+      };
+      const hookModule = hookMap[hookName];
+      if (!hookModule) {
+        console.log(`Unknown hook: ${hookName}`);
+        console.log("Available hooks: session-start, session-stop, subagent-start");
+        process.exit(1);
+      }
+      await import(hookModule);
+      break;
+    }
     case "serve":
       await runServe(flags);
       break;

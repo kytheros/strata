@@ -105,6 +105,78 @@ export class SqliteSummaryStore {
     const row = this.stmts.count.get() as { count: number };
     return row.count;
   }
+
+  /**
+   * Paginated session listing with filters.
+   */
+  getSessions(options: {
+    project?: string;
+    tool?: string;
+    hasCodeChanges?: boolean;
+    limit: number;
+    offset: number;
+  }): { sessions: SessionSummary[]; total: number } {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (options.project) {
+      conditions.push("LOWER(project) LIKE '%' || LOWER(?) || '%'");
+      params.push(options.project);
+    }
+
+    if (options.tool) {
+      conditions.push("tool = ?");
+      params.push(options.tool);
+    }
+
+    if (options.hasCodeChanges !== undefined) {
+      conditions.push(
+        `json_extract(data, '$.hasCodeChanges') = ${options.hasCodeChanges ? 1 : 0}`
+      );
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countRow = this.db
+      .prepare(`SELECT COUNT(*) as count FROM summaries ${where}`)
+      .get(...params) as { count: number };
+
+    const rows = this.db
+      .prepare(`SELECT * FROM summaries ${where} ORDER BY end_time DESC LIMIT ? OFFSET ?`)
+      .all(...params, options.limit, options.offset) as SqliteSummaryRow[];
+
+    return { sessions: rows.map(rowToSummary), total: countRow.count };
+  }
+
+  /**
+   * Calendar heatmap data: session count per day.
+   */
+  getSessionHeatmap(sinceMs: number): Array<{ date: string; count: number }> {
+    return this.db
+      .prepare(
+        `SELECT DATE(end_time / 1000, 'unixepoch') as date, COUNT(*) as count
+         FROM summaries
+         WHERE end_time >= ?
+         GROUP BY date
+         ORDER BY date`
+      )
+      .all(sinceMs) as Array<{ date: string; count: number }>;
+  }
+
+  /**
+   * Per-project session counts.
+   */
+  getProjectSessionCounts(): Record<string, number> {
+    const rows = this.db
+      .prepare("SELECT project, COUNT(*) as count FROM summaries GROUP BY project")
+      .all() as Array<{ project: string; count: number }>;
+
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      result[row.project] = row.count;
+    }
+    return result;
+  }
 }
 
 // --- Internal helpers ---

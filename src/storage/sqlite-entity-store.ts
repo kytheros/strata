@@ -311,4 +311,130 @@ export class SqliteEntityStore {
   getById(id: string): EntityRow | undefined {
     return this.stmts.getById.get(id) as EntityRow | undefined;
   }
+
+  /**
+   * Paginated entity listing with filters.
+   */
+  getEntities(options: {
+    type?: string;
+    project?: string;
+    search?: string;
+    sort?: "mentions" | "recent" | "oldest";
+    limit: number;
+    offset: number;
+  }): { entities: EntityRow[]; total: number } {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (options.type) {
+      conditions.push("type = ?");
+      params.push(options.type);
+    }
+
+    if (options.project) {
+      conditions.push("project = ?");
+      params.push(options.project);
+    }
+
+    if (options.search) {
+      conditions.push(
+        "(LOWER(canonical_name) LIKE '%' || LOWER(?) || '%' OR LOWER(aliases) LIKE '%' || LOWER(?) || '%')"
+      );
+      params.push(options.search, options.search);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    let orderBy: string;
+    switch (options.sort) {
+      case "recent":
+        orderBy = "ORDER BY last_seen DESC";
+        break;
+      case "oldest":
+        orderBy = "ORDER BY first_seen ASC";
+        break;
+      case "mentions":
+      default:
+        orderBy = "ORDER BY mention_count DESC";
+        break;
+    }
+
+    const countRow = this.db
+      .prepare(`SELECT COUNT(*) as count FROM entities ${where}`)
+      .get(...params) as { count: number };
+
+    const rows = this.db
+      .prepare(`SELECT * FROM entities ${where} ${orderBy} LIMIT ? OFFSET ?`)
+      .all(...params, options.limit, options.offset) as EntityRow[];
+
+    return { entities: rows, total: countRow.count };
+  }
+
+  /**
+   * Graph data for visualization: nodes + edges.
+   */
+  getEntityGraph(project?: string): {
+    nodes: Array<{ id: string; name: string; type: string; mentions: number }>;
+    edges: Array<{ source: string; target: string; type: string; context?: string }>;
+  } {
+    let entityRows: EntityRow[];
+    if (project) {
+      entityRows = this.db
+        .prepare("SELECT * FROM entities WHERE project = ?")
+        .all(project) as EntityRow[];
+    } else {
+      entityRows = this.db
+        .prepare("SELECT * FROM entities")
+        .all() as EntityRow[];
+    }
+
+    const nodes = entityRows.map((e) => ({
+      id: e.id,
+      name: e.canonical_name,
+      type: e.type,
+      mentions: e.mention_count,
+    }));
+
+    // Build a set of entity IDs for filtering edges
+    const entityIds = new Set(entityRows.map((e) => e.id));
+
+    // Get all relations, then filter to only include edges where both endpoints are in our node set
+    const allRelations = this.db
+      .prepare("SELECT * FROM entity_relations")
+      .all() as EntityRelationRow[];
+
+    const edges = allRelations
+      .filter((r) => entityIds.has(r.source_entity_id) && entityIds.has(r.target_entity_id))
+      .map((r) => ({
+        source: r.source_entity_id,
+        target: r.target_entity_id,
+        type: r.relation_type,
+        context: r.context ?? undefined,
+      }));
+
+    return { nodes, edges };
+  }
+
+  /**
+   * Entity type distribution counts.
+   */
+  getEntityTypeDistribution(project?: string): Record<string, number> {
+    let rows: Array<{ type: string; count: number }>;
+
+    if (project) {
+      rows = this.db
+        .prepare("SELECT type, COUNT(*) as count FROM entities WHERE project = ? GROUP BY type")
+        .all(project) as Array<{ type: string; count: number }>;
+    } else {
+      rows = this.db
+        .prepare("SELECT type, COUNT(*) as count FROM entities GROUP BY type")
+        .all() as Array<{ type: string; count: number }>;
+    }
+
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      result[row.type] = row.count;
+    }
+    return result;
+  }
 }
