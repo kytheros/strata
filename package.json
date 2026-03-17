@@ -1,6 +1,6 @@
 {
   "name": "strata-mcp",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Mine your AI coding assistant conversation history for searchable knowledge",
   "type": "module",
   "license": "MIT",
