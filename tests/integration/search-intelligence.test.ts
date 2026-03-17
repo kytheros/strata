@@ -199,8 +199,8 @@ describe("search intelligence", () => {
   // ── Tool Output Integration ───────────────────────────────────────
 
   describe("tool output", () => {
-    it("standard format includes confidence band labels", () => {
-      const output = handleSearchHistory(engine, {
+    it("standard format includes confidence band labels", async () => {
+      const output = await handleSearchHistory(engine, {
         query: "docker compose",
         format: "standard",
       });
@@ -208,8 +208,8 @@ describe("search intelligence", () => {
       expect(output).toMatch(/\[(high|medium|low)\]/);
     });
 
-    it("detailed format JSON includes confidence field", () => {
-      const output = handleSearchHistory(engine, {
+    it("detailed format JSON includes confidence field", async () => {
+      const output = await handleSearchHistory(engine, {
         query: "docker compose",
         format: "detailed",
       });
@@ -220,16 +220,16 @@ describe("search intelligence", () => {
       expect(parsed[0].confidence).toBe(1);
     });
 
-    it("find_solutions standard format includes confidence bands", () => {
-      const output = handleFindSolutions(engine, {
+    it("find_solutions standard format includes confidence bands", async () => {
+      const output = await handleFindSolutions(engine, {
         error_or_problem: "CORS error proxy",
         format: "standard",
       });
       expect(output).toMatch(/\[(high|medium|low)\]/);
     });
 
-    it("find_solutions detailed format includes confidence", () => {
-      const output = handleFindSolutions(engine, {
+    it("find_solutions detailed format includes confidence", async () => {
+      const output = await handleFindSolutions(engine, {
         error_or_problem: "CORS error proxy",
         format: "detailed",
       });

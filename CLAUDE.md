@@ -50,3 +50,11 @@ Security checks run automatically on PRs via `.github/workflows/ci.yml`. PRs are
 
 ### Shared Rules
 The Semgrep rules are shared across all Strata repos. When updating rules, propagate changes to strata-pro/, strata-team/, and strata-web/.
+
+## Strata Memory
+
+This project uses Strata MCP tools for persistent memory across sessions. When available:
+- Search for prior solutions before debugging: `find_solutions`
+- Store important decisions and fixes: `store_memory`
+- Check project context at session start: `get_project_context`
+- Use `/recall`, `/remember`, `/gaps`, `/strata-status` slash commands for quick access

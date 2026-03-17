@@ -41,12 +41,19 @@ function main(): void {
 
   const context = [
     "You have access to Strata MCP tools for searching past AI coding conversations:",
-    "- search_history: Full-text search across all past sessions (supports project:, before:, after: filters)",
+    "- search_history: Full-text search across all past sessions (project:, before:, after: filters)",
     "- find_solutions: Search for solutions to errors/problems from past sessions",
     "- get_project_context: Get comprehensive context for the current project",
+    "- store_memory: Explicitly store decisions, solutions, and preferences for future recall",
+    "- find_patterns: Discover recurring patterns and issues in conversation history",
     "- list_projects: See all projects with conversation history",
     "",
-    "Use these tools when: debugging errors you may have seen before, implementing features similar to past work, or needing context about prior decisions.",
+    "IMPORTANT — Use these tools proactively:",
+    "1. Before debugging: call find_solutions with the error message",
+    "2. After making a decision: call store_memory with type=decision",
+    "3. After fixing an error: call store_memory with type=error_fix",
+    "4. At task start: call get_project_context for relevant history",
+    "5. After completing work: call store_memory with type=solution for key solutions",
   ].join("\n");
 
   const output = {

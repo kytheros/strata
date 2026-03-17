@@ -4,6 +4,7 @@ import {
   groupBySession,
 } from "../parsers/history-parser.js";
 import { extractProjectName } from "../utils/path-encoder.js";
+import { STOP_WORDS } from "../indexing/tokenizer.js";
 
 export const findPatternsTool = {
   name: "find_patterns",
@@ -88,19 +89,13 @@ function findTopicPatterns(
 ): string[] {
   // Find frequently occurring meaningful words
   const wordCounts = new Map<string, number>();
-  const stopWords = new Set([
-    "the", "a", "an", "is", "it", "to", "for", "and", "or", "but",
-    "in", "on", "at", "by", "with", "from", "that", "this", "can",
-    "do", "did", "does", "has", "have", "had", "not", "all", "are",
-    "was", "were", "will", "would", "should", "could", "may", "might",
-    "i", "me", "my", "we", "you", "your", "let", "just", "want",
-  ]);
 
   for (const entry of entries) {
     const words = entry.display
       .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")  // Strip punctuation (handles contractions like "don't" → "don t")
       .split(/\s+/)
-      .filter((w) => w.length > 3 && !stopWords.has(w));
+      .filter((w) => w.length > 3 && !STOP_WORDS.has(w));
     const uniqueWords = new Set(words);
     for (const word of uniqueWords) {
       wordCounts.set(word, (wordCounts.get(word) || 0) + 1);
@@ -183,8 +178,9 @@ function findRepeatedIssues(
   for (const issue of issuePatterns) {
     const key = issue
       .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
       .split(/\s+/)
-      .filter((w) => w.length > 3)
+      .filter((w) => w.length > 3 && !STOP_WORDS.has(w))
       .slice(0, 5)
       .join(" ");
     if (key) grouped.set(key, (grouped.get(key) || 0) + 1);

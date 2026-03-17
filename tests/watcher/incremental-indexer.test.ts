@@ -12,6 +12,7 @@ vi.mock("../../src/config.js", () => ({
     watcher: { debounceMs: 100, staleSessionMinutes: 0 },
     learning: { maxLearningsPerProject: 20, maxLearningLength: 200, memoryLineBudget: 200 },
     indexing: { chunkSize: 500, maxChunksPerSession: 100 },
+    importance: { typeWeight: 0.35, languageWeight: 0.20, frequencyWeight: 0.35, explicitWeight: 0.10, boostMax: 0.5 },
     extraWatchDirs: [],
   },
 }));

@@ -1,6 +1,7 @@
 import { parseHistoryFile, groupBySession, getProjectInfos } from "../parsers/history-parser.js";
 import { extractProjectName } from "../utils/path-encoder.js";
 import type { SqliteSearchEngine } from "../search/sqlite-search-engine.js";
+import { STOP_WORDS } from "../indexing/tokenizer.js";
 
 export const getProjectContextTool = {
   name: "get_project_context",
@@ -102,8 +103,11 @@ export function handleGetProjectContext(
     const allDisplays = matching.map((e) => e.display.toLowerCase());
     const wordFreq = new Map<string, number>();
     for (const display of allDisplays) {
-      const words = display.split(/\s+/).filter((w) => w.length > 4);
-      for (const word of words) {
+      const words = display
+        .replace(/[^a-z0-9\s]/g, " ")  // Strip punctuation (handles contractions)
+        .split(/\s+/)
+        .filter((w) => w.length > 3 && !STOP_WORDS.has(w));
+      for (const word of new Set(words)) {
         wordFreq.set(word, (wordFreq.get(word) || 0) + 1);
       }
     }

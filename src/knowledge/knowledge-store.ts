@@ -31,6 +31,8 @@ export interface KnowledgeEntry {
   projectCount?: number;
   /** When this entry was extracted */
   extractedAt?: number;
+  /** Pre-computed importance score (0-1), from cognitive retrieval */
+  importance?: number;
 }
 
 export class KnowledgeStore {

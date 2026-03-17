@@ -1,7 +1,7 @@
 /**
  * MCP server: tool registration and request handling using McpServer API.
  *
- * Community edition — 8 free tools for search, memory, and pattern discovery.
+ * Community edition — 9 free tools for search, memory, semantic search, and pattern discovery.
  *
  * Follows production MCP patterns:
  * - Category prefixes in descriptions
@@ -17,6 +17,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SqliteIndexManager } from "./indexing/sqlite-index-manager.js";
 import { SqliteSearchEngine } from "./search/sqlite-search-engine.js";
+import type { SearchResult, SearchOptions } from "./search/sqlite-search-engine.js";
+import { SemanticSearchBridge } from "./search/semantic-search-bridge.js";
 import { handleSearchHistory } from "./tools/search-history.js";
 import { handleListProjects } from "./tools/list-projects.js";
 import { handleFindSolutions } from "./tools/find-solutions.js";
@@ -30,6 +32,7 @@ import { buildTextResponse } from "./utils/response.js";
 import { SqliteEntityStore } from "./storage/sqlite-entity-store.js";
 import { RealtimeWatcher } from "./watcher/realtime-watcher.js";
 import { IncrementalIndexer } from "./watcher/incremental-indexer.js";
+import { tryCreateGeminiEmbedder } from "./extensions/embeddings/gemini-embedder.js";
 
 /** Search result cache: 200 entries, 5 min TTL */
 const searchCache = new LRUCache<string, string>(200, 300_000);
@@ -61,6 +64,34 @@ export function createServer(): {
   const entityStore = new SqliteEntityStore(indexManager.db);
   let initialized = false;
 
+  // -- Semantic search bridge (lazy init, graceful degradation) --
+  // Created eagerly but initialization deferred until first use.
+  // Returns null on search when no Gemini credentials are available.
+  const semanticBridge = new SemanticSearchBridge(indexManager.documents, indexManager.db);
+
+  // -- Lazy embedder initialization for write-side embedding --
+  // Runs once, injects embedder into SqliteKnowledgeStore for auto-embedding on addEntry().
+  let embedderInitAttempted = false;
+  async function initEmbedder(): Promise<void> {
+    if (embedderInitAttempted) return;
+    embedderInitAttempted = true;
+
+    try {
+      const embedder = await tryCreateGeminiEmbedder();
+      if (embedder) {
+        // Inject the embedder into the knowledge store for write-side embedding.
+        // The store accepts an embedder set post-construction via the private field.
+        (indexManager.knowledge as any).embedder = embedder; // eslint-disable-line @typescript-eslint/no-explicit-any
+        console.error("[strata] Semantic search: active (Gemini embeddings)");
+      } else {
+        console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
+      }
+    } catch {
+      // No credentials available -- write-side embedding disabled
+      console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
+    }
+  }
+
   async function ensureIndex(): Promise<void> {
     if (initialized) return;
 
@@ -71,7 +102,31 @@ export function createServer(): {
       indexManager.incrementalUpdate();
     }
     initialized = true;
+
+    // Fire-and-forget: try to initialize write-side embedder
+    initEmbedder().catch(() => {});
   }
+
+  // -- Build async search callbacks that use semantic bridge --
+  // When the bridge returns null (no embedder), falls back to FTS5.
+
+  const asyncSearch = async (query: string, options: SearchOptions): Promise<SearchResult[]> => {
+    const hybridResults = await semanticBridge.search(query, options);
+    if (hybridResults !== null) return hybridResults;
+    // Fallback: synchronous FTS5 search
+    return searchEngine.search(query, options);
+  };
+
+  const asyncSearchSolutions = async (
+    errorOrProblem: string,
+    technology?: string,
+    user?: string
+  ): Promise<SearchResult[]> => {
+    const hybridResults = await semanticBridge.searchSolutions(errorOrProblem, technology, user);
+    if (hybridResults !== null) return hybridResults;
+    // Fallback: synchronous FTS5 search
+    return searchEngine.searchSolutions(errorOrProblem, technology, user);
+  };
 
   // ── search_history ─────────────────────────────────────────────────
 
@@ -79,7 +134,7 @@ export function createServer(): {
     "search_history",
     `🔍 SEARCH: Full-text search across past conversations.
 
-FTS5 full-text search with BM25 ranking. Supports inline filter syntax for project, date range, and tool filtering.
+FTS5 full-text search with BM25 ranking, automatically enhanced with semantic vector search when GEMINI_API_KEY is set. Supports inline filter syntax for project, date range, and tool filtering.
 
 Parameters:
 - query: Search text with optional filters (required)
@@ -87,6 +142,7 @@ Parameters:
 - limit: Max results, 1-100 (default: 20)
 - include_context: Show surrounding messages (default: false)
 - format: Response format — 'concise' (TOON, ~60% fewer tokens), 'standard' (default), or 'detailed' (full JSON)
+- max_chars: Maximum characters per result text (default: 2500, max: 10000)
 
 Filter syntax (include in query string):
 - project:name — filter by project
@@ -103,16 +159,17 @@ Example: Find all TypeScript migration work from the last week`,
       include_context: z.boolean().optional().describe("Include surrounding message context (default: false)"),
       format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
       user: z.string().optional().describe("Filter results to a specific user scope (omit to search all users)"),
+      max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
     },
     async (args) => {
-      const key = cacheKey("search", args.query, args.project, args.limit, args.include_context, args.format, args.user);
+      const key = cacheKey("search", args.query, args.project, args.limit, args.include_context, args.format, args.user, args.max_chars);
       const cached = searchCache.get(key);
       if (cached) {
         return buildTextResponse(cached);
       }
 
       await ensureIndex();
-      const result = handleSearchHistory(searchEngine, args);
+      const result = await handleSearchHistory(searchEngine, args, indexManager.db, asyncSearch);
 
       searchCache.set(key, result);
 
@@ -161,12 +218,13 @@ Example: Find which project has the most conversation sessions`,
     "find_solutions",
     `🔍 SEARCH: Find solutions to errors or problems from past conversations.
 
-Searches conversation history with solution-biased ranking — results containing fix/resolution language score 1.5x higher. Use when encountering an error you may have solved before.
+Searches conversation history with solution-biased ranking — results containing fix/resolution language score 1.5x higher. Automatically enhanced with semantic search when GEMINI_API_KEY is set. Use when encountering an error you may have solved before.
 
 Parameters:
 - error_or_problem: The error message or problem description (required)
 - technology: Technology context for better matching (optional)
 - format: Response format — 'concise' (TOON, ~60% fewer tokens), 'standard' (default), or 'detailed' (full JSON)
+- max_chars: Maximum characters per result text (default: 2500, max: 10000)
 
 Example: Find how a "ECONNREFUSED" error was fixed in past Docker work
 Example: Search for solutions to TypeScript type inference issues`,
@@ -175,16 +233,17 @@ Example: Search for solutions to TypeScript type inference issues`,
       technology: z.string().optional().describe("Technology context (e.g., 'docker', 'typescript', 'react')"),
       format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
       user: z.string().optional().describe("Filter results to a specific user scope (omit to search all users)"),
+      max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
     },
     async (args) => {
-      const key = cacheKey("find_solutions", args.error_or_problem, args.technology, args.format, args.user);
+      const key = cacheKey("find_solutions", args.error_or_problem, args.technology, args.format, args.user, args.max_chars);
       const cached = searchCache.get(key);
       if (cached) {
         return buildTextResponse(cached);
       }
 
       await ensureIndex();
-      const result = handleFindSolutions(searchEngine, args);
+      const result = await handleFindSolutions(searchEngine, args, indexManager.db, asyncSearchSolutions);
 
       searchCache.set(key, result);
 
@@ -192,6 +251,102 @@ Example: Search for solutions to TypeScript type inference issues`,
         ? "Try shorter error text, or use search_history with broader terms."
         : undefined;
       return buildTextResponse(result, guidance);
+    }
+  );
+
+  // ── semantic_search ────────────────────────────────────────────────
+
+  server.tool(
+    "semantic_search",
+    `🔍 SEARCH: Semantic search using vector embeddings — finds results that keyword search misses.
+
+Combines FTS5 BM25 keyword search with vector cosine similarity via Reciprocal Rank Fusion.
+Finds semantically similar content (e.g., "authentication" finds "login flow", "OAuth setup").
+Requires GEMINI_API_KEY environment variable. Falls back to FTS5 keyword search if not set.
+
+Parameters:
+- query: Search text (required)
+- project: Filter to specific project (optional)
+- limit: Max results, 1-100 (default: 20)
+- threshold: Minimum cosine similarity, 0.0-1.0 (optional)
+- max_chars: Maximum characters per result text (default: 2500, max: 10000)
+
+Example: Find discussions about authentication patterns
+Example: Search for database optimization approaches in a specific project`,
+    {
+      query: z.string().describe("Search query — supports semantic matching beyond keywords"),
+      project: z.string().optional().describe("Filter to a specific project name or path"),
+      limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
+      threshold: z.number().optional().describe("Minimum cosine similarity threshold (0.0-1.0)"),
+      user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
+      max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
+    },
+    async (args) => {
+      const key = cacheKey("semantic_search", args.query, args.project, args.limit, args.threshold, args.user, args.max_chars);
+      const cached = searchCache.get(key);
+      if (cached) {
+        return buildTextResponse(cached);
+      }
+
+      await ensureIndex();
+
+      // Try hybrid search via bridge
+      const bridgeResults = await semanticBridge.search(args.query, {
+        limit: args.limit,
+        project: args.project,
+      });
+
+      // If bridge returned results, format them
+      if (bridgeResults !== null && bridgeResults.length > 0) {
+        const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
+
+        const lines: string[] = [`Semantic search: ${bridgeResults.length} result(s)\n`];
+        for (const r of bridgeResults) {
+          const date = new Date(r.timestamp).toISOString().slice(0, 10);
+          const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
+          const snippet = text.replace(/\n/g, " ");
+          lines.push(`[${r.score.toFixed(3)}] ${r.project} (${date}) — ${snippet}`);
+        }
+
+        const result = lines.join("\n");
+        searchCache.set(key, result);
+        return buildTextResponse(result);
+      }
+
+      // Fallback: FTS5 keyword search with helpful message
+      const ftsResults = searchEngine.search(args.query, {
+        limit: args.limit,
+        project: args.project,
+        user: args.user,
+      });
+
+      if (ftsResults.length === 0) {
+        const noResults = "No semantic search results found.";
+        searchCache.set(key, noResults);
+        return buildTextResponse(
+          noResults,
+          bridgeResults === null
+            ? "Semantic search requires GEMINI_API_KEY. Set it to enable vector embeddings. Showing FTS5 keyword results instead."
+            : "Try broader terms, or use search_history for keyword-only search."
+        );
+      }
+
+      const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
+      const fallbackNote = bridgeResults === null
+        ? "Note: Showing keyword search results. Set GEMINI_API_KEY to enable full semantic search.\n"
+        : "";
+
+      const lines: string[] = [`${fallbackNote}Search: ${ftsResults.length} result(s)\n`];
+      for (const r of ftsResults) {
+        const date = new Date(r.timestamp).toISOString().slice(0, 10);
+        const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
+        const snippet = text.replace(/\n/g, " ");
+        lines.push(`[${r.score.toFixed(3)}] ${r.project} (${date}) — ${snippet}`);
+      }
+
+      const result = lines.join("\n");
+      searchCache.set(key, result);
+      return buildTextResponse(result);
     }
   );
 
@@ -327,7 +482,7 @@ Example: Store a fact like "API rate limit is 100/min"`,
       user: z.string().optional().describe("User scope (default: STRATA_DEFAULT_USER env var or 'default')"),
     },
     async (args) => {
-      const result = await handleStoreMemory(indexManager.knowledge, args);
+      const result = await handleStoreMemory(indexManager.knowledge, args, indexManager.db);
       return buildTextResponse(result);
     }
   );

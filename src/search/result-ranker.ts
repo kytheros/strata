@@ -6,6 +6,7 @@ import { CONFIG } from "../config.js";
 import type { DocumentChunk } from "../indexing/document-store.js";
 import type { QueryFilters } from "./query-processor.js";
 import { hasFeature } from "../extensions/feature-gate.js";
+import { computeImportance } from "../knowledge/importance.js";
 
 export interface RankedResult {
   docId: string;
@@ -78,6 +79,16 @@ export function applyBoosts(
     ) {
       score *= CONFIG.search.projectMatchBoost;
     }
+
+    // Importance boost (cognitive retrieval)
+    // Uses pre-computed importance from the DB when available,
+    // falls back to on-the-fly computation during transition window.
+    const importance = r.doc.importance ?? computeImportance({
+      text: r.doc.text,
+      role: r.doc.role,
+      sessionId: r.doc.sessionId,
+    });
+    score *= (1.0 + importance * CONFIG.importance.boostMax);
 
     return { ...r, score };
   });

@@ -215,15 +215,15 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
 
   // ── 5. MCP tool handlers work with real data ───────────────────────
 
-  it("search_history tool returns formatted output", () => {
-    const result = handleSearchHistory(searchEngine, { query: "docker" });
+  it("search_history tool returns formatted output", async () => {
+    const result = await handleSearchHistory(searchEngine, { query: "docker" });
     expect(typeof result).toBe("string");
     // Should either have results or a "no results" message
     expect(result.length).toBeGreaterThan(0);
   });
 
-  it("find_solutions tool returns formatted output", () => {
-    const result = handleFindSolutions(searchEngine, {
+  it("find_solutions tool returns formatted output", async () => {
+    const result = await handleFindSolutions(searchEngine, {
       error_or_problem: "TypeScript compilation",
     });
     expect(typeof result).toBe("string");

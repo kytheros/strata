@@ -99,4 +99,26 @@ export const CONFIG = {
     maxLearningLength: 120,    // Max chars per learning summary
     memoryLineBudget: 200,     // Max lines in MEMORY.md
   },
+
+  // Importance scoring (cognitive retrieval)
+  importance: {
+    // Signal weights (sum to 1.0)
+    typeWeight: 0.35,
+    languageWeight: 0.20,
+    frequencyWeight: 0.35,
+    explicitWeight: 0.10,
+    // Max boost multiplier applied in search ranking (0 = disabled)
+    boostMax: 0.5,
+  },
+
+  // Evidence gap tracking
+  gaps: {
+    enabled: true,
+    // Minimum Jaccard similarity for gap resolution
+    resolutionThreshold: 0.4,
+    // Max open gaps per project (oldest auto-pruned)
+    maxPerProject: 100,
+    // Auto-prune unresolved gaps older than this (days)
+    pruneAfterDays: 90,
+  },
 } as const;

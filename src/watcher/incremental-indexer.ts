@@ -35,6 +35,7 @@ import { writeLearningsToMemory } from "../knowledge/memory-writer.js";
 import { extractEntities, extractRelations } from "../knowledge/entity-extractor.js";
 import { extractProcedures } from "../knowledge/procedure-extractor.js";
 import { resolveConflicts, executeResolution } from "../knowledge/conflict-resolver.js";
+import { computeImportance } from "../knowledge/importance.js";
 import type { SqliteKnowledgeStore } from "../storage/sqlite-knowledge-store.js";
 import type { SqliteEntityStore } from "../storage/sqlite-entity-store.js";
 import type { ParserRegistry } from "../parsers/parser-registry.js";
@@ -179,6 +180,14 @@ export class IncrementalIndexer {
         // before writing. Falls back to direct addEntry when provider is null or on error.
         const sqliteStore = this.knowledgeStore as unknown as SqliteKnowledgeStore;
         for (const entry of knowledge) {
+          // Compute importance score before writing
+          entry.importance = computeImportance({
+            text: `${entry.summary} ${entry.details}`,
+            sessionId: entry.sessionId,
+            knowledgeType: entry.type,
+            occurrences: entry.occurrences,
+            projectCount: entry.projectCount,
+          });
           if (provider && typeof sqliteStore.search === "function") {
             const resolution = await resolveConflicts(entry, sqliteStore, provider);
             executeResolution(resolution, entry, sqliteStore);
@@ -189,6 +198,14 @@ export class IncrementalIndexer {
         // Extract procedures (after knowledge extraction, runs independently)
         const procedures = extractProcedures(session);
         for (const proc of procedures) {
+          // Compute importance score before writing
+          proc.importance = computeImportance({
+            text: `${proc.summary} ${proc.details}`,
+            sessionId: proc.sessionId,
+            knowledgeType: proc.type,
+            occurrences: proc.occurrences,
+            projectCount: proc.projectCount,
+          });
           if (provider && typeof sqliteStore.search === "function") {
             const resolution = await resolveConflicts(proc, sqliteStore, provider);
             executeResolution(resolution, proc, sqliteStore);

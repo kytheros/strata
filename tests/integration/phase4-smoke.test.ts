@@ -185,7 +185,7 @@ describe("Smoke: store_memory → search round-trip", () => {
     expect(entries.some(e => e.details.includes("ECONNREFUSED"))).toBe(true);
   });
 
-  it("store then search via search engine (full-text)", () => {
+  it("store then search via search engine (full-text)", async () => {
     // Seed document store with the same content to test the full search pipeline
     docStore.add(
       "We decided to use PostgreSQL for JSONB support in the smoke test project",
@@ -200,14 +200,14 @@ describe("Smoke: store_memory → search round-trip", () => {
       },
     );
 
-    const result = handleSearchHistory(searchEngine, {
+    const result = await handleSearchHistory(searchEngine, {
       query: "PostgreSQL JSONB",
     });
     expect(result).toContain("PostgreSQL");
     expect(result).not.toContain("No results");
   });
 
-  it("find_solutions via search engine with solution boost", () => {
+  it("find_solutions via search engine with solution boost", async () => {
     docStore.add(
       "Fixed the ECONNREFUSED Docker networking error by using network_mode host in compose",
       15,
@@ -221,7 +221,7 @@ describe("Smoke: store_memory → search round-trip", () => {
       },
     );
 
-    const result = handleFindSolutions(searchEngine, {
+    const result = await handleFindSolutions(searchEngine, {
       error_or_problem: "ECONNREFUSED Docker",
     });
     expect(result).toContain("ECONNREFUSED");

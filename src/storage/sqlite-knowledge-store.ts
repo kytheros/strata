@@ -207,7 +207,7 @@ export class SqliteKnowledgeStore {
 
     const text = entry.summary + " " + entry.details;
     this.embedder
-      .embed(text)
+      .embed(text, "RETRIEVAL_DOCUMENT")
       .then((vec) => {
         // Serialize Float32Array to Buffer for BLOB storage
         const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);

@@ -5,10 +5,13 @@
  */
 
 import { randomUUID } from "crypto";
+import type Database from "better-sqlite3";
 import type { SqliteKnowledgeStore } from "../storage/sqlite-knowledge-store.js";
 import type { KnowledgeEntry } from "../knowledge/knowledge-store.js";
 import { getCachedGeminiProvider } from "../extensions/llm-extraction/gemini-provider.js";
 import { resolveConflicts, executeResolution } from "../knowledge/conflict-resolver.js";
+import { computeImportance } from "../knowledge/importance.js";
+import { resolveGaps } from "../search/evidence-gaps.js";
 
 import type { KnowledgeType } from "../knowledge/knowledge-store.js";
 
@@ -28,7 +31,8 @@ export interface StoreMemoryArgs {
  */
 export async function handleStoreMemory(
   knowledgeStore: SqliteKnowledgeStore,
-  args: StoreMemoryArgs
+  args: StoreMemoryArgs,
+  db?: Database.Database
 ): Promise<string> {
   const { memory, type, tags = [], project = "global", user } = args;
 
@@ -75,10 +79,24 @@ export async function handleStoreMemory(
     extractedAt: Date.now(),
   };
 
+  // Compute importance score before writing
+  entry.importance = computeImportance({
+    text: `${summary} ${details}`,
+    sessionId: "explicit-memory",
+    knowledgeType: type,
+  });
+
   // Conflict resolution: resolve semantic conflicts before writing.
   // Falls back to direct addEntry when provider is null or on any error.
   const resolution = await resolveConflicts(entry, knowledgeStore, provider);
   executeResolution(resolution, entry, knowledgeStore);
+
+  // Resolve any evidence gaps that match this new entry
+  if (db) {
+    try {
+      resolveGaps(db, entry);
+    } catch { /* gap resolution is best-effort */ }
+  }
 
   const deletedCount = resolution.actions.filter((a) => a.action === "delete").length;
   const updatedCount = resolution.actions.filter((a) => a.action === "update").length;

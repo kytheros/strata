@@ -7,6 +7,7 @@ import { existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { homedir } from "os";
 import Database from "better-sqlite3";
+import { computeImportance } from "../knowledge/importance.js";
 
 /** Default data directory */
 const DEFAULT_DATA_DIR = join(homedir(), ".strata");
@@ -46,6 +47,9 @@ export function openDatabase(dbPath?: string): Database.Database {
 
   // Create schema
   initSchema(db);
+
+  // Backfill importance scores for existing entries (one-time on upgrade)
+  backfillImportance(db);
 
   return db;
 }
@@ -296,6 +300,45 @@ function initSchema(db: Database.Database): void {
   db.exec("CREATE INDEX IF NOT EXISTS idx_knowledge_user ON knowledge(user)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user)");
 
+  // Migration: add importance column to knowledge table
+  const hasImportanceKnowledge = db.prepare(
+    "SELECT 1 FROM pragma_table_info('knowledge') WHERE name = 'importance'"
+  ).get();
+  if (!hasImportanceKnowledge) {
+    db.exec("ALTER TABLE knowledge ADD COLUMN importance REAL");
+  }
+
+  // Migration: add importance column to documents table
+  const hasImportanceDocuments = db.prepare(
+    "SELECT 1 FROM pragma_table_info('documents') WHERE name = 'importance'"
+  ).get();
+  if (!hasImportanceDocuments) {
+    db.exec("ALTER TABLE documents ADD COLUMN importance REAL");
+  }
+
+  // Evidence gap tracking table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS evidence_gaps (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      project TEXT,
+      user TEXT NOT NULL DEFAULT 'default',
+      result_count INTEGER NOT NULL,
+      top_score REAL,
+      top_confidence REAL,
+      occurred_at INTEGER NOT NULL,
+      resolved_at INTEGER,
+      resolution_id TEXT,
+      occurrence_count INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gaps_project ON evidence_gaps(project);
+    CREATE INDEX IF NOT EXISTS idx_gaps_user ON evidence_gaps(user);
+    CREATE INDEX IF NOT EXISTS idx_gaps_resolved ON evidence_gaps(resolved_at);
+    CREATE INDEX IF NOT EXISTS idx_gaps_occurred ON evidence_gaps(occurred_at);
+  `);
+
   // FTS5 virtual table — separate exec because it can't use IF NOT EXISTS in all SQLite versions
   const ftsExists = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='documents_fts'"
@@ -335,5 +378,95 @@ function initSchema(db: Database.Database): void {
         INSERT INTO documents_fts(rowid, text) VALUES (new.rowid, new.text);
       END;
     `);
+  }
+}
+
+/**
+ * Backfill importance scores for existing entries that have NULL importance.
+ * Runs in batches of 500 inside transactions for efficiency.
+ * Called once after schema migrations on startup; no-ops if nothing to backfill.
+ */
+function backfillImportance(db: Database.Database): void {
+  const BATCH_SIZE = 500;
+
+  // Check if any knowledge rows need backfill
+  const hasNullKnowledge = db.prepare(
+    "SELECT 1 FROM knowledge WHERE importance IS NULL LIMIT 1"
+  ).get();
+
+  if (hasNullKnowledge) {
+    let offset = 0;
+    while (true) {
+      const batch = db.prepare(
+        `SELECT id, type, summary, details, session_id, occurrences, project_count
+         FROM knowledge WHERE importance IS NULL LIMIT ? OFFSET ?`
+      ).all(BATCH_SIZE, offset) as {
+        id: string;
+        type: string;
+        summary: string;
+        details: string;
+        session_id: string;
+        occurrences: number | null;
+        project_count: number | null;
+      }[];
+
+      if (batch.length === 0) break;
+
+      const update = db.prepare(
+        "UPDATE knowledge SET importance = ? WHERE id = ?"
+      );
+      const tx = db.transaction(() => {
+        for (const row of batch) {
+          const score = computeImportance({
+            text: `${row.summary} ${row.details}`,
+            sessionId: row.session_id,
+            knowledgeType: row.type as import("../knowledge/knowledge-store.js").KnowledgeType,
+            occurrences: row.occurrences ?? undefined,
+            projectCount: row.project_count ?? undefined,
+          });
+          update.run(score, row.id);
+        }
+      });
+      tx();
+      offset += BATCH_SIZE;
+    }
+  }
+
+  // Check if any document rows need backfill
+  const hasNullDocuments = db.prepare(
+    "SELECT 1 FROM documents WHERE importance IS NULL LIMIT 1"
+  ).get();
+
+  if (hasNullDocuments) {
+    let offset = 0;
+    while (true) {
+      const batch = db.prepare(
+        `SELECT id, text, role, session_id
+         FROM documents WHERE importance IS NULL LIMIT ? OFFSET ?`
+      ).all(BATCH_SIZE, offset) as {
+        id: string;
+        text: string;
+        role: "user" | "assistant" | "mixed";
+        session_id: string;
+      }[];
+
+      if (batch.length === 0) break;
+
+      const update = db.prepare(
+        "UPDATE documents SET importance = ? WHERE id = ?"
+      );
+      const tx = db.transaction(() => {
+        for (const row of batch) {
+          const score = computeImportance({
+            text: row.text,
+            role: row.role,
+            sessionId: row.session_id,
+          });
+          update.run(score, row.id);
+        }
+      });
+      tx();
+      offset += BATCH_SIZE;
+    }
   }
 }

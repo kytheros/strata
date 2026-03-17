@@ -218,6 +218,7 @@ interface SqliteDocumentRow {
   tool_names: string | null;
   token_count: number;
   message_index: number;
+  importance: number | null;
 }
 
 function rowToChunk(row: SqliteDocumentRow): DocumentChunk {
@@ -231,6 +232,7 @@ function rowToChunk(row: SqliteDocumentRow): DocumentChunk {
     toolNames: row.tool_names ? JSON.parse(row.tool_names) : [],
     tokenCount: row.token_count,
     messageIndex: row.message_index,
+    importance: row.importance ?? undefined,
   };
 }
 

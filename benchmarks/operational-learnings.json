@@ -1,0 +1,476 @@
+{
+  "learnings": [
+    {
+      "id": "L001",
+      "content": "The Stripe API returns a 429 status code when you exceed 100 requests per second. Use exponential backoff with a base delay of 500ms and max 5 retries. The `Retry-After` header is present but not always accurate for burst limits.",
+      "category": "api_behavior",
+      "context": "Payment processing integration hitting rate limits during bulk invoice generation",
+      "tags": ["stripe", "rate-limit", "api", "429"]
+    },
+    {
+      "id": "L002",
+      "content": "GitHub Actions `actions/cache@v4` silently fails to restore cache when the key contains special characters like colons. Use dashes instead of colons in cache key names. The failure shows as a cache miss, not an error.",
+      "category": "tool_gotcha",
+      "context": "CI pipeline cache misses causing slow builds despite cache setup",
+      "tags": ["github-actions", "cache", "ci"]
+    },
+    {
+      "id": "L003",
+      "content": "PostgreSQL `VACUUM ANALYZE` should be run after bulk DELETE operations that remove more than 10% of rows. Without it, the query planner uses stale statistics and chooses sequential scans over index scans, causing 50-100x slower queries.",
+      "category": "config",
+      "context": "Slow query performance after data cleanup job",
+      "tags": ["postgresql", "vacuum", "performance", "query-planner"]
+    },
+    {
+      "id": "L004",
+      "content": "When deploying to AWS Lambda with Node.js 20, set `NODE_OPTIONS='--max-old-space-size=1536'` to match the 2048MB memory allocation. The default 1536MB V8 heap is fine for 2GB Lambdas, but the 512MB default causes OOM on memory-intensive workloads.",
+      "category": "deployment",
+      "context": "Lambda function OOM crashes during PDF generation",
+      "tags": ["aws-lambda", "nodejs", "memory", "deployment"]
+    },
+    {
+      "id": "L005",
+      "content": "The `better-sqlite3` package requires Python and a C++ compiler for native addon compilation. On Alpine Linux, install `build-base python3` before `npm install`. On macOS, Xcode Command Line Tools must be installed first.",
+      "category": "tool_gotcha",
+      "context": "Docker build failures with better-sqlite3 on Alpine base image",
+      "tags": ["better-sqlite3", "docker", "alpine", "native-addon"]
+    },
+    {
+      "id": "L006",
+      "content": "Redis `SCAN` with a MATCH pattern does NOT guarantee returning all matching keys in a single iteration. Always loop until the cursor returns 0. A COUNT hint of 100 is a good default -- too low causes many round trips, too high blocks the server.",
+      "category": "api_behavior",
+      "context": "Missing keys when listing cached sessions with SCAN",
+      "tags": ["redis", "scan", "cursor", "iteration"]
+    },
+    {
+      "id": "L007",
+      "content": "The `docker compose up --build` command does NOT invalidate build cache when only the `docker-compose.yml` file changes. Use `docker compose build --no-cache` explicitly when changing build args or environment variable definitions in the compose file.",
+      "category": "tool_gotcha",
+      "context": "Environment variable changes not taking effect after docker compose up --build",
+      "tags": ["docker", "docker-compose", "build-cache"]
+    },
+    {
+      "id": "L008",
+      "content": "CORS preflight OPTIONS requests must return 204 (No Content), not 200. Some browsers (Safari 16+) reject 200 responses to preflight requests when the `Access-Control-Allow-Methods` header is missing. Always include all three CORS headers in OPTIONS responses.",
+      "category": "error_pattern",
+      "context": "Safari users unable to submit forms due to CORS errors",
+      "tags": ["cors", "preflight", "safari", "http"]
+    },
+    {
+      "id": "L009",
+      "content": "TypeScript `strict` mode enables `strictNullChecks`, `noImplicitAny`, `noImplicitThis`, `alwaysStrict`, `strictBindCallApply`, `strictPropertyInitialization`, and `strictFunctionTypes`. Enabling `strict` in an existing codebase adds 200-500 type errors per 10K lines. Migrate incrementally by enabling individual flags first.",
+      "category": "config",
+      "context": "Evaluating strict mode migration for legacy TypeScript project",
+      "tags": ["typescript", "strict-mode", "migration", "tsconfig"]
+    },
+    {
+      "id": "L010",
+      "content": "The OpenAI `gpt-4o` model returns `finish_reason: 'length'` when output is truncated at `max_tokens`. Always check `finish_reason` and retry with higher `max_tokens` or implement streaming to detect truncation. The default `max_tokens` is 4096 but can be set up to 16384.",
+      "category": "api_behavior",
+      "context": "Incomplete JSON responses from GPT-4o during structured output generation",
+      "tags": ["openai", "gpt-4o", "max-tokens", "truncation"]
+    },
+    {
+      "id": "L011",
+      "content": "Kubernetes liveness probes should have `initialDelaySeconds: 30` for JVM applications and `initialDelaySeconds: 5` for Node.js. Setting it too low causes restart loops during startup. Readiness probes should have a shorter delay (5s for JVM, 2s for Node.js).",
+      "category": "deployment",
+      "context": "Pods stuck in CrashLoopBackOff after deployment due to aggressive liveness probe",
+      "tags": ["kubernetes", "liveness-probe", "readiness-probe", "deployment"]
+    },
+    {
+      "id": "L012",
+      "content": "npm `--legacy-peer-deps` flag is required when installing packages in monorepos using npm v7+ with conflicting peer dependency trees. Without it, `npm install` fails with `ERESOLVE`. The flag is safe for development but should be investigated for production deployments.",
+      "category": "tool_gotcha",
+      "context": "npm install failing in monorepo after upgrading to npm 9",
+      "tags": ["npm", "peer-deps", "monorepo", "eresolve"]
+    },
+    {
+      "id": "L013",
+      "content": "AWS S3 `PutObject` with server-side encryption (SSE-S3) requires the `x-amz-server-side-encryption: AES256` header on every upload request. Without it, objects are stored unencrypted even if the bucket policy requires encryption -- the policy only blocks reads of unencrypted objects, not writes.",
+      "category": "api_behavior",
+      "context": "Security audit finding that some S3 objects were not encrypted",
+      "tags": ["aws", "s3", "encryption", "sse", "security"]
+    },
+    {
+      "id": "L014",
+      "content": "The `Error: ENOSPC: no space left on device, write` error in Docker on Linux is usually caused by a full Docker overlay2 storage, not the host disk. Run `docker system prune -a --volumes` to reclaim space. Set `max-size` in Docker daemon.json log options to prevent log files from consuming all space.",
+      "category": "error_pattern",
+      "context": "Docker builds failing with ENOSPC despite 50GB free disk space",
+      "tags": ["docker", "enospc", "disk-space", "linux"]
+    },
+    {
+      "id": "L015",
+      "content": "Cloudflare Workers have a 128MB memory limit and 30-second CPU time limit for paid plans (10ms for free). Subrequest limit is 50 per request (1000 for Enterprise). The `wrangler dev` local mode does NOT enforce these limits, so test in production with `wrangler dev --remote`.",
+      "category": "deployment",
+      "context": "Worker crashing in production but working in local development",
+      "tags": ["cloudflare", "workers", "limits", "wrangler"]
+    },
+    {
+      "id": "L016",
+      "content": "SQLite `journal_mode=WAL` must be set before any concurrent reads. Setting it after opening the database in multi-threaded mode can cause `SQLITE_BUSY` errors. The PRAGMA returns the new mode as confirmation -- always check the return value.",
+      "category": "config",
+      "context": "Intermittent SQLITE_BUSY errors in production under concurrent load",
+      "tags": ["sqlite", "wal", "concurrency", "busy"]
+    },
+    {
+      "id": "L017",
+      "content": "The `fetch()` API in Node.js 18+ does NOT throw on HTTP error status codes (4xx, 5xx). You must check `response.ok` or `response.status` explicitly. This differs from Axios which throws on non-2xx responses by default.",
+      "category": "error_pattern",
+      "context": "Silent failures when API calls return 500 errors",
+      "tags": ["nodejs", "fetch", "error-handling", "http"]
+    },
+    {
+      "id": "L018",
+      "content": "Git `rebase --onto` is the correct command for moving a branch from one base to another. Syntax: `git rebase --onto new-base old-base branch-name`. Common mistake: using `git rebase new-base` which replays ALL commits, not just those after old-base.",
+      "category": "tool_gotcha",
+      "context": "Branch rebase accidentally replaying commits from wrong base",
+      "tags": ["git", "rebase", "branching"]
+    },
+    {
+      "id": "L019",
+      "content": "Supabase Edge Functions have a 150-second execution timeout and 2MB request body limit. The `Deno.serve` handler must return within the timeout or the response is dropped. For large payloads, use Supabase Storage upload with a signed URL instead of passing data through the function.",
+      "category": "deployment",
+      "context": "Edge function timeouts when processing large file uploads",
+      "tags": ["supabase", "edge-functions", "timeout", "deno"]
+    },
+    {
+      "id": "L020",
+      "content": "The `zod` library v4 uses `z.string().email()` for email validation but the regex rejects valid addresses with `+` aliases (e.g., `user+tag@example.com`). Use a custom refinement or the `z.string().pipe(z.email())` pattern instead for production email validation.",
+      "category": "tool_gotcha",
+      "context": "User registration failing for users with + in their email address",
+      "tags": ["zod", "validation", "email", "typescript"]
+    },
+    {
+      "id": "L021",
+      "content": "The Gemini API `generativelanguage.googleapis.com` returns a `RESOURCE_EXHAUSTED` error (HTTP 429) when RPM quota is exceeded. The default free tier allows 60 RPM. Use the `Retry-After` header value (in seconds) for backoff timing. Batch embedding requests with up to 10 texts per call to stay under limits.",
+      "category": "api_behavior",
+      "context": "Embedding generation failing during bulk indexing",
+      "tags": ["gemini", "api", "rate-limit", "embeddings"]
+    },
+    {
+      "id": "L022",
+      "content": "When using `vitest` with ESM modules, add `pool: 'forks'` to vitest.config.ts to avoid `ERR_MODULE_NOT_FOUND` errors with native addons like `better-sqlite3`. The default `threads` pool uses worker_threads which cannot load native ESM addons.",
+      "category": "config",
+      "context": "Vitest tests crashing with native addon import errors",
+      "tags": ["vitest", "esm", "native-addon", "testing"]
+    },
+    {
+      "id": "L023",
+      "content": "Terraform `terraform plan` shows `~` (tilde) for in-place updates that won't cause downtime, and `- / +` for destroy-and-recreate changes. Always check for `- / +` on production resources before `terraform apply`. Use `lifecycle { prevent_destroy = true }` on critical resources.",
+      "category": "tool_gotcha",
+      "context": "Terraform accidentally destroying and recreating a production database",
+      "tags": ["terraform", "plan", "destroy", "infrastructure"]
+    },
+    {
+      "id": "L024",
+      "content": "NGINX returns `413 Request Entity Too Large` when the request body exceeds `client_max_body_size` (default 1MB). Set it in the `http`, `server`, or `location` block. For file uploads, also set `proxy_max_temp_file_size` if using NGINX as a reverse proxy.",
+      "category": "error_pattern",
+      "context": "File upload API returning 413 errors for files over 1MB",
+      "tags": ["nginx", "413", "upload", "proxy"]
+    },
+    {
+      "id": "L025",
+      "content": "The `@modelcontextprotocol/sdk` McpServer's `tool()` method accepts an optional 3rd argument for MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`. These inform the client about tool behavior and help with confirmation prompts.",
+      "category": "api_behavior",
+      "context": "Adding proper MCP annotations to Strata tools for client safety",
+      "tags": ["mcp", "sdk", "annotations", "tools"]
+    },
+    {
+      "id": "L026",
+      "content": "PostgreSQL `EXPLAIN ANALYZE` output shows actual execution time, but the `Buffers` information requires `SET track_io_timing = on` first. Without it, you can see row estimates vs actuals but not the I/O cost breakdown needed to diagnose slow queries caused by disk access.",
+      "category": "config",
+      "context": "Debugging slow queries but EXPLAIN ANALYZE not showing I/O timing",
+      "tags": ["postgresql", "explain-analyze", "performance", "io-timing"]
+    },
+    {
+      "id": "L027",
+      "content": "The `Error: listen EADDRINUSE :::3000` error means port 3000 is already in use. On Linux, use `lsof -ti:3000 | xargs kill -9` to find and kill the process. On macOS, use `lsof -i :3000`. On Windows, use `netstat -ano | findstr :3000` then `taskkill /PID <pid> /F`.",
+      "category": "error_pattern",
+      "context": "Development server failing to start because port is occupied",
+      "tags": ["node", "eaddrinuse", "port", "debugging"]
+    },
+    {
+      "id": "L028",
+      "content": "AWS CloudFront invalidation requests have a free tier of 1000 paths per month. After that, each invalidation costs $0.005 per path. Use wildcard invalidations (`/*`) to invalidate everything at once instead of listing individual paths. Invalidations take 5-10 minutes to propagate globally.",
+      "category": "deployment",
+      "context": "High CloudFront invalidation costs after implementing per-file cache busting",
+      "tags": ["aws", "cloudfront", "cache-invalidation", "cdn"]
+    },
+    {
+      "id": "L029",
+      "content": "The `tsx` loader (TypeScript Execute) does NOT type-check at runtime -- it only transpiles. Use `tsc --noEmit` separately for type checking, or `vitest` which runs type checking alongside tests. Running `npx tsx src/index.ts` will happily execute code with type errors.",
+      "category": "tool_gotcha",
+      "context": "Type errors in production that passed tsx execution during development",
+      "tags": ["tsx", "typescript", "type-checking", "tooling"]
+    },
+    {
+      "id": "L030",
+      "content": "Prisma `prisma generate` must be run after every `package.json` change that updates the prisma version, not just after schema changes. Forgetting this causes `PrismaClientInitializationError: This version of @prisma/client was compiled against schema X but the engine was generated for schema Y`.",
+      "category": "error_pattern",
+      "context": "Prisma client version mismatch after dependency update",
+      "tags": ["prisma", "generate", "version-mismatch", "orm"]
+    },
+    {
+      "id": "L031",
+      "content": "Use `process.env.NODE_ENV !== 'production'` checks for debug logging, not `process.env.NODE_ENV === 'development'`. In CI/CD and staging, NODE_ENV is often set to `test` or `staging`, which means development-only checks silently skip useful logging.",
+      "category": "config",
+      "context": "Missing debug logs in staging environment during incident investigation",
+      "tags": ["nodejs", "node-env", "logging", "environment"]
+    },
+    {
+      "id": "L032",
+      "content": "The Slack Web API `chat.postMessage` has a 40,000 character limit per message. For longer content, use `files.upload` or split into multiple messages. The Block Kit `section` block has a separate 3000-character limit per text field.",
+      "category": "api_behavior",
+      "context": "Slack bot silently dropping messages that exceed character limit",
+      "tags": ["slack", "api", "character-limit", "bot"]
+    },
+    {
+      "id": "L033",
+      "content": "When running `npm test` in CI with GitHub Actions, set `CI=true` environment variable. This makes Jest run in non-interactive mode, prevents watchman from starting, and causes `--watchAll` to be ignored. Without it, tests hang waiting for input.",
+      "category": "deployment",
+      "context": "CI pipeline hanging indefinitely during test step",
+      "tags": ["npm", "jest", "ci", "github-actions"]
+    },
+    {
+      "id": "L034",
+      "content": "The `crypto.randomUUID()` function is available in Node.js 16.7+ and all modern browsers. Do NOT use `uuid` npm package for basic UUID generation -- it adds 4KB to the bundle. For server-side Node.js, `crypto.randomUUID()` is 10x faster than the `uuid` package.",
+      "category": "tool_gotcha",
+      "context": "Bundle size optimization removing unnecessary uuid dependency",
+      "tags": ["nodejs", "crypto", "uuid", "bundle-size"]
+    },
+    {
+      "id": "L035",
+      "content": "Vercel serverless functions have a 10-second timeout on the Hobby plan and 60 seconds on Pro. The response body limit is 4.5MB. For long-running tasks, use Vercel Cron Jobs or offload to a background queue. Edge Functions have a 25ms CPU time limit.",
+      "category": "deployment",
+      "context": "API route timeouts on Vercel Hobby plan during data processing",
+      "tags": ["vercel", "serverless", "timeout", "limits"]
+    },
+    {
+      "id": "L036",
+      "content": "The `Error: ENAMETOOLONG` in Node.js occurs when a file path exceeds 255 characters (Linux) or 260 characters (Windows). This commonly happens with deeply nested `node_modules` paths. Use `npm dedupe` or switch to pnpm which uses a flat store with symlinks.",
+      "category": "error_pattern",
+      "context": "Windows developers unable to clone repo due to long file paths in node_modules",
+      "tags": ["nodejs", "enametoolong", "windows", "node-modules"]
+    },
+    {
+      "id": "L037",
+      "content": "JSON.parse() in V8 is faster than JavaScript object literal evaluation for objects larger than 10KB. For static configuration objects, `JSON.parse('{...}')` is 2-3x faster than `const config = {...}`. This is because V8 can skip the AST parsing step for JSON strings.",
+      "category": "config",
+      "context": "Performance optimization for large static configuration objects",
+      "tags": ["javascript", "json-parse", "v8", "performance"]
+    },
+    {
+      "id": "L038",
+      "content": "The `SIGTERM` signal in Docker gives containers 10 seconds to shut down gracefully before `SIGKILL`. Handle `SIGTERM` in your Node.js process to close database connections and flush buffers. Use `process.on('SIGTERM', () => { server.close(); db.close(); })` as the handler.",
+      "category": "deployment",
+      "context": "Database corruption due to ungraceful container shutdown",
+      "tags": ["docker", "sigterm", "graceful-shutdown", "nodejs"]
+    },
+    {
+      "id": "L039",
+      "content": "The `AbortController` timeout pattern for fetch requires creating a new controller per request. Reusing an already-aborted controller causes immediate abort of subsequent requests. Use `AbortSignal.timeout(5000)` in Node.js 18+ instead of manual controller management.",
+      "category": "api_behavior",
+      "context": "All HTTP requests failing after the first timeout when reusing AbortController",
+      "tags": ["nodejs", "fetch", "abort-controller", "timeout"]
+    },
+    {
+      "id": "L040",
+      "content": "ESLint flat config (`eslint.config.js`) does NOT support `.eslintignore` files. Use the `ignores` array in the config object instead. The flat config also does not support `extends` -- use spread syntax to merge configs: `[...tseslint.configs.recommended, { rules: {} }]`.",
+      "category": "tool_gotcha",
+      "context": "ESLint v9 migration breaking ignore patterns and config extends",
+      "tags": ["eslint", "flat-config", "migration", "v9"]
+    },
+    {
+      "id": "L041",
+      "content": "The `Error: EMFILE: too many open files` on macOS occurs when file descriptor limit is reached (default 256). Increase with `ulimit -n 10240` in the current shell. For permanent fix, create `/Library/LaunchDaemons/limit.maxfiles.plist` with soft limit 10240 and hard limit 10240.",
+      "category": "error_pattern",
+      "context": "Build tool crashing on large monorepo due to file descriptor exhaustion",
+      "tags": ["macos", "emfile", "file-descriptors", "ulimit"]
+    },
+    {
+      "id": "L042",
+      "content": "Tailwind CSS `@apply` in component CSS files does NOT work with classes from plugins unless the plugin is loaded in the same PostCSS pipeline. For shadcn/ui components, ensure `tailwind.config.ts` includes the `content` path to the component library directory.",
+      "category": "config",
+      "context": "Tailwind utility classes not applying in shadcn/ui components",
+      "tags": ["tailwind", "postcss", "shadcn", "css"]
+    },
+    {
+      "id": "L043",
+      "content": "The `Bun.serve()` WebSocket handler requires `idleTimeout` to be set explicitly (default 120 seconds). Without it, idle connections stay open indefinitely, causing memory leaks. Set to 60 seconds for most applications. Use `ws.ping()` to keep connections alive.",
+      "category": "api_behavior",
+      "context": "Memory leak in Bun WebSocket server after running for 24 hours",
+      "tags": ["bun", "websocket", "memory-leak", "timeout"]
+    },
+    {
+      "id": "L044",
+      "content": "When using `git worktree add`, the new worktree shares the same `.git` directory as the main repo. Running `git gc` from any worktree affects all worktrees. Prune worktrees with `git worktree prune` before running gc to avoid corruption warnings.",
+      "category": "tool_gotcha",
+      "context": "Git garbage collection warnings after removing a worktree directory manually",
+      "tags": ["git", "worktree", "gc", "prune"]
+    },
+    {
+      "id": "L045",
+      "content": "The `Error: ECONNRESET` during `npm install` usually indicates a corporate proxy or VPN intercepting HTTPS traffic. Set npm to use the system proxy with `npm config set proxy http://proxy:8080` and `npm config set https-proxy http://proxy:8080`. Also set `npm config set strict-ssl false` if the proxy uses a self-signed cert.",
+      "category": "error_pattern",
+      "context": "npm install failures behind corporate firewall",
+      "tags": ["npm", "econnreset", "proxy", "vpn"]
+    },
+    {
+      "id": "L046",
+      "content": "React `useEffect` cleanup functions run BEFORE the next effect, not on unmount only. This means a cleanup that cancels a fetch request will fire on every re-render with changed dependencies. Use an `AbortController` per effect instance, not a shared one.",
+      "category": "api_behavior",
+      "context": "Race condition in React component fetching data with useEffect",
+      "tags": ["react", "useeffect", "cleanup", "abort-controller"]
+    },
+    {
+      "id": "L047",
+      "content": "Cloudflare R2 has a 5GB maximum object size for single-part uploads. For larger files, use multipart upload with parts between 5MB and 5GB. The `@aws-sdk/client-s3` works with R2 -- set `endpoint` and `forcePathStyle: true` in the client config.",
+      "category": "deployment",
+      "context": "Large file upload failing silently to R2 bucket",
+      "tags": ["cloudflare", "r2", "upload", "multipart"]
+    },
+    {
+      "id": "L048",
+      "content": "The SQLite FTS5 `MATCH` query treats special characters as token separators. To search for an exact phrase containing special characters like hyphens, use double quotes: `documents_fts MATCH '\"error-code\"'`. Without quotes, `error-code` is split into two separate tokens.",
+      "category": "config",
+      "context": "FTS5 search not finding exact hyphenated terms",
+      "tags": ["sqlite", "fts5", "search", "tokenizer"]
+    },
+    {
+      "id": "L049",
+      "content": "The `Error: Cannot find module` in ESM (import syntax) requires file extensions in import paths, unlike CommonJS. Use `.js` extension even for TypeScript files when `module: 'Node16'` is set. The TypeScript compiler resolves `.js` to `.ts` during compilation but the runtime needs `.js`.",
+      "category": "error_pattern",
+      "context": "ESM module resolution failing after migrating from CommonJS to ESM",
+      "tags": ["esm", "typescript", "import", "module-resolution"]
+    },
+    {
+      "id": "L050",
+      "content": "Polar.sh webhook signatures use HMAC-SHA256 with the raw request body. Do NOT parse the body as JSON before verifying the signature -- JSON.parse + JSON.stringify changes whitespace and key ordering, which invalidates the signature. Use the raw body buffer.",
+      "category": "api_behavior",
+      "context": "Webhook signature verification failing after middleware parsed the body",
+      "tags": ["polar", "webhook", "hmac", "signature"]
+    }
+  ],
+  "queries": [
+    {
+      "id": "Q001",
+      "query": "How do I handle Stripe rate limiting in my payment integration?",
+      "relevant_ids": ["L001"],
+      "description": "Direct match for Stripe API rate limit behavior"
+    },
+    {
+      "id": "Q002",
+      "query": "Docker build cache not updating when I change environment variables",
+      "relevant_ids": ["L007"],
+      "description": "Docker compose build cache invalidation gotcha"
+    },
+    {
+      "id": "Q003",
+      "query": "npm install failing with ERESOLVE peer dependency error",
+      "relevant_ids": ["L012"],
+      "description": "npm peer dependency resolution with --legacy-peer-deps"
+    },
+    {
+      "id": "Q004",
+      "query": "ENOSPC error in Docker even though disk has space",
+      "relevant_ids": ["L014"],
+      "description": "Docker overlay2 storage vs host disk space"
+    },
+    {
+      "id": "Q005",
+      "query": "SQLite concurrent access errors SQLITE_BUSY",
+      "relevant_ids": ["L016"],
+      "description": "SQLite WAL mode configuration for concurrency"
+    },
+    {
+      "id": "Q006",
+      "query": "Node.js fetch not throwing on 500 error responses",
+      "relevant_ids": ["L017"],
+      "description": "fetch API behavior difference from Axios"
+    },
+    {
+      "id": "Q007",
+      "query": "How to set up Kubernetes health checks for Node.js apps",
+      "relevant_ids": ["L011"],
+      "description": "Kubernetes liveness and readiness probe configuration"
+    },
+    {
+      "id": "Q008",
+      "query": "CORS preflight failing in Safari but working in Chrome",
+      "relevant_ids": ["L008"],
+      "description": "Safari-specific CORS OPTIONS response requirements"
+    },
+    {
+      "id": "Q009",
+      "query": "How to migrate TypeScript to strict mode incrementally",
+      "relevant_ids": ["L009"],
+      "description": "TypeScript strict mode flags and migration strategy"
+    },
+    {
+      "id": "Q010",
+      "query": "Lambda function running out of memory during PDF generation",
+      "relevant_ids": ["L004"],
+      "description": "AWS Lambda Node.js memory configuration"
+    },
+    {
+      "id": "Q011",
+      "query": "PostgreSQL query suddenly slow after deleting lots of data",
+      "relevant_ids": ["L003"],
+      "description": "Need for VACUUM ANALYZE after bulk deletes"
+    },
+    {
+      "id": "Q012",
+      "query": "GitHub Actions cache not restoring despite matching key",
+      "relevant_ids": ["L002"],
+      "description": "Cache key special character gotcha"
+    },
+    {
+      "id": "Q013",
+      "query": "How to handle graceful shutdown in Docker containers",
+      "relevant_ids": ["L038"],
+      "description": "SIGTERM handling and container shutdown"
+    },
+    {
+      "id": "Q014",
+      "query": "native addon build failing in Docker Alpine",
+      "relevant_ids": ["L005"],
+      "description": "better-sqlite3 compilation on Alpine Linux"
+    },
+    {
+      "id": "Q015",
+      "query": "Cloudflare Worker hitting memory or CPU limits in production",
+      "relevant_ids": ["L015"],
+      "description": "Cloudflare Workers resource limits and local dev differences"
+    },
+    {
+      "id": "Q016",
+      "query": "file upload returning 413 error",
+      "relevant_ids": ["L024"],
+      "description": "NGINX client_max_body_size configuration"
+    },
+    {
+      "id": "Q017",
+      "query": "ESM import not finding TypeScript module",
+      "relevant_ids": ["L049"],
+      "description": "ESM requires .js extension in import paths for TypeScript"
+    },
+    {
+      "id": "Q018",
+      "query": "OpenAI API response getting truncated",
+      "relevant_ids": ["L010"],
+      "description": "GPT-4o max_tokens and finish_reason checking"
+    },
+    {
+      "id": "Q019",
+      "query": "Redis SCAN not returning all matching keys",
+      "relevant_ids": ["L006"],
+      "description": "Redis SCAN cursor iteration behavior"
+    },
+    {
+      "id": "Q020",
+      "query": "too many open files error on macOS during build",
+      "relevant_ids": ["L041"],
+      "description": "EMFILE file descriptor limit on macOS"
+    }
+  ]
+}

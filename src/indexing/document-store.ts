@@ -18,6 +18,8 @@ export interface DocumentChunk {
   toolNames: string[];
   tokenCount: number;
   messageIndex: number; // Position within session
+  /** Pre-computed importance score (0-1), from cognitive retrieval */
+  importance?: number;
 }
 
 export interface DocumentMetadata {

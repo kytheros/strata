@@ -135,7 +135,7 @@ export class SqliteSearchEngine {
     // If hybrid search is available, run vector search in parallel
     if (this.embedder && this.vectorSearch) {
       try {
-        const queryVec = await this.embedder.embed(text);
+        const queryVec = await this.embedder.embed(text, "CODE_RETRIEVAL_QUERY");
         const project = filters.project || options.currentProject || "";
         const vectorResults = this.vectorSearch.search(queryVec, project, limit * 3);
 
@@ -207,6 +207,33 @@ export class SqliteSearchEngine {
 
     const results = this.search(query, { limit: 50, user });
 
+    return this.applySolutionBoost(results);
+  }
+
+  /**
+   * Async version of searchSolutions that supports hybrid FTS5 + vector search.
+   * Falls back to FTS5-only when no embedder is configured or embedding fails.
+   */
+  async searchSolutionsAsync(
+    errorOrProblem: string,
+    technology?: string,
+    user?: string
+  ): Promise<SearchResult[]> {
+    let query = errorOrProblem;
+    if (technology) {
+      query = `${technology} ${query}`;
+    }
+
+    const results = await this.searchAsync(query, { limit: 50, user });
+
+    return this.applySolutionBoost(results);
+  }
+
+  /**
+   * Apply solution-word boosting and re-rank results.
+   * Shared by both searchSolutions() and searchSolutionsAsync().
+   */
+  private applySolutionBoost(results: SearchResult[]): SearchResult[] {
     // Boost results containing solution indicators
     const solutionWords = [
       "fixed",

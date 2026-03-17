@@ -1,51 +1,100 @@
 # strata-mcp
 
-**Memory layer for AI coding assistants.**
+Local memory layer for AI coding assistants. Strata indexes your conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a local SQLite database, then exposes MCP tools so your assistant can recall past decisions, solutions, and patterns across sessions.
 
-Strata indexes conversations from five AI coding tools into a local SQLite database, extracts structured knowledge — decisions, solutions, error fixes, patterns, procedures — and makes it all searchable through 14 MCP tools. Think long-term memory for your AI pair programmer.
+**Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid FTS5 + vector search with 3072-dimensional embeddings. Falls back to keyword search without it.
 
-No cloud required. No memory caps. Runs entirely on your machine.
+No cloud required. No memory caps. Everything stays on your machine.
+
+**What makes Strata different:** Every knowledge entry passes through a [quality-gated evaluator pipeline](docs/evaluator-pipeline.md) before storage. Actionability, specificity, and relevance are checked deterministically. The result is a knowledge base that stays clean and auditable -- not a growing pile of everything.
 
 ---
 
-## Quick Start
+## Quick Start (< 5 minutes)
 
-Install globally and start searching in 30 seconds:
+### 1. Install
 
 ```bash
 npm install -g strata-mcp
 ```
 
-Add to Claude Code (`~/.claude/settings.json`):
+### 2. Register with Claude Code
+
+```bash
+claude mcp add strata -- npx strata-mcp
+```
+
+Or add to `.mcp.json` in your project root:
 
 ```json
 {
   "mcpServers": {
     "strata": {
       "command": "npx",
-      "args": ["-y", "strata-mcp"]
+      "args": ["strata-mcp"]
     }
   }
 }
 ```
 
-Restart Claude Code. Strata automatically indexes your conversation history on first run. Ask Claude: *"Search my history for Docker compose issues"* — it will call `search_history` and return ranked results from your past sessions.
+### 3. Restart Claude Code
+
+The index builds automatically on first use.
+
+### 4. Try it
+
+Store a memory, then search for it:
+
+```
+You: "Remember that we use bcrypt with cost factor 12 for password hashing"
+
+  -> store_memory({
+       memory: "Use bcrypt with cost factor 12 for password hashing",
+       type: "decision",
+       tags: ["security", "bcrypt"]
+     })
+  -> Stored decision: "Use bcrypt with cost factor 12..."
+
+You: "What did we decide about password hashing?"
+
+  -> search_history({ query: "password hashing decision" })
+  -> [HIGH] "Use bcrypt with cost factor 12 for password hashing"
+```
+
+### Verify
+
+```bash
+strata status
+```
+
+```
+Strata v1.1.0
+Database: ~/.strata/strata.db
+Sessions: 142 | Documents: 3847 | Projects: 12
+```
 
 ---
 
-## Why Strata
+## Community Tools (9, free)
 
-Every time you start a new AI coding session, your assistant forgets everything. Solutions you found last week, decisions you made last month, patterns you established across projects — all gone.
+### Search and Discovery
 
-Strata fixes this. It watches your conversation history, extracts structured knowledge, and serves it back through MCP tools that your assistant can call automatically. Your AI remembers what you have built, how you debug, and what you have decided.
+| Tool | Description |
+|------|-------------|
+| `search_history` | FTS5 full-text search with BM25 ranking, auto-enhanced with vector search when Gemini is configured. Inline filters: `project:name`, `before:7d`, `after:30d`, `tool:Bash`. |
+| `find_solutions` | Solution-biased search -- fix/resolve language scores 1.5x higher. Auto-enhanced with semantic search. |
+| `semantic_search` | Hybrid FTS5 + vector cosine similarity via Reciprocal Rank Fusion. Finds results that keyword search misses. Requires `GEMINI_API_KEY`. |
+| `list_projects` | All indexed projects with session counts, message counts, and date ranges. |
+| `get_session_summary` | Structured session summary: metadata, topic, tools used, conversation flow. |
+| `get_project_context` | Comprehensive project context with recent sessions, decisions, and patterns. |
+| `find_patterns` | Recurring topics, workflow patterns, and repeated issues across sessions. |
 
-**How it compares:**
+### Memory Management
 
-- **100% local** — no cloud dependency, no data leaves your machine
-- **14 free tools** — competitors gate basic search behind paywalls
-- **Full extraction pipeline** — not just storage, but knowledge extraction with entity graphs, procedure capture, and conflict resolution
-- **5 AI tools supported** — Claude Code, Codex CLI, Aider, Cline, Gemini CLI
-- **TOON format** — Token-Optimized Object Notation saves 30-60% on LLM context
+| Tool | Description |
+|------|-------------|
+| `store_memory` | Store memories with 9 types: decision, solution, error_fix, pattern, learning, procedure, fact, preference, episodic. |
+| `delete_memory` | Hard-delete with audit history preservation. |
 
 ---
 
@@ -53,130 +102,134 @@ Strata fixes this. It watches your conversation history, extracts structured kno
 
 ```
 Conversation files  -->  Parsers  -->  SQLite + FTS5 index
-                                            |
-                                   Knowledge Pipeline
-                                            |
-                          +--------+--------+--------+--------+
-                          |        |        |        |        |
-                      Entities  Decisions  Fixes  Patterns  Procedures
-                          |        |        |        |        |
-                          +--------+--------+--------+--------+
-                                            |
-                                     14 MCP Tools
-                                            |
-                                   Your AI Assistant
+                                             |
+                                    Knowledge Pipeline
+                                    (evaluate -> score -> dedup -> store)
+                                             |
+                              Decisions / Solutions / Fixes / Patterns
+                                             |
+                                       8 MCP Tools
+                                             |
+                                     Your AI Assistant
 ```
 
-1. **Indexing** — Parsers read conversation files from each supported tool and store messages in SQLite with FTS5 full-text indexing.
-2. **Extraction** — A heuristic scoring pipeline identifies decisions, solutions, error fixes, patterns, and learnings. Named entities (libraries, services, tools, languages, frameworks) are extracted into a cross-session entity graph.
-3. **Procedures** — Step-by-step workflows are automatically captured and stored. Re-storing the same procedure merges updates.
-4. **Deduplication** — Trigram Jaccard similarity (>0.90 threshold) prevents duplicate entries.
-5. **Secret Sanitization** — API keys, tokens, and passwords are automatically redacted before storage.
-6. **Serving** — 14 MCP tools expose everything to your AI assistant with confidence scoring, recency boosts, and project-aware ranking.
+Every extracted knowledge entry passes through three quality gates before storage:
 
----
+1. **Actionability** -- contains usable patterns (use, avoid, when...then, rate limits, error fixes)
+2. **Specificity** -- has 2+ concrete details (numbers, versions, URLs, error codes, API refs)
+3. **Relevance** -- about operational/technical topics (not weather, sports, humor)
 
-## Supported AI Tools
-
-| Tool | Parser | Data Location |
-|------|--------|---------------|
-| Claude Code | `claude-code` | `~/.claude/projects/` |
-| Codex CLI | `codex` | `~/.codex/sessions/` |
-| Aider | `aider` | `.aider.chat.history.md` (per-project) |
-| Cline | `cline` | VS Code `globalStorage/saoudrizwan.claude-dev/tasks/` |
-| Gemini CLI | `gemini-cli` | `~/.gemini/tmp/` |
-
----
-
-## MCP Tools (14 Free)
-
-### Search and Discovery
-
-| Tool | Description |
-|------|-------------|
-| `search_history` | FTS5 full-text search with BM25 ranking. Supports inline filters: `project:name`, `before:7d`, `tool:Bash`. Results include confidence bands. |
-| `find_solutions` | Solution-biased search — results containing fix/resolve language score 1.5x higher. |
-| `list_projects` | List all indexed projects with session counts, message counts, and date ranges. |
-| `get_session_summary` | Structured session summary with metadata, topic, tools used, and conversation flow. |
-| `get_project_context` | Comprehensive project context suitable for session-start injection. |
-| `find_patterns` | Discover recurring topics, workflow patterns, and repeated issues across sessions. |
-
-### Memory Management
-
-| Tool | Description |
-|------|-------------|
-| `store_memory` | Store memories with 9 types: `decision`, `solution`, `error_fix`, `pattern`, `learning`, `procedure`, `fact`, `preference`, `episodic`. |
-| `update_memory` | Partial update with full audit trail preserved. |
-| `delete_memory` | Hard-delete with audit history preservation. |
-| `memory_history` | View mutation history (add/update/delete) for any entry. |
-
-### Knowledge Systems
-
-| Tool | Description |
-|------|-------------|
-| `store_procedure` | Store step-by-step workflows. Auto-merges when re-storing the same title. |
-| `find_procedures` | Search stored procedures and workflows. |
-| `search_entities` | Query the cross-session entity graph — libraries, services, tools, languages, frameworks. |
-| `ingest_conversation` | Push conversations from any agent into the full extraction pipeline. |
+Entries that fail any gate are rejected. This keeps the knowledge base clean and searchable. See [Evaluator Pipeline](docs/evaluator-pipeline.md) for the full specification with examples.
 
 ---
 
 ## Search Intelligence
 
-Strata does not just find text matches. Every search result is scored through multiple ranking signals:
+Every search result is scored through multiple ranking signals:
 
-- **BM25 full-text ranking** — Standard information retrieval scoring via SQLite FTS5.
-- **Confidence scoring** — Every result receives a confidence value (0.0-1.0) bucketed into high/medium/low bands.
-- **Recency boosts** — Results from the last 7 days score +20%; last 30 days score +10%.
-- **Project match boost** — Results from the current project score 1.3x higher.
-- **Memory decay** — Auto-indexed entries older than 90 days score 0.85x; older than 180 days score 0.7x. Explicitly stored memories (via `store_memory`) are exempt from decay.
+- **BM25 full-text ranking** via SQLite FTS5 with Porter stemming
+- **Vector cosine similarity** via Gemini `gemini-embedding-001` (3072-dim) with code-optimized task types
+- **Reciprocal Rank Fusion** -- merges keyword and vector results for best-of-both retrieval
+- **Recency boosts** -- last 7 days: 1.2x, last 30 days: 1.1x
+- **Project match boost** -- results from the current project: 1.3x
+- **Importance scoring** -- composite heuristic (type, language cues, frequency, explicit storage)
+- **Memory decay** -- auto-indexed entries older than 90 days: 0.85x, older than 180 days: 0.7x (explicit memories exempt)
+- **Confidence bands** -- results normalized to [0, 1] and bucketed into HIGH/MED/LOW
 
-### Response Formats
+Vector search uses `CODE_RETRIEVAL_QUERY` task type for queries and `RETRIEVAL_DOCUMENT` for stored entries, optimizing Gemini's attention for code retrieval patterns.
 
-All search tools support three output formats via the `format` parameter:
+---
 
-| Format | Description |
-|--------|-------------|
-| `concise` | TOON (Token-Optimized Object Notation) — saves 30-60% on LLM context window usage. |
-| `standard` | Structured text with confidence bands. This is the default. |
-| `detailed` | Full JSON for programmatic consumers and SDK integration. |
+## Supported AI Tools
+
+| Tool | Data Location |
+|------|---------------|
+| Claude Code | `~/.claude/projects/` |
+| Codex CLI | `~/.codex/sessions/` |
+| Aider | `.aider.chat.history.md` (per-project) |
+| Cline | VS Code `globalStorage/saoudrizwan.claude-dev/tasks/` |
+| Gemini CLI | `~/.gemini/tmp/` |
+
+Run `strata status` to see which tools are detected on your system.
+
+---
+
+## Pro Upgrade
+
+For teams that need audit trails, entity intelligence, LLM extraction, and cross-machine sync.
+
+| Feature | Description |
+|---------|-------------|
+| `memory_history` | Full audit trail of every knowledge mutation (add/update/delete) |
+| `update_memory` | Partial updates with change tracking |
+| `find_procedures` / `store_procedure` | Step-by-step workflow capture and search |
+| `search_entities` | Cross-session entity graph (libraries, services, tools, frameworks) |
+| `ingest_conversation` | Push conversations from any agent into the extraction pipeline |
+| `cloud_sync_push/pull/status` | Encrypted cross-machine sync |
+| `get_analytics` | Local usage analytics -- search patterns, tool usage, trends |
+| `list_evidence_gaps` | Knowledge blind spots -- topics searched but never answered |
+| LLM-powered extraction | Smart summaries via Gemini 2.5 Flash (uses same API key) |
+| Local dashboard | Browser-based UI for knowledge exploration, settings, and maintenance |
+
+### Activate
+
+```bash
+strata activate <license-key>
+```
+
+Or set `STRATA_LICENSE_KEY` in your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "strata": {
+      "command": "npx",
+      "args": ["strata-mcp"],
+      "env": {
+        "STRATA_LICENSE_KEY": "your-key"
+      }
+    }
+  }
+}
+```
+
+Visit [strata.kytheros.dev/pricing](https://strata.kytheros.dev/pricing) for plans.
+
+---
+
+## Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GEMINI_API_KEY` | Gemini API key for semantic search and embeddings. [Get one free](https://aistudio.google.com/apikey). Also reads from `~/.strata/config.json`. | _(FTS5 only)_ |
+| `STRATA_DATA_DIR` | Database directory | `~/.strata/` |
+| `STRATA_LICENSE_KEY` | Pro/Team license key | _(free tier)_ |
+| `STRATA_DEFAULT_USER` | Default user scope | `default` |
+| `STRATA_EXTRA_WATCH_DIRS` | Additional watch directories | _(none)_ |
+| `NO_COLOR` | Disable colored CLI output | _(unset)_ |
+
+You can also set the Gemini key in `~/.strata/config.json` instead of an environment variable:
+
+```json
+{
+  "geminiApiKey": "AIzaSy..."
+}
+```
 
 ---
 
 ## CLI
 
-```bash
-strata-mcp                          # Start MCP server on stdio (default)
-strata-mcp serve --port 3000        # Start HTTP/SSE server
-strata-mcp search "docker compose"  # Search from terminal
-strata-mcp status                   # Index statistics
-strata-mcp migrate                  # Migrate legacy data to SQLite
-strata-mcp activate <key>           # Activate Pro license
-strata-mcp license                  # Show license status
-strata-mcp embed                    # Generate vector embeddings (Pro)
-```
-
-### HTTP Transport
-
-For non-stdio clients, Strata can serve over HTTP:
-
-```bash
-strata-mcp serve --port 3000
-```
-
----
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `STRATA_LICENSE_KEY` | Pro/Team license key | _(free tier)_ |
-| `STRATA_DEFAULT_USER` | Default user scope for multi-user setups | `default` |
-| `STRATA_EXTRA_WATCH_DIRS` | Additional directories to watch for conversations | _(none)_ |
-| `STRATA_DATA_DIR` | Data directory override | `~/.claude-history-mcp/` |
-| `CLAUDE_HISTORY_API_URL` | Cloud sync server URL (Pro) | _(disabled)_ |
-| `CLAUDE_HISTORY_API_KEY` | Cloud sync API key (Pro) | _(disabled)_ |
-| `CLAUDE_HISTORY_TEAM_ID` | Team ID for shared sync (Team) | _(personal)_ |
+| Command | Description |
+|---------|-------------|
+| `strata` | Start MCP server on stdio |
+| `strata serve` | Start HTTP server on port 3000 (or `$PORT`) |
+| `strata search <query>` | Search from the terminal |
+| `strata store-memory <text> --type <t>` | Store a memory |
+| `strata status` | Print index statistics |
+| `strata init` | Set up hooks, skills, and CLAUDE.md |
+| `strata activate <key>` | Activate a license |
+| `strata --help` | Full usage |
 
 ---
 
@@ -184,34 +237,27 @@ strata-mcp serve --port 3000
 
 - Node.js >= 18
 
+No other system dependencies. SQLite is bundled via better-sqlite3.
+
 ---
 
-## Pro Features
+## Documentation
 
-For power users who want deeper search and cross-machine sync. $9/month, works fully offline after activation.
-
-| Feature | Description |
-|---------|-------------|
-| `semantic_search` tool | Hybrid FTS5 + vector cosine similarity via Reciprocal Rank Fusion. |
-| `cloud_sync_push/pull/status` tools | Cross-machine sync via Supabase backend. |
-| `get_analytics` tool | Local usage analytics — search patterns, tool usage, activity trends. |
-| Vector embeddings | Gemini embedding provider for semantic matching. |
-| LLM extraction | Deeper knowledge extraction using Gemini LLM. |
-
-## Team Features
-
-For teams sharing knowledge across developers. $19/user/month.
-
-| Feature | Description |
-|---------|-------------|
-| Shared knowledge base | Cross-developer knowledge sharing and team-wide search. |
-| Team sync | Bi-directional team knowledge synchronization. |
-| Access control | Role-based permissions: admin, member, viewer. |
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | System design, storage model, retrieval pipeline |
+| [Evaluator Pipeline](docs/evaluator-pipeline.md) | Quality gates, accepted/rejected examples, importance scoring |
+| [Provenance & Audit](docs/provenance.md) | knowledge_history table, tracing entries to origin |
+| [Benchmarks](docs/benchmarks.md) | Retrieval quality metrics and methodology |
+| [Claude Code Integration](docs/integration/claude-code.md) | Setup, tools, workflows |
+| [MCP Client Integration](docs/integration/mcp-client.md) | stdio and HTTP transport, SDK examples |
+| [Hooks and Skills](docs/HOOKS-AND-SKILLS.md) | Hook setup, skill definitions, agent integration |
+| [Multi-Tool Support](docs/MULTI-TOOL.md) | Claude Code, Codex, Aider, Cline, Gemini CLI |
+| [Configuration](docs/CONFIGURATION.md) | Environment variables, config constants |
+| [Deployment](docs/DEPLOYMENT.md) | stdio, HTTP, Docker, Cloud Run |
 
 ---
 
 ## License
 
 MIT
-
-The `src/extensions/` directory contains interface stubs and no-op implementations that allow the community edition to compile. The actual Pro/Team implementations live in separate packages (`@kytheros/strata-pro`, `@kytheros/strata-team`).

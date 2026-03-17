@@ -12,6 +12,7 @@
 import { encodeProjectPath, extractProjectName } from "../utils/path-encoder.js";
 import { SqliteIndexManager } from "../indexing/sqlite-index-manager.js";
 import type { RecurringIssue } from "../knowledge/learning-synthesizer.js";
+import { listGaps } from "../search/evidence-gaps.js";
 import { existsSync, readFileSync } from "fs";
 import { CONFIG } from "../config.js";
 
@@ -91,6 +92,34 @@ function main(): void {
       lines.push(
         `- Recurring: ${recurringIssue.tag} issues (${recurringIssue.count} occurrences)`
       );
+    }
+
+    // Tool guidance block
+    lines.push("");
+    lines.push("[Strata] Available memory tools:");
+    lines.push(`- Hit an error? → find_solutions "error message" to check past fixes`);
+    lines.push(`- Making a decision? → store_memory "text" type=decision to remember it`);
+    lines.push(`- Need project context? → get_project_context project="name"`);
+    lines.push(`- Searching past work? → search_history "query" for full-text search`);
+
+    // Gap-aware injection: surface frequently searched but unanswered topics
+    try {
+      const gaps = listGaps(indexManager.db, {
+        project: projectDir,
+        status: "open",
+        minOccurrences: 2,
+        limit: 3,
+      });
+      if (gaps.length > 0) {
+        lines.push("");
+        lines.push("[Strata] Knowledge gaps (searched but never answered):");
+        for (const gap of gaps) {
+          lines.push(`- "${gap.query}" (searched ${gap.occurrenceCount} times)`);
+        }
+        lines.push("If you learn about these topics, use store_memory to fill the gap.");
+      }
+    } catch {
+      // Gap injection is best-effort
     }
 
     if (lines.length > 1) {

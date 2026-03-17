@@ -1,6 +1,6 @@
 {
   "name": "strata-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Mine your AI coding assistant conversation history for searchable knowledge",
   "type": "module",
   "license": "MIT",
@@ -20,6 +20,7 @@
   },
   "files": [
     "dist/",
+    "templates/",
     "README.md",
     "LICENSE"
   ],
@@ -36,6 +37,9 @@
     "./utils/*": "./dist/utils/*.js",
     "./config": "./dist/config.js",
     "./watcher/*": "./dist/watcher/*.js",
+    "./extensions/*": "./dist/extensions/*.js",
+    "./extensions/embeddings/*": "./dist/extensions/embeddings/*.js",
+    "./extensions/vector-search/*": "./dist/extensions/vector-search/*.js",
     "./ee/*": "./dist/ee/*.js"
   },
   "bin": {
@@ -54,6 +58,8 @@
     "security:scan": "docker run --rm -v \"${PWD}:/src\" returntocorp/semgrep semgrep --config /src/.semgrep/custom-rules.yml --config p/typescript /src",
     "security:secrets": "gitleaks detect --source . --verbose --no-banner",
     "security:audit": "npm audit --omit=dev --audit-level=moderate",
+    "benchmark": "tsx benchmarks/retrieval-benchmark.ts",
+    "benchmark:full": "tsx benchmarks/retrieval-benchmark.ts && tsx benchmarks/mem0-benchmark.ts",
     "prepare": "husky"
   },
   "dependencies": {

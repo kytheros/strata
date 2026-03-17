@@ -4,7 +4,7 @@
 
 import { stem } from "../utils/stemmer.js";
 
-const STOP_WORDS = new Set([
+export const STOP_WORDS = new Set([
   "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in",
   "into", "is", "it", "no", "not", "of", "on", "or", "such", "that", "the",
   "their", "then", "there", "these", "they", "this", "to", "was", "will",
@@ -19,6 +19,12 @@ const STOP_WORDS = new Set([
   // Common in code conversations but not useful for search
   "let", "use", "using", "used", "need", "want", "like", "make", "see",
   "look", "think", "know", "going", "try", "run",
+  // Conversational filler — not useful for topic extraction
+  "okay", "yeah", "sure", "right", "well", "really", "actually", "things",
+  "thing", "something", "everything", "nothing", "anything", "much", "many",
+  "even", "back", "take", "give", "done", "work", "working", "went",
+  "come", "came", "goes", "keep", "start", "started", "show",
+  "good", "great", "fine", "able", "seem", "seems", "maybe",
 ]);
 
 export interface TokenizeOptions {

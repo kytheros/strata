@@ -352,6 +352,13 @@ async function runActivateJwt(key: string): Promise<void> {
   console.log(`  Features: ${result.features?.join(", ")}`);
   console.log(`  Expires: ${expDate}`);
   console.log(`  Saved to: ${licensePath}`);
+
+  console.log("");
+  console.log("Next steps:");
+  console.log("  Set up semantic search (recommended):");
+  console.log("  Get a free Gemini API key at https://aistudio.google.com/apikey");
+  console.log("  Then: export GEMINI_API_KEY=<your-key>");
+  console.log("  Or set it in the Strata dashboard settings.");
 }
 
 async function runActivatePolar(
@@ -402,6 +409,17 @@ async function runActivatePolar(
       console.log("The global strata command has been updated.");
       console.log(`Run 'strata status' to verify the ${tier} installation.`);
     }
+
+    console.log("");
+    console.log("Next steps:");
+    console.log("  1. Set up semantic search (recommended):");
+    console.log("     Get a free Gemini API key at https://aistudio.google.com/apikey");
+    console.log("     Then either:");
+    console.log("       export GEMINI_API_KEY=<your-key>     (add to shell profile)");
+    console.log("       — or set it in the dashboard at http://localhost:3100/settings");
+    console.log("");
+    console.log("  2. Open the dashboard:");
+    console.log("     strata dashboard");
   } catch (err: any) {
     console.log(`Download/install failed: ${err.message}`);
     process.exit(1);

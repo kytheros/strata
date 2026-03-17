@@ -206,37 +206,51 @@ src/
 
 ### Cryptographic License Keys (Offline)
 
-License key = signed JWT containing:
+License key = RS256-signed JWT containing:
 ```json
 {
+  "sub": "user@example.com",
   "tier": "pro",
-  "features": ["cloud_sync", "vector_search", "llm_extraction", "analytics"],
-  "email": "user@example.com",
+  "features": ["pro", "vector_search", "llm_extraction", "cloud_sync", "analytics"],
   "exp": 1772600000,
-  "iss": "kytheros.dev"
+  "iat": 1741200000,
+  "iss": "kytheros.dev",
+  "jti": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 }
 ```
 
 Validation:
-1. RSA public key embedded in `license-validator.ts`
-2. JWT signature verified locally — no network call
-3. Features checked via `hasFeature("cloud_sync")` / `requireFeature("team_knowledge")`
-4. Pro tools only registered in MCP server if license valid
-5. Works fully offline / air-gapped
+1. RSA public key embedded in `strata-pro/src/ee/license-validator.ts`
+2. JWT RS256 signature verified locally via Node.js `crypto.createVerify` — no network call
+3. Issuer must be `"kytheros.dev"`, expiration checked with 5-minute clock skew tolerance
+4. Features checked via `hasFeature("cloud_sync")` / `requireFeature("team_knowledge")`
+5. Pro tools only registered in MCP server if license valid
+6. Works fully offline / air-gapped
 
 ### User Activation
 
-```bash
-# Option A: CLI command
-strata-mcp activate eyJhbGciOiJS...
-# Writes to ~/.strata/license.key
+Three methods, checked in priority order by the feature gate:
 
-# Option B: Environment variable
+```bash
+# Option A: CLI command (recommended)
+strata activate eyJhbGciOiJS...
+# Validates JWT, writes to ~/.strata/license.key (mode 0600)
+
+# Option B: Environment variable (takes priority over file)
 STRATA_LICENSE_KEY=eyJhbGciOiJS...
 
 # Option C: MCP config
 { "env": { "STRATA_LICENSE_KEY": "eyJhbGciOiJS..." } }
 ```
+
+Strata also supports Polar license keys (`STRATA-` or `pol_lic_` prefix) for download-based activation. These keys authenticate against the releases Worker to download and install the Pro/Team package:
+
+```bash
+strata activate STRATA-xxxxx          # tarball (npm install -g)
+strata activate STRATA-xxxxx --binary  # standalone binary
+```
+
+See [LICENSING.md](./LICENSING.md) for complete details on JWT structure, verification, and feature gating.
 
 ## Payment Infrastructure
 
@@ -252,11 +266,21 @@ STRATA_LICENSE_KEY=eyJhbGciOiJS...
 ### Flow
 
 1. User visits `strata.kytheros.dev/pricing`
-2. Clicks "Upgrade to Pro" → Polar.sh checkout
-3. Polar.sh handles payment, tax, VAT, invoicing
-4. Webhook → Supabase Edge Function generates signed JWT
-5. User copies license key from dashboard
-6. `strata-mcp activate <key>` — validated offline forever
+2. Clicks "Upgrade to Pro" → Polar.sh checkout (handles payment, tax, VAT, invoicing)
+3. Polar fires `subscription.created` / `subscription.active` webhook to Supabase Edge Function
+4. Edge Function verifies Svix signature (HMAC-SHA256), then:
+   a. Finds or creates a Supabase auth user by the customer's email
+   b. Upserts a subscription record in the `subscriptions` table
+   c. Signs an RS256 JWT license key with the RSA private key (stored in Supabase secrets)
+   d. Stores the JWT in the `license_keys` table (idempotent — skips if key already exists)
+   e. Fetches and stores the customer's Polar license key for CLI download activation
+   f. Sends a magic link email so the user can log in to the dashboard
+5. User logs in to dashboard, copies their license key (JWT or Polar key)
+6. `strata activate <key>` — JWT validated offline, or Polar key downloads the package
+
+On cancellation, the `subscription.canceled` webhook revokes all active license keys and marks the subscription as cancelled.
+
+See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for complete Supabase schema and Edge Function details.
 
 ### Why Polar.sh
 
