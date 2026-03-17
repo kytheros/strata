@@ -6,6 +6,8 @@ Local memory layer for AI coding assistants. Strata indexes your conversations f
 
 No cloud required. No memory caps. Everything stays on your machine.
 
+**Cross-tool memory.** Store a decision in Claude Code, recall it from Gemini CLI. One shared knowledge base across all your AI coding assistants.
+
 **What makes Strata different:** Every knowledge entry passes through a [quality-gated evaluator pipeline](docs/evaluator-pipeline.md) before storage. Actionability, specificity, and relevance are checked deterministically. The result is a knowledge base that stays clean and auditable -- not a growing pile of everything.
 
 ---
@@ -18,26 +20,26 @@ No cloud required. No memory caps. Everything stays on your machine.
 npm install -g strata-mcp
 ```
 
-### 2. Register with Claude Code
+### 2. Set up your AI tool
 
+**Claude Code:**
 ```bash
-claude mcp add strata -- npx strata-mcp
+strata init --claude
 ```
 
-Or add to `.mcp.json` in your project root:
-
-```json
-{
-  "mcpServers": {
-    "strata": {
-      "command": "npx",
-      "args": ["strata-mcp"]
-    }
-  }
-}
+**Gemini CLI:**
+```bash
+strata init --gemini
 ```
 
-### 3. Restart Claude Code
+**Both (auto-detects installed CLIs):**
+```bash
+strata init
+```
+
+This registers the MCP server, installs session hooks, skills, and creates the project context file (CLAUDE.md / GEMINI.md).
+
+### 3. Restart your CLI
 
 The index builds automatically on first use.
 
@@ -68,7 +70,7 @@ strata status
 ```
 
 ```
-Strata v1.1.0
+Strata v1.2.1
 Database: ~/.strata/strata.db
 Sessions: 142 | Documents: 3847 | Projects: 12
 ```
@@ -108,7 +110,7 @@ Conversation files  -->  Parsers  -->  SQLite + FTS5 index
                                              |
                               Decisions / Solutions / Fixes / Patterns
                                              |
-                                       8 MCP Tools
+                                       9 MCP Tools
                                              |
                                      Your AI Assistant
 ```
@@ -154,9 +156,9 @@ Run `strata status` to see which tools are detected on your system.
 
 ---
 
-## Pro Upgrade
+## Pro & Team Editions (Coming Soon)
 
-For teams that need audit trails, entity intelligence, LLM extraction, and cross-machine sync.
+Audit trails, entity intelligence, LLM-powered extraction, local dashboard, and cross-machine sync.
 
 | Feature | Description |
 |---------|-------------|
@@ -170,30 +172,6 @@ For teams that need audit trails, entity intelligence, LLM extraction, and cross
 | `list_evidence_gaps` | Knowledge blind spots -- topics searched but never answered |
 | LLM-powered extraction | Smart summaries via Gemini 2.5 Flash (uses same API key) |
 | Local dashboard | Browser-based UI for knowledge exploration, settings, and maintenance |
-
-### Activate
-
-```bash
-strata activate <license-key>
-```
-
-Or set `STRATA_LICENSE_KEY` in your MCP config:
-
-```json
-{
-  "mcpServers": {
-    "strata": {
-      "command": "npx",
-      "args": ["strata-mcp"],
-      "env": {
-        "STRATA_LICENSE_KEY": "your-key"
-      }
-    }
-  }
-}
-```
-
-Visit [strata.kytheros.dev/pricing](https://strata.kytheros.dev/pricing) for plans.
 
 ---
 
@@ -223,12 +201,14 @@ You can also set the Gemini key in `~/.strata/config.json` instead of an environ
 | Command | Description |
 |---------|-------------|
 | `strata` | Start MCP server on stdio |
+| `strata init` | Auto-detect CLIs and set up integration (hooks, skills, config) |
+| `strata init --gemini` | Set up Gemini CLI integration only |
+| `strata init --claude` | Set up Claude Code integration only |
 | `strata serve` | Start HTTP server on port 3000 (or `$PORT`) |
 | `strata search <query>` | Search from the terminal |
 | `strata store-memory <text> --type <t>` | Store a memory |
 | `strata status` | Print index statistics |
-| `strata init` | Set up hooks, skills, and CLAUDE.md |
-| `strata activate <key>` | Activate a license |
+| `strata activate <key>` | Activate a Pro license |
 | `strata --help` | Full usage |
 
 ---
