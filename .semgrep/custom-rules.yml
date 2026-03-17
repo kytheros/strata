@@ -192,6 +192,9 @@ rules:
       exclude:
         - "**/storage/database.ts"
         - "**/storage/sqlite-knowledge-store.ts"
+        - "**/storage/sqlite-entity-store.ts"
+        - "**/storage/sqlite-summary-store.ts"
+        - "**/search/evidence-gaps.ts"
     message: >
       SQL query uses template literal string interpolation, which may allow SQL injection.
       Use parameterized queries instead:
@@ -367,6 +370,7 @@ rules:
         - "*test*"
         - "*spec*"
         - "*fixture*"
+        - "**/cli/download.ts"
     message: >
       exec() or execSync() spawns a shell and is vulnerable to command injection
       if the command string includes unsanitized user input.

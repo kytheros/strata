@@ -110,6 +110,7 @@ describe("CLI", () => {
 
   it("version output matches package.json version exactly", () => {
     const result = runCli(["--version"]);
-    expect(result.stdout).toBe("1.0.0");
+    const pkg = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "..", "..", "package.json"), "utf-8"));
+    expect(result.stdout).toBe(pkg.version);
   });
 });
