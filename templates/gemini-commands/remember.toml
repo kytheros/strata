@@ -1,0 +1,4 @@
+description = "Store something in Strata memory for future recall."
+prompt = """Store this in my Strata memory: {{args}}
+
+Analyze the text to determine the memory type (decision, solution, error_fix, learning, preference, fact, pattern, procedure, or episodic). Extract relevant tags. Call store_memory with the correct type and tags. Confirm what was stored."""

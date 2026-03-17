@@ -1,0 +1,13 @@
+## Strata MCP Tools Reference
+
+| Tool | Purpose |
+|------|---------|
+| `search_history` | Full-text search across all indexed sessions |
+| `find_solutions` | Solution-biased search for errors and problems |
+| `semantic_search` | Vector search (requires GEMINI_API_KEY) |
+| `get_project_context` | Recent sessions and key topics for a project |
+| `get_session_summary` | Detailed summary of a specific session |
+| `list_projects` | All projects with indexed history |
+| `find_patterns` | Recurring topics, workflows, and issues |
+| `store_memory` | Persist a decision, solution, or fact |
+| `delete_memory` | Remove a stale memory entry |

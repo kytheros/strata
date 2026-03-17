@@ -44,6 +44,8 @@ export function openDatabase(dbPath?: string): Database.Database {
   // Performance pragmas
   db.pragma("synchronous = NORMAL");
   db.pragma("foreign_keys = ON");
+  // Allow concurrent access from multiple MCP server processes (e.g., Claude Code + Gemini CLI)
+  db.pragma("busy_timeout = 5000");
 
   // Create schema
   initSchema(db);

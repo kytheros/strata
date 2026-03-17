@@ -1,0 +1,21 @@
+# {{PROJECT_NAME}}
+
+{{PROJECT_DESCRIPTION}}
+
+## Strata Memory
+
+This project uses Strata MCP tools for persistent memory across sessions. When available:
+
+- Search for prior solutions before debugging: `/recall` or `find_solutions`
+- Store important decisions and fixes: `/remember` or `store_memory`
+- Check project context at session start: `/strata-status` or `get_project_context`
+- View knowledge gaps: `/gaps`
+
+### When to Store Memories
+
+- After making architectural decisions
+- After fixing non-obvious bugs
+- After discovering project-specific patterns
+- When learning something that will be useful in future sessions
+
+@./GEMINI-strata-tools.md

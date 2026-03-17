@@ -1,0 +1,4 @@
+description = "Show open knowledge gaps — topics searched but never answered in Strata."
+prompt = """Show my open Strata knowledge gaps.
+
+Call find_patterns with type="gap" to find open evidence gaps, or use list_evidence_gaps if available (Pro). If neither returns results, call search_history with 'evidence gap' to find gap-related discussions. Display results as a table with columns: Query, Times Searched, First Seen, Last Seen. If no gaps, report that coverage is good. Suggest using /remember to fill any gaps found."""

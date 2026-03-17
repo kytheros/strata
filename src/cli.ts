@@ -51,7 +51,10 @@ Usage:
   strata update                           Check for and install newer versions
   strata license                          Show current license status
   strata embed                            Generate embeddings for vector search
-  strata init                             Set up Strata in the current project
+  strata init                             Auto-detect CLIs and set up all found
+  strata init --claude                   Set up Claude Code integration only
+  strata init --gemini                   Set up Gemini CLI integration only
+  strata init --all                      Set up all supported CLIs
   strata --version                        Print version
   strata --help                           Print this help
 
@@ -89,7 +92,11 @@ Activate flags:
                     darwin-x64, win-x64)
 
 Init flags:
-  --force           Overwrite existing skills, hooks, and CLAUDE.md sections
+  --gemini          Set up Gemini CLI integration only
+  --claude          Set up Claude Code integration only
+  --all             Set up all supported CLIs (even if not detected)
+  --global          Install skills and commands to ~ instead of project dir
+  --force           Overwrite existing skills, hooks, and context files
 
 Migrate flags:
   --force           Re-run migration even if already completed
@@ -140,6 +147,14 @@ function parseArgs(argv: string[]): {
       flags.binary = true;
     } else if (arg === "--platform" && i + 1 < argv.length) {
       flags.platform = argv[++i];
+    } else if (arg === "--gemini") {
+      flags.gemini = true;
+    } else if (arg === "--claude") {
+      flags.claude = true;
+    } else if (arg === "--all") {
+      flags.all = true;
+    } else if (arg === "--global") {
+      flags.global = true;
     } else if (arg === "--no-color") {
       flags["no-color"] = true;
     } else if (!arg.startsWith("-") && !command) {
@@ -639,8 +654,59 @@ async function main(): Promise<void> {
       proFeatureMessage("dashboard");
       break;
     case "init": {
-      const { runInit } = await import("./cli/init.js");
-      await runInit({ force: Boolean(flags.force) });
+      const initForce = Boolean(flags.force);
+      const initGlobal = Boolean(flags.global);
+
+      if (flags.gemini) {
+        // Explicit Gemini-only init
+        const { runInitGemini } = await import("./cli/init-gemini.js");
+        await runInitGemini({ force: initForce, global: initGlobal });
+      } else if (flags.claude) {
+        // Explicit Claude-only init
+        const { runInit } = await import("./cli/init.js");
+        await runInit({ force: initForce });
+      } else if (flags.all) {
+        // Init all supported CLIs regardless of detection
+        const { runInit } = await import("./cli/init.js");
+        await runInit({ force: initForce });
+        console.log("");
+        const { runInitGemini } = await import("./cli/init-gemini.js");
+        await runInitGemini({ force: initForce, global: initGlobal });
+      } else {
+        // Auto-detect installed CLIs
+        const { execSync: execSyncDetect } = await import("child_process");
+        let hasClaude = false;
+        let hasGemini = false;
+
+        try {
+          execSyncDetect("claude --version", { stdio: "pipe", timeout: 10_000 });
+          hasClaude = true;
+        } catch { /* not installed */ }
+
+        try {
+          execSyncDetect("gemini --version", { stdio: "pipe", timeout: 10_000 });
+          hasGemini = true;
+        } catch { /* not installed */ }
+
+        if (hasClaude) {
+          const { runInit } = await import("./cli/init.js");
+          await runInit({ force: initForce });
+          if (hasGemini) console.log("");
+        }
+
+        if (hasGemini) {
+          const { runInitGemini } = await import("./cli/init-gemini.js");
+          await runInitGemini({ force: initForce, global: initGlobal });
+        }
+
+        if (!hasClaude && !hasGemini) {
+          console.log("No supported AI CLI detected.\n");
+          console.log("Install one of:");
+          console.log("  Claude Code:  npm install -g @anthropic-ai/claude-code");
+          console.log("  Gemini CLI:   npm install -g @anthropic-ai/gemini-cli");
+          console.log("\nThen run 'strata init' again.");
+        }
+      }
       break;
     }
     case "hook": {

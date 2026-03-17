@@ -1,0 +1,4 @@
+description = "Search Strata memory for past decisions, solutions, and sessions."
+prompt = """Search my Strata memory for: {{args}}
+
+Use the search_history MCP tool first for a broad search. If the query sounds like an error or bug, also call find_solutions. Synthesize the top findings into a 3-5 sentence answer with confidence level (high/medium/low). Cite session IDs for key findings."""

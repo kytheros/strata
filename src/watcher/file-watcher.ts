@@ -7,7 +7,6 @@ import { watch, existsSync, type FSWatcher } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { CONFIG } from "../config.js";
-import { hasFeature } from "../extensions/feature-gate.js";
 
 /** A directory to watch with its file-matching criteria. */
 export interface WatchTarget {
@@ -28,7 +27,7 @@ export type FileChangeCallback = (filePath: string, parserId: string) => void;
  * Only returns targets whose directories actually exist on disk.
  */
 export function getWatchTargets(): WatchTarget[] {
-  // Free tier: Claude Code, Codex, Cline
+  // Free tier: Claude Code, Codex, Cline, Gemini CLI
   const targets: WatchTarget[] = [
     {
       dir: CONFIG.projectsDir,
@@ -48,17 +47,13 @@ export function getWatchTargets(): WatchTarget[] {
       extensions: [".json"],
       parserId: "cline",
     },
-  ];
-
-  // Pro tier: Gemini CLI (Aider uses project-level files, not a watch dir)
-  if (hasFeature("pro")) {
-    targets.push({
+    {
       dir: join(homedir(), ".gemini", "tmp"),
-      glob: "checkpoint-*.json",
+      glob: "*.json",
       extensions: [".json"],
       parserId: "gemini-cli",
-    });
-  }
+    },
+  ];
 
   // Add extra watch dirs from env var
   const extra = CONFIG.extraWatchDirs;

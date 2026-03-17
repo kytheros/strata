@@ -1,0 +1,4 @@
+description = "Quick overview of what Strata knows about the current project."
+prompt = """Show a Strata memory status overview for the current project.
+
+Run in parallel: get_project_context with depth=detailed, list_projects sorted by recent, find_patterns with type=all. Format as a concise status report showing sessions indexed, last activity, key decisions, known solutions, open gaps, and recurring issues."""

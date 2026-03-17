@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * Session-start hook: auto-inject project context on new Claude Code session.
+ * Session-start hook: auto-inject project context on new AI assistant session.
  *
+ * Supports both Claude Code (plain text stdout) and Gemini CLI (JSON stdout).
  * Reads pre-computed summaries and knowledge from SQLite database
  * and outputs brief context to stdout. Target: <200ms.
  *
- * Register in ~/.claude/settings.json as a SessionStart hook.
+ * Claude Code: Register in ~/.claude/settings.json as a SessionStart hook.
+ * Gemini CLI: Register in ~/.gemini/settings.json or via extension hooks.json.
  */
 
 import { encodeProjectPath, extractProjectName } from "../utils/path-encoder.js";
@@ -16,7 +18,105 @@ import { listGaps } from "../search/evidence-gaps.js";
 import { existsSync, readFileSync } from "fs";
 import { CONFIG } from "../config.js";
 
-function main(): void {
+/**
+ * Detect whether the hook is running under Gemini CLI.
+ * Gemini CLI sets GEMINI_PROJECT_DIR and/or GEMINI_CONVERSATION_ID
+ * in the hook execution environment.
+ */
+function isGeminiCli(): boolean {
+  if (process.env.GEMINI_PROJECT_DIR) return true;
+  if (process.env.GEMINI_CONVERSATION_ID) return true;
+  return false;
+}
+
+/**
+ * Log a message to the appropriate stream.
+ * In Gemini mode, stdout must be clean JSON only, so all debug/log
+ * output goes to stderr. In Claude Code mode, logging is suppressed
+ * (the hook only communicates via stdout).
+ */
+function log(message: string): void {
+  if (isGeminiCli()) {
+    process.stderr.write(message + "\n");
+  }
+  // Claude Code mode: no logging (stdout is for context output only)
+}
+
+/**
+ * Read stdin with a timeout. Gemini CLI sends a JSON payload to stdin;
+ * Claude Code sends nothing. We wait briefly (100ms) for data, then proceed.
+ *
+ * Returns the accumulated stdin data (may be empty for Claude Code).
+ */
+function drainStdin(timeoutMs: number = 100): Promise<string> {
+  return new Promise((resolve) => {
+    let data = "";
+    let resolved = false;
+
+    const finish = () => {
+      if (!resolved) {
+        resolved = true;
+        process.stdin.pause();
+        process.stdin.removeAllListeners("data");
+        process.stdin.removeAllListeners("end");
+        resolve(data);
+      }
+    };
+
+    process.stdin.setEncoding("utf-8");
+    process.stdin.resume();
+    process.stdin.on("data", (chunk: string) => { data += chunk; });
+    process.stdin.on("end", finish);
+
+    // Don't block forever waiting for stdin (Claude Code sends nothing)
+    setTimeout(finish, timeoutMs);
+  });
+}
+
+/**
+ * Emit the context output in the appropriate format.
+ * - Gemini CLI: JSON with hookSpecificOutput wrapper
+ * - Claude Code: plain text
+ */
+function emitOutput(lines: string[]): void {
+  if (lines.length <= 1) {
+    // No meaningful content — emit nothing
+    return;
+  }
+
+  const context = lines.join("\n");
+
+  if (isGeminiCli()) {
+    const output = {
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: context,
+      },
+    };
+    process.stdout.write(JSON.stringify(output) + "\n");
+  } else {
+    process.stdout.write(context + "\n");
+  }
+}
+
+async function main(): Promise<void> {
+  // Drain stdin: Gemini CLI sends a JSON payload, Claude Code sends nothing.
+  // Must consume stdin to prevent Gemini CLI from blocking on pipe write.
+  const stdinData = await drainStdin(100);
+
+  // Parse stdin payload if present (Gemini CLI)
+  if (stdinData) {
+    try {
+      const payload = JSON.parse(stdinData);
+      if (payload.source === "clear") {
+        // User invoked /clear — don't inject context
+        process.exit(0);
+      }
+    } catch {
+      // Not valid JSON (unexpected) or empty — proceed normally
+    }
+  }
+
   const cwd = process.cwd();
   const projectDir = encodeProjectPath(cwd);
   const projectName = extractProjectName(cwd);
@@ -122,9 +222,7 @@ function main(): void {
       // Gap injection is best-effort
     }
 
-    if (lines.length > 1) {
-      console.log(lines.join("\n"));
-    }
+    emitOutput(lines);
 
     indexManager.close();
   } catch {
