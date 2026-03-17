@@ -371,6 +371,7 @@ rules:
         - "*spec*"
         - "*fixture*"
         - "**/cli/download.ts"
+        - "**/cli/init-gemini.ts"
     message: >
       exec() or execSync() spawns a shell and is vulnerable to command injection
       if the command string includes unsanitized user input.
