@@ -112,27 +112,27 @@ describe("migrate", () => {
   });
 
   describe("shouldMigrate", () => {
-    it("returns false when legacy directory does not exist", () => {
+    it("returns false when legacy directory does not exist", async () => {
       expect(shouldMigrate(join(legacyDir, "nonexistent"))).toBe(false);
     });
 
-    it("returns false when .migrated marker exists", () => {
+    it("returns false when .migrated marker exists", async () => {
       writeLegacyIndex(legacyDir, [makeDocument()]);
       writeFileSync(join(legacyDir, ".migrated"), "done");
       expect(shouldMigrate(legacyDir)).toBe(false);
     });
 
-    it("returns true when legacy data exists without marker", () => {
+    it("returns true when legacy data exists without marker", async () => {
       writeLegacyIndex(legacyDir, [makeDocument()]);
       expect(shouldMigrate(legacyDir)).toBe(true);
     });
 
-    it("returns true when only knowledge.json exists", () => {
+    it("returns true when only knowledge.json exists", async () => {
       writeLegacyKnowledge(legacyDir, [makeKnowledgeEntry()]);
       expect(shouldMigrate(legacyDir)).toBe(true);
     });
 
-    it("returns false when directory is empty", () => {
+    it("returns false when directory is empty", async () => {
       expect(shouldMigrate(legacyDir)).toBe(false);
     });
   });
@@ -386,7 +386,7 @@ describe("migrate", () => {
       // Re-open DB and verify
       const db = openDatabase(tempDbPath);
       const store = new SqliteDocumentStore(db);
-      const docs = store.getBySession("ses-abc");
+      const docs = await store.getBySession("ses-abc");
 
       expect(docs).toHaveLength(1);
       expect(docs[0].sessionId).toBe("ses-abc");

@@ -12,9 +12,9 @@ import type { KnowledgeEntry } from "./knowledge-store.js";
 
 /** Minimal interface for knowledge stores used by the synthesizer. */
 export interface SynthesisStore {
-  getAllEntries(): readonly KnowledgeEntry[] | KnowledgeEntry[];
-  hasEntry(id: string): boolean;
-  addEntry(entry: KnowledgeEntry): void;
+  getAllEntries(): Promise<readonly KnowledgeEntry[] | KnowledgeEntry[]>;
+  hasEntry(id: string): Promise<boolean>;
+  addEntry(entry: KnowledgeEntry): Promise<void>;
 }
 
 export interface RecurringIssue {
@@ -35,8 +35,8 @@ interface Cluster {
  * Run the full synthesis pipeline: cluster → score → promote learnings.
  * Returns newly created learning entries.
  */
-export function synthesizeLearnings(store: SynthesisStore): KnowledgeEntry[] {
-  const allEntries = store.getAllEntries();
+export async function synthesizeLearnings(store: SynthesisStore): Promise<KnowledgeEntry[]> {
+  const allEntries = await store.getAllEntries();
   const candidates = allEntries.filter(
     (e) => e.type === "solution" || e.type === "error_fix"
   );
@@ -55,10 +55,10 @@ export function synthesizeLearnings(store: SynthesisStore): KnowledgeEntry[] {
     if (score < threshold) continue;
 
     const id = deterministicId(cluster.key);
-    if (store.hasEntry(id)) continue;
+    if (await store.hasEntry(id)) continue;
 
     const learning = createLearning(cluster, id);
-    store.addEntry(learning);
+    await store.addEntry(learning);
     newLearnings.push(learning);
   }
 

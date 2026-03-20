@@ -23,7 +23,7 @@ interface StopPayload {
   cwd?: string;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   let payload: StopPayload = {};
 
   try {
@@ -65,15 +65,15 @@ function main(): void {
     const indexManager = new SqliteIndexManager();
 
     const summary = summarizeSession(session);
-    indexManager.summaries.save(summary);
+    await indexManager.summaries.save(summary);
 
     // 3. Extract knowledge with evaluation + dedup
-    const existingEntries = indexManager.knowledge.getAllEntries();
+    const existingEntries = await indexManager.knowledge.getAllEntries();
     const newKnowledge = extractEvaluatedKnowledge(session, existingEntries);
 
     if (newKnowledge.length > 0) {
       for (const entry of newKnowledge) {
-        indexManager.knowledge.addEntry(entry);
+        await indexManager.knowledge.addEntry(entry);
       }
     }
 

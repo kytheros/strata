@@ -85,6 +85,9 @@ Store-memory flags:
 
 Serve flags:
   --port <n>        HTTP port (default: 3000 or $PORT)
+  --multi-tenant    Enable multi-tenant HTTP mode (per-user databases)
+  --data-dir <path> Base directory for per-user databases (overrides STRATA_DATA_DIR)
+  --max-dbs <n>     Max open databases in pool (default: 200)
 
 Activate flags:
   --binary          Download standalone binary instead of tarball
@@ -139,6 +142,12 @@ function parseArgs(argv: string[]): {
       flags.tool = argv[++i];
     } else if (arg === "--port" && i + 1 < argv.length) {
       flags.port = argv[++i];
+    } else if (arg === "--multi-tenant") {
+      flags["multi-tenant"] = true;
+    } else if (arg === "--data-dir" && i + 1 < argv.length) {
+      flags["data-dir"] = argv[++i];
+    } else if (arg === "--max-dbs" && i + 1 < argv.length) {
+      flags["max-dbs"] = argv[++i];
     } else if (arg === "--type" && i + 1 < argv.length) {
       flags.type = argv[++i];
     } else if (arg === "--tags" && i + 1 < argv.length) {
@@ -200,7 +209,7 @@ async function runSearch(
   }
 
   const start = performance.now();
-  const results = searchEngine.search(searchQuery, {
+  const results = await searchEngine.search(searchQuery, {
     limit: flags.limit ? parseInt(String(flags.limit), 10) : 20,
     project: flags.project ? String(flags.project) : undefined,
   });
@@ -553,27 +562,57 @@ async function runEmbed(): Promise<void> {
 async function runServe(
   flags: Record<string, string | boolean>
 ): Promise<void> {
-  const { createServer } = await import("./server.js");
-  const { startHttpTransport } = await import("./transports/http-transport.js");
-
   const port = flags.port
     ? parseInt(String(flags.port), 10)
     : process.env.PORT
       ? parseInt(process.env.PORT, 10)
       : 3000;
 
-  const { server } = createServer();
-  const handle = await startHttpTransport(server, { port });
+  if (flags["multi-tenant"]) {
+    const { startMultiTenantHttpTransport } = await import(
+      "./transports/multi-tenant-http-transport.js"
+    );
+    const { getDataDir } = await import("./storage/database.js");
 
-  // Graceful shutdown
-  const shutdown = async () => {
-    console.log("\nShutting down...");
-    await handle.close();
-    process.exit(0);
-  };
+    const baseDir = flags["data-dir"]
+      ? String(flags["data-dir"])
+      : process.env.STRATA_DATA_DIR || getDataDir();
+    const maxDbs = flags["max-dbs"]
+      ? parseInt(String(flags["max-dbs"]), 10)
+      : 200;
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+    const handle = await startMultiTenantHttpTransport({
+      port,
+      baseDir,
+      maxDbs,
+    });
+
+    // Graceful shutdown
+    const shutdown = async () => {
+      console.log("\nShutting down multi-tenant server...");
+      await handle.close();
+      process.exit(0);
+    };
+
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+  } else {
+    const { createServer } = await import("./server.js");
+    const { startHttpTransport } = await import("./transports/http-transport.js");
+
+    const { server } = await createServer();
+    const handle = await startHttpTransport(server, { port });
+
+    // Graceful shutdown
+    const shutdown = async () => {
+      console.log("\nShutting down...");
+      await handle.close();
+      process.exit(0);
+    };
+
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+  }
 }
 
 async function startServer(): Promise<void> {
@@ -582,7 +621,7 @@ async function startServer(): Promise<void> {
   );
   const { createServer } = await import("./server.js");
 
-  const { server } = createServer();
+  const { server } = await createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

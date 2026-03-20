@@ -8,12 +8,12 @@ describe("SqliteIndexManager", () => {
     if (manager) manager.close();
   });
 
-  it("should create with in-memory database", () => {
+  it("should create with in-memory database", async () => {
     manager = new SqliteIndexManager(":memory:");
     expect(manager.db.open).toBe(true);
   });
 
-  it("should expose all stores", () => {
+  it("should expose all stores", async () => {
     manager = new SqliteIndexManager(":memory:");
     expect(manager.documents).toBeDefined();
     expect(manager.knowledge).toBeDefined();
@@ -21,7 +21,7 @@ describe("SqliteIndexManager", () => {
     expect(manager.meta).toBeDefined();
   });
 
-  it("should report zero stats for empty database", () => {
+  it("should report zero stats for empty database", async () => {
     manager = new SqliteIndexManager(":memory:");
     const stats = manager.getStats();
     expect(stats.documents).toBe(0);
@@ -30,13 +30,13 @@ describe("SqliteIndexManager", () => {
     expect(stats.buildTimeMs).toBe(0);
   });
 
-  it("should store and retrieve metadata", () => {
+  it("should store and retrieve metadata", async () => {
     manager = new SqliteIndexManager(":memory:");
-    manager.meta.set("version", "1");
-    expect(manager.meta.get("version")).toBe("1");
+    await manager.meta.set("version", "1");
+    expect(await manager.meta.get("version")).toBe("1");
   });
 
-  it("should close database", () => {
+  it("should close database", async () => {
     manager = new SqliteIndexManager(":memory:");
     manager.close();
     expect(manager.db.open).toBe(false);

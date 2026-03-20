@@ -21,7 +21,7 @@ import type { SynthesisStore } from "../knowledge/learning-synthesizer.js";
 /** Minimal interface for knowledge stores used by the indexer. */
 export interface IndexerKnowledgeStore extends SynthesisStore {
   save?(): unknown;
-  getGlobalLearnings(project?: string): KnowledgeEntry[];
+  getGlobalLearnings(project?: string): Promise<KnowledgeEntry[]>;
 }
 import {
   summarizeSession,
@@ -37,7 +37,7 @@ import { extractProcedures } from "../knowledge/procedure-extractor.js";
 import { resolveConflicts, executeResolution } from "../knowledge/conflict-resolver.js";
 import { computeImportance } from "../knowledge/importance.js";
 import type { SqliteKnowledgeStore } from "../storage/sqlite-knowledge-store.js";
-import type { SqliteEntityStore } from "../storage/sqlite-entity-store.js";
+import type { IEntityStore } from "../storage/interfaces/index.js";
 import type { ParserRegistry } from "../parsers/parser-registry.js";
 import { randomUUID } from "crypto";
 import { FileWatcher, getWatchTargets } from "./file-watcher.js";
@@ -46,14 +46,14 @@ export class IncrementalIndexer {
   private watcher: FileWatcher;
   private indexManager: IndexManagerLike;
   private knowledgeStore: IndexerKnowledgeStore;
-  private entityStore: SqliteEntityStore | null;
+  private entityStore: IEntityStore | null;
   private parserRegistry: ParserRegistry | null;
   private processing = new Set<string>();
 
   constructor(
     indexManager: IndexManagerLike,
     knowledgeStore: IndexerKnowledgeStore,
-    entityStore?: SqliteEntityStore,
+    entityStore?: IEntityStore,
     parserRegistry?: ParserRegistry
   ) {
     this.watcher = new FileWatcher();
@@ -220,7 +220,7 @@ export class IncrementalIndexer {
           // Extract and store entities (non-fatal)
           if (this.entityStore) {
             try {
-              this.extractAndStoreEntities(knowledge, session.sessionId, projectDir);
+              await this.extractAndStoreEntities(knowledge, session.sessionId, projectDir);
             } catch (err) {
               // Entity extraction errors must never crash the pipeline
               console.warn("[entity-extraction] Error:", err);
@@ -228,12 +228,12 @@ export class IncrementalIndexer {
           }
 
           // Run synthesis after new knowledge is extracted
-          const newLearnings = synthesizeLearnings(this.knowledgeStore);
+          const newLearnings = await synthesizeLearnings(this.knowledgeStore);
           if (newLearnings.length > 0) {
             this.knowledgeStore.save?.();
             // Write learnings to the tool-appropriate location
             const projectLearnings =
-              this.knowledgeStore.getGlobalLearnings(projectDir);
+              await this.knowledgeStore.getGlobalLearnings(projectDir);
             writeLearningsToMemory(projectDir, projectLearnings, tool);
           }
         }
@@ -253,11 +253,11 @@ export class IncrementalIndexer {
    * Extract entities from knowledge entries and store them in the entity store.
    * Links each entity to its source knowledge entry.
    */
-  private extractAndStoreEntities(
+  private async extractAndStoreEntities(
     entries: import("../knowledge/knowledge-store.js").KnowledgeEntry[],
     sessionId: string,
     project: string
-  ): void {
+  ): Promise<void> {
     if (!this.entityStore) return;
     const now = Date.now();
 
@@ -268,7 +268,7 @@ export class IncrementalIndexer {
       const entityIds = new Map<string, string>();
 
       for (const extracted of entities) {
-        const entityId = this.entityStore.upsertEntity({
+        const entityId = await this.entityStore.upsertEntity({
           id: randomUUID(),
           name: extracted.name,
           type: extracted.type,
@@ -279,7 +279,7 @@ export class IncrementalIndexer {
           project,
         });
         entityIds.set(extracted.canonicalName, entityId);
-        this.entityStore.linkToKnowledge(entry.id, entityId);
+        await this.entityStore.linkToKnowledge(entry.id, entityId);
       }
 
       // Extract relations between entities in this entry
@@ -288,7 +288,7 @@ export class IncrementalIndexer {
         const sourceId = entityIds.get(rel.sourceCanonical);
         const targetId = entityIds.get(rel.targetCanonical);
         if (sourceId && targetId) {
-          this.entityStore.addRelation({
+          await this.entityStore.addRelation({
             sourceEntityId: sourceId,
             targetEntityId: targetId,
             relationType: rel.relationType,

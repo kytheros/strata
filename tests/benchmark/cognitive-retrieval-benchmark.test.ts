@@ -100,11 +100,11 @@ let docStore: SqliteDocumentStore;
 let engine: SqliteSearchEngine;
 const idMap = new Map<string, string>();
 
-function seedDatabase(): void {
+async function seedDatabase(): Promise<void> {
   const now = Date.now();
   for (let i = 0; i < SEED_ENTRIES.length; i++) {
     const e = SEED_ENTRIES[i];
-    const genId = docStore.add(e.text, e.text.split(/\s+/).length, {
+    const genId = await docStore.add(e.text, e.text.split(/\s+/).length, {
       sessionId: e.sessionId,
       project: e.project,
       role: e.role,
@@ -118,8 +118,8 @@ function seedDatabase(): void {
   }
 }
 
-function findRank(query: string, expectedId: string): number {
-  const results = engine.search(query, { limit: 50 });
+async function findRank(query: string, expectedId: string): Promise<number> {
+  const results = await engine.search(query, { limit: 50 });
   const targetSession = SEED_ENTRIES.find((e) => e.id === expectedId)?.sessionId;
   if (!targetSession) return 0;
   for (let i = 0; i < results.length; i++) {
@@ -128,19 +128,19 @@ function findRank(query: string, expectedId: string): number {
   return 0;
 }
 
-function computeMRR(): number {
+async function computeMRR(): Promise<number> {
   let sum = 0;
   for (const { query, expectedTopId } of EVAL_QUERIES) {
-    const rank = findRank(query, expectedTopId);
+    const rank = await findRank(query, expectedTopId);
     if (rank > 0) sum += 1 / rank;
   }
   return sum / EVAL_QUERIES.length;
 }
 
-function computeTop1(): number {
+async function computeTop1(): Promise<number> {
   let correct = 0;
   for (const { query, expectedTopId } of EVAL_QUERIES) {
-    if (findRank(query, expectedTopId) === 1) correct++;
+    if (await findRank(query, expectedTopId) === 1) correct++;
   }
   return correct / EVAL_QUERIES.length;
 }
@@ -174,11 +174,11 @@ describe("Cognitive Retrieval Benchmark (before vs after)", () => {
   let gapResolvedCount: number;
   let gapTotalCount: number;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     db = openDatabase(":memory:");
     docStore = new SqliteDocumentStore(db);
     engine = new SqliteSearchEngine(docStore);
-    seedDatabase();
+    await seedDatabase();
   });
 
   afterAll(() => {
@@ -188,12 +188,12 @@ describe("Cognitive Retrieval Benchmark (before vs after)", () => {
   // ─── Phase 1: Measure BASELINE (no importance) ───────────────────────
 
   describe("Phase 1: BASELINE (pure BM25, no importance)", () => {
-    it("should measure baseline metrics", () => {
+    it("should measure baseline metrics", async () => {
       const origBoost = CONFIG.importance.boostMax;
       disableImportance();
 
-      mrrBaseline = computeMRR();
-      top1Baseline = computeTop1();
+      mrrBaseline = await computeMRR();
+      top1Baseline = await computeTop1();
 
       console.log("");
       console.log("═══════════════════════════════════════════════════════");
@@ -202,7 +202,7 @@ describe("Cognitive Retrieval Benchmark (before vs after)", () => {
       console.log("");
 
       for (const { query, expectedTopId } of EVAL_QUERIES) {
-        const rank = findRank(query, expectedTopId);
+        const rank = await findRank(query, expectedTopId);
         const entry = SEED_ENTRIES.find((e) => e.id === expectedTopId)!;
         const marker = rank === 1 ? "✅" : rank <= 3 ? "⚠️ " : "❌";
         console.log(`  ${marker} "${query}" → ${entry.level.toUpperCase()} "${expectedTopId}" → rank #${rank}`);
@@ -222,9 +222,9 @@ describe("Cognitive Retrieval Benchmark (before vs after)", () => {
   // ─── Phase 2: Measure WITH IMPORTANCE ────────────────────────────────
 
   describe("Phase 2: WITH IMPORTANCE (current implementation)", () => {
-    it("should measure importance-enabled metrics", () => {
-      mrrImportance = computeMRR();
-      top1Importance = computeTop1();
+    it("should measure importance-enabled metrics", async () => {
+      mrrImportance = await computeMRR();
+      top1Importance = await computeTop1();
 
       console.log("");
       console.log("═══════════════════════════════════════════════════════");
@@ -233,7 +233,7 @@ describe("Cognitive Retrieval Benchmark (before vs after)", () => {
       console.log("");
 
       for (const { query, expectedTopId } of EVAL_QUERIES) {
-        const rank = findRank(query, expectedTopId);
+        const rank = await findRank(query, expectedTopId);
         const entry = SEED_ENTRIES.find((e) => e.id === expectedTopId)!;
         const marker = rank === 1 ? "✅" : rank <= 3 ? "⚠️ " : "❌";
         console.log(`  ${marker} "${query}" → ${entry.level.toUpperCase()} "${expectedTopId}" → rank #${rank}`);
@@ -250,7 +250,7 @@ describe("Cognitive Retrieval Benchmark (before vs after)", () => {
   // ─── Phase 3: Evidence Gap Lifecycle ─────────────────────────────────
 
   describe("Phase 3: Evidence Gap Lifecycle", () => {
-    it("should complete the full gap lifecycle", () => {
+    it("should complete the full gap lifecycle", async () => {
       // Record gaps — same query with different word order (should dedup)
       recordGap(db, { query: "kubernetes deploy", tool: "search_history", project: "test", user: "default", resultCount: 0, topScore: null, topConfidence: null });
       recordGap(db, { query: "deploy kubernetes", tool: "search_history", project: "test", user: "default", resultCount: 0, topScore: null, topConfidence: null });
@@ -324,7 +324,7 @@ describe("Cognitive Retrieval Benchmark (before vs after)", () => {
   // ─── Phase 4: Report Card ────────────────────────────────────────────
 
   describe("Phase 4: REPORT CARD — spec target comparison", () => {
-    it("should print the full before/after comparison", () => {
+    it("should print the full before/after comparison", async () => {
       const mrrDelta = mrrImportance - mrrBaseline;
       const top1Delta = (top1Importance - top1Baseline) * 100;
 

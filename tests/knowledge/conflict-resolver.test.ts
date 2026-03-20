@@ -58,7 +58,7 @@ describe("resolveConflicts", () => {
   it("returns shouldAdd:true with delete action when LLM says supersede", async () => {
     // LIKE search: candidate "package management" is a substring of existing summary
     const existing = makeEntry({ id: "abc123", summary: "Project uses Yarn for package management in monorepo" });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: "package management" });
     const provider = makeProvider(
@@ -78,7 +78,7 @@ describe("resolveConflicts", () => {
   it("returns shouldAdd:true with update action when LLM says merge", async () => {
     // LIKE search: candidate "Uses React" is a substring of existing
     const existing = makeEntry({ id: "def456", summary: "Uses React 17 for the frontend" });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: "Uses React" });
     const provider = makeProvider(
@@ -106,7 +106,7 @@ describe("resolveConflicts", () => {
   it("returns shouldAdd:true with noop actions when no conflict", async () => {
     // Use summary substring overlap so SQLite LIKE search finds the existing entry
     const existing = makeEntry({ id: "ghi789", summary: "Uses ESLint for linting in the project" });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: "Uses ESLint for linting" });
     const provider = makeProvider(
@@ -126,7 +126,7 @@ describe("resolveConflicts", () => {
   it("returns shouldAdd:false when LLM says full duplicate", async () => {
     // Use summary substring overlap so SQLite LIKE search finds the existing entry
     const existing = makeEntry({ id: "jkl012", summary: "Uses TypeScript strict mode for type safety" });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: "Uses TypeScript strict mode" });
     const provider = makeProvider(
@@ -144,7 +144,7 @@ describe("resolveConflicts", () => {
   it("falls back gracefully on LLM timeout", async () => {
     // Use substring overlap so search finds the entry and triggers LLM
     const existing = makeEntry({ id: "e1", summary: "Some knowledge about testing" });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: "Some knowledge" });
     const provider = makeFailingProvider();
@@ -188,7 +188,7 @@ describe("resolveConflicts", () => {
     vi.stubEnv("STRATA_CONFLICT_RESOLUTION", "0");
 
     const existing = makeEntry({ id: "e1", summary: "Some knowledge" });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: "Some knowledge" });
     const provider = makeProvider(
@@ -205,7 +205,7 @@ describe("resolveConflicts", () => {
   it("truncates entries in prompt to 300 chars", async () => {
     const longSummary = "A".repeat(500);
     const existing = makeEntry({ id: "e1", summary: longSummary });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: longSummary });
     const provider = makeProvider(
@@ -224,14 +224,14 @@ describe("resolveConflicts", () => {
 describe("parseResponse", () => {
   const similar = [makeEntry({ id: "e1" }), makeEntry({ id: "e2" })];
 
-  it("strips markdown fences from LLM response", () => {
+  it("strips markdown fences from LLM response", async () => {
     const raw = '```json\n{"shouldAdd": true, "actions": []}\n```';
     const result = parseResponse(raw, similar);
     expect(result.shouldAdd).toBe(true);
     expect(result.actions).toEqual([]);
   });
 
-  it("coerces update action missing mergedSummary to noop", () => {
+  it("coerces update action missing mergedSummary to noop", async () => {
     const raw = JSON.stringify({
       shouldAdd: true,
       actions: [{ id: "e1", action: "update" }],
@@ -240,7 +240,7 @@ describe("parseResponse", () => {
     expect(result.actions[0].action).toBe("noop");
   });
 
-  it("rejects unknown action types", () => {
+  it("rejects unknown action types", async () => {
     const raw = JSON.stringify({
       shouldAdd: true,
       actions: [
@@ -253,7 +253,7 @@ describe("parseResponse", () => {
     expect(result.actions[0].action).toBe("delete");
   });
 
-  it("handles malformed actions gracefully", () => {
+  it("handles malformed actions gracefully", async () => {
     const raw = JSON.stringify({
       shouldAdd: true,
       actions: [null, { action: "delete" }, { id: "e1" }],
@@ -262,7 +262,7 @@ describe("parseResponse", () => {
     expect(result.actions).toEqual([]);
   });
 
-  it("defaults shouldAdd to true if not boolean", () => {
+  it("defaults shouldAdd to true if not boolean", async () => {
     const raw = JSON.stringify({
       shouldAdd: "yes",
       actions: [],
@@ -271,14 +271,14 @@ describe("parseResponse", () => {
     expect(result.shouldAdd).toBe(true);
   });
 
-  it("handles missing actions array", () => {
+  it("handles missing actions array", async () => {
     const raw = JSON.stringify({ shouldAdd: false });
     const result = parseResponse(raw, similar);
     expect(result.shouldAdd).toBe(false);
     expect(result.actions).toEqual([]);
   });
 
-  it("throws on completely invalid JSON", () => {
+  it("throws on completely invalid JSON", async () => {
     expect(() => parseResponse("not json at all", similar)).toThrow();
   });
 });
@@ -296,9 +296,9 @@ describe("executeResolution", () => {
     db.close();
   });
 
-  it("calls deleteEntry for delete actions", () => {
+  it("calls deleteEntry for delete actions", async () => {
     const existing = makeEntry({ id: "del1", summary: "Old entry" });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: "New entry" });
     const resolution: ConflictResolution = {
@@ -306,15 +306,15 @@ describe("executeResolution", () => {
       actions: [{ id: "del1", action: "delete" }],
     };
 
-    executeResolution(resolution, candidate, store);
+    await executeResolution(resolution, candidate, store);
 
-    expect(store.getEntry("del1")).toBeUndefined();
-    expect(store.getEntry("new1")).toBeDefined();
+    expect(await store.getEntry("del1")).toBeUndefined();
+    expect(await store.getEntry("new1")).toBeDefined();
   });
 
-  it("calls updateEntry with merged fields for update actions", () => {
+  it("calls updateEntry with merged fields for update actions", async () => {
     const existing = makeEntry({ id: "upd1", summary: "Old summary", details: "Old details" });
-    store.addEntry(existing);
+    await store.addEntry(existing);
 
     const candidate = makeEntry({ id: "new1", summary: "New entry" });
     const resolution: ConflictResolution = {
@@ -329,32 +329,32 @@ describe("executeResolution", () => {
       ],
     };
 
-    executeResolution(resolution, candidate, store);
+    await executeResolution(resolution, candidate, store);
 
-    const updated = store.getEntry("upd1");
+    const updated = await store.getEntry("upd1");
     expect(updated).toBeDefined();
     expect(updated!.summary).toBe("Merged summary");
     expect(updated!.details).toBe("Merged details");
-    expect(store.getEntry("new1")).toBeDefined();
+    expect(await store.getEntry("new1")).toBeDefined();
   });
 
-  it("calls addEntry only when shouldAdd is true", () => {
+  it("calls addEntry only when shouldAdd is true", async () => {
     const candidate = makeEntry({ id: "new1", summary: "Should not be added" });
     const resolution: ConflictResolution = {
       shouldAdd: false,
       actions: [],
     };
 
-    executeResolution(resolution, candidate, store);
+    await executeResolution(resolution, candidate, store);
 
-    expect(store.getEntry("new1")).toBeUndefined();
+    expect(await store.getEntry("new1")).toBeUndefined();
   });
 
-  it("applies deletes before updates before add", () => {
+  it("applies deletes before updates before add", async () => {
     const toDelete = makeEntry({ id: "del1", summary: "To delete" });
     const toUpdate = makeEntry({ id: "upd1", summary: "To update" });
-    store.addEntry(toDelete);
-    store.addEntry(toUpdate);
+    await store.addEntry(toDelete);
+    await store.addEntry(toUpdate);
 
     const deleteSpy = vi.spyOn(store, "deleteEntry");
     const updateSpy = vi.spyOn(store, "updateEntry");
@@ -369,7 +369,7 @@ describe("executeResolution", () => {
       ],
     };
 
-    executeResolution(resolution, candidate, store);
+    await executeResolution(resolution, candidate, store);
 
     // Verify ordering: delete called before update, update before add
     const deleteOrder = deleteSpy.mock.invocationCallOrder[0];
@@ -380,7 +380,7 @@ describe("executeResolution", () => {
     expect(updateOrder).toBeLessThan(addOrder);
   });
 
-  it("skips update gracefully if entry no longer exists", () => {
+  it("skips update gracefully if entry no longer exists", async () => {
     const candidate = makeEntry({ id: "new1", summary: "New entry" });
     const resolution: ConflictResolution = {
       shouldAdd: true,
@@ -390,13 +390,13 @@ describe("executeResolution", () => {
     };
 
     // Should not throw
-    executeResolution(resolution, candidate, store);
-    expect(store.getEntry("new1")).toBeDefined();
+    await executeResolution(resolution, candidate, store);
+    expect(await store.getEntry("new1")).toBeDefined();
   });
 
-  it("handles all 5 similar entries getting deleted", () => {
+  it("handles all 5 similar entries getting deleted", async () => {
     for (let i = 0; i < 5; i++) {
-      store.addEntry(makeEntry({ id: `e${i}`, summary: `Entry ${i} about tooling` }));
+      await store.addEntry(makeEntry({ id: `e${i}`, summary: `Entry ${i} about tooling` }));
     }
 
     const candidate = makeEntry({ id: "new1", summary: "New tooling decision" });
@@ -411,11 +411,11 @@ describe("executeResolution", () => {
       ],
     };
 
-    executeResolution(resolution, candidate, store);
+    await executeResolution(resolution, candidate, store);
 
     for (let i = 0; i < 5; i++) {
-      expect(store.getEntry(`e${i}`)).toBeUndefined();
+      expect(await store.getEntry(`e${i}`)).toBeUndefined();
     }
-    expect(store.getEntry("new1")).toBeDefined();
+    expect(await store.getEntry("new1")).toBeDefined();
   });
 });

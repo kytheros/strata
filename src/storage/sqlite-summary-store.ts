@@ -1,12 +1,14 @@
 /**
  * SQLite-backed session summary store.
  * Replaces the per-file JSON summaries in summaries/*.json.
+ * Implements ISummaryStore for pluggable storage support.
  */
 
 import type Database from "better-sqlite3";
 import type { SessionSummary } from "../knowledge/session-summarizer.js";
+import type { ISummaryStore, SessionListOptions } from "./interfaces/index.js";
 
-export class SqliteSummaryStore {
+export class SqliteSummaryStore implements ISummaryStore {
   private stmts: {
     upsert: Database.Statement;
     getById: Database.Statement;
@@ -37,7 +39,7 @@ export class SqliteSummaryStore {
   /**
    * Save (upsert) a session summary.
    */
-  save(summary: SessionSummary, tool: string = "claude-code"): void {
+  async save(summary: SessionSummary, tool: string = "claude-code"): Promise<void> {
     this.stmts.upsert.run({
       sessionId: summary.sessionId,
       project: summary.project,
@@ -54,7 +56,7 @@ export class SqliteSummaryStore {
   /**
    * Get a summary by session ID.
    */
-  get(sessionId: string): SessionSummary | null {
+  async get(sessionId: string): Promise<SessionSummary | null> {
     const row = this.stmts.getById.get(sessionId) as SqliteSummaryRow | undefined;
     return row ? rowToSummary(row) : null;
   }
@@ -62,7 +64,7 @@ export class SqliteSummaryStore {
   /**
    * Get summaries for a project (partial match).
    */
-  getByProject(project: string): SessionSummary[] {
+  async getByProject(project: string): Promise<SessionSummary[]> {
     const rows = this.stmts.getByProject.all(project) as SqliteSummaryRow[];
     return rows.map(rowToSummary);
   }
@@ -70,7 +72,7 @@ export class SqliteSummaryStore {
   /**
    * Get summaries by tool type.
    */
-  getByTool(tool: string): SessionSummary[] {
+  async getByTool(tool: string): Promise<SessionSummary[]> {
     const rows = this.stmts.getByTool.all(tool) as SqliteSummaryRow[];
     return rows.map(rowToSummary);
   }
@@ -78,7 +80,7 @@ export class SqliteSummaryStore {
   /**
    * Get the N most recent summaries.
    */
-  getRecent(limit: number = 10): SessionSummary[] {
+  async getRecent(limit: number = 10): Promise<SessionSummary[]> {
     const rows = this.stmts.getRecent.all(limit) as SqliteSummaryRow[];
     return rows.map(rowToSummary);
   }
@@ -86,7 +88,7 @@ export class SqliteSummaryStore {
   /**
    * Get all summaries.
    */
-  getAll(): SessionSummary[] {
+  async getAll(): Promise<SessionSummary[]> {
     const rows = this.stmts.getAll.all() as SqliteSummaryRow[];
     return rows.map(rowToSummary);
   }
@@ -94,14 +96,14 @@ export class SqliteSummaryStore {
   /**
    * Remove a summary by session ID.
    */
-  remove(sessionId: string): void {
+  async remove(sessionId: string): Promise<void> {
     this.stmts.remove.run(sessionId);
   }
 
   /**
    * Get total summary count.
    */
-  getCount(): number {
+  async getCount(): Promise<number> {
     const row = this.stmts.count.get() as { count: number };
     return row.count;
   }
@@ -109,13 +111,7 @@ export class SqliteSummaryStore {
   /**
    * Paginated session listing with filters.
    */
-  getSessions(options: {
-    project?: string;
-    tool?: string;
-    hasCodeChanges?: boolean;
-    limit: number;
-    offset: number;
-  }): { sessions: SessionSummary[]; total: number } {
+  async getSessions(options: SessionListOptions): Promise<{ sessions: SessionSummary[]; total: number }> {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
@@ -151,7 +147,7 @@ export class SqliteSummaryStore {
   /**
    * Calendar heatmap data: session count per day.
    */
-  getSessionHeatmap(sinceMs: number): Array<{ date: string; count: number }> {
+  async getSessionHeatmap(sinceMs: number): Promise<Array<{ date: string; count: number }>> {
     return this.db
       .prepare(
         `SELECT DATE(end_time / 1000, 'unixepoch') as date, COUNT(*) as count
@@ -166,7 +162,7 @@ export class SqliteSummaryStore {
   /**
    * Per-project session counts.
    */
-  getProjectSessionCounts(): Record<string, number> {
+  async getProjectSessionCounts(): Promise<Record<string, number>> {
     const rows = this.db
       .prepare("SELECT project, COUNT(*) as count FROM summaries GROUP BY project")
       .all() as Array<{ project: string; count: number }>;

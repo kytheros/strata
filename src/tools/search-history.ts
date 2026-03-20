@@ -7,6 +7,64 @@ import { truncatePreview } from "../utils/response.js";
 import { CONFIG } from "../config.js";
 import { recordGap, getGapOccurrences } from "../search/evidence-gaps.js";
 
+/**
+ * Search the knowledge table for stored memories matching a query.
+ * Returns results in SearchResult format so they merge with document results.
+ */
+function searchKnowledge(db: Database.Database, query: string, options: SearchOptions): SearchResult[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+  if (terms.length === 0) return [];
+
+  // Build WHERE clause: all terms must appear in summary or details
+  const conditions = terms.map(() => "(LOWER(summary || ' ' || details) LIKE ?)");
+  const params: unknown[] = terms.map(t => `%${t}%`);
+
+  let sql = `SELECT id, type, project, session_id, timestamp, summary, details, tags, importance
+    FROM knowledge WHERE ${conditions.join(" AND ")}`;
+
+  if (options.project) {
+    sql += " AND project = ?";
+    params.push(options.project);
+  }
+  if (options.user) {
+    sql += " AND user = ?";
+    params.push(options.user);
+  }
+
+  sql += " ORDER BY importance DESC, timestamp DESC LIMIT ?";
+  params.push(Math.min(options.limit ?? 20, 100));
+
+  try {
+    const rows = db.prepare(sql).all(...params) as Array<{
+      id: string; type: string; project: string; session_id: string;
+      timestamp: number; summary: string; details: string; tags: string;
+      importance: number | null;
+    }>;
+
+    return rows.map(r => {
+      const text = r.details && r.details !== r.summary
+        ? `[${r.type}] ${r.summary}\n${r.details}`
+        : `[${r.type}] ${r.summary}`;
+      const tags = r.tags ? JSON.parse(r.tags) as string[] : [];
+
+      // Score: importance-based with a boost for stored memories
+      const baseScore = (r.importance ?? 0.5) * 10;
+      return {
+        sessionId: r.session_id || "knowledge",
+        project: r.project,
+        text,
+        score: baseScore,
+        confidence: Math.min(baseScore / 10, 1),
+        timestamp: r.timestamp,
+        toolNames: tags.length > 0 ? [`tags:${tags.join(",")}`] : [],
+        role: "assistant" as const,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** Map confidence value to a display band label. */
 function confidenceBand(c: number): string {
   if (c >= CONFIG.search.confidenceHighThreshold) return "high";
@@ -61,9 +119,19 @@ export async function handleSearchHistory(
     user: args.user,
   };
 
-  const results = asyncSearch
+  let results = asyncSearch
     ? await asyncSearch(args.query, searchOptions)
-    : engine.search(args.query, searchOptions);
+    : await engine.search(args.query, searchOptions);
+
+  // Also search the knowledge table for stored memories
+  if (db) {
+    const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
+    if (knowledgeResults.length > 0) {
+      results = [...results, ...knowledgeResults]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+    }
+  }
 
   // Record evidence gap if results are empty or low-confidence
   if (db && CONFIG.gaps.enabled) {

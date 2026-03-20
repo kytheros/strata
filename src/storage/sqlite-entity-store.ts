@@ -2,61 +2,20 @@
  * SQLite-backed entity store for cross-session entity tracking.
  * Provides CRUD operations for entities, relations, and knowledge-entity links.
  * Follows the same prepared-statement pattern as SqliteKnowledgeStore.
+ * Implements IEntityStore for pluggable storage support.
  */
 
 import { randomUUID } from "crypto";
 import type Database from "better-sqlite3";
 import type { KnowledgeEntry } from "../knowledge/knowledge-store.js";
 import type { EntityType } from "../knowledge/entity-extractor.js";
+import type { IEntityStore, EntityListOptions, EntityGraph } from "./interfaces/index.js";
 
-/** Stored entity row shape. */
-export interface EntityRow {
-  id: string;
-  name: string;
-  type: EntityType;
-  canonical_name: string;
-  aliases: string; // JSON array
-  first_seen: number;
-  last_seen: number;
-  mention_count: number;
-  project: string | null;
-  user: string | null;
-}
+// Re-export types from interfaces for backward compatibility
+export type { EntityRow, EntityInput, EntityRelationRow, RelationInput } from "./interfaces/entity-store.js";
+import type { EntityRow, EntityInput, EntityRelationRow, RelationInput } from "./interfaces/entity-store.js";
 
-/** Input for upserting an entity. */
-export interface EntityInput {
-  id: string;
-  name: string;
-  type: EntityType;
-  canonicalName: string;
-  aliases: string[];
-  firstSeen: number;
-  lastSeen: number;
-  project?: string;
-  user?: string;
-}
-
-/** Stored entity relation. */
-export interface EntityRelationRow {
-  id: string;
-  source_entity_id: string;
-  target_entity_id: string;
-  relation_type: string;
-  context: string | null;
-  session_id: string | null;
-  created_at: number;
-}
-
-/** Input for adding a relation. */
-export interface RelationInput {
-  sourceEntityId: string;
-  targetEntityId: string;
-  relationType: string;
-  context?: string;
-  sessionId?: string;
-}
-
-export class SqliteEntityStore {
+export class SqliteEntityStore implements IEntityStore {
   private stmts: {
     findByCanonical: Database.Statement;
     insert: Database.Statement;
@@ -148,7 +107,7 @@ export class SqliteEntityStore {
    * Upsert an entity. If canonical_name already exists (case-insensitive),
    * increments mention_count, updates last_seen, and merges aliases.
    */
-  upsertEntity(input: EntityInput): string {
+  async upsertEntity(input: EntityInput): Promise<string> {
     const existing = this.stmts.findByCanonical.get(
       input.canonicalName
     ) as EntityRow | undefined;
@@ -190,7 +149,7 @@ export class SqliteEntityStore {
    * Add a relation between two entities. Silently ignores duplicates
    * on (source, target, relation_type) triples.
    */
-  addRelation(input: RelationInput): void {
+  async addRelation(input: RelationInput): Promise<void> {
     const exists = this.stmts.hasRelation.get(
       input.sourceEntityId,
       input.targetEntityId,
@@ -212,21 +171,21 @@ export class SqliteEntityStore {
   /**
    * Link a knowledge entry to an entity. Silently ignores duplicate pairs.
    */
-  linkToKnowledge(entryId: string, entityId: string): void {
+  async linkToKnowledge(entryId: string, entityId: string): Promise<void> {
     this.stmts.linkKnowledge.run(entryId, entityId);
   }
 
   /**
    * Find an entity by canonical name (case-insensitive).
    */
-  findByName(name: string): EntityRow | undefined {
+  async findByName(name: string): Promise<EntityRow | undefined> {
     return this.stmts.findByName.get(name) as EntityRow | undefined;
   }
 
   /**
    * Find entities by type, optionally scoped to a project.
    */
-  findByType(type: EntityType, project?: string): EntityRow[] {
+  async findByType(type: EntityType, project?: string): Promise<EntityRow[]> {
     if (project) {
       return this.stmts.findByTypeAndProject.all(type, project) as EntityRow[];
     }
@@ -236,7 +195,7 @@ export class SqliteEntityStore {
   /**
    * Get all relations where the entity is source or target.
    */
-  getRelationsFor(entityId: string): EntityRelationRow[] {
+  async getRelationsFor(entityId: string): Promise<EntityRelationRow[]> {
     return this.stmts.getRelationsFor.all(
       entityId,
       entityId
@@ -246,7 +205,7 @@ export class SqliteEntityStore {
   /**
    * Get knowledge entries linked to an entity.
    */
-  getKnowledgeForEntity(entityId: string): KnowledgeEntry[] {
+  async getKnowledgeForEntity(entityId: string): Promise<KnowledgeEntry[]> {
     const rows = this.stmts.getKnowledgeForEntity.all(entityId) as Array<{
       id: string;
       type: string;
@@ -281,11 +240,11 @@ export class SqliteEntityStore {
    * Search entities by query string (matches canonical_name, aliases, or name).
    * Optionally filtered by entity type.
    */
-  searchEntities(
+  async searchEntities(
     query: string,
     type?: EntityType,
     limit?: number
-  ): EntityRow[] {
+  ): Promise<EntityRow[]> {
     const effectiveLimit = Math.max(1, Math.min(limit ?? 20, 100));
     let results: EntityRow[];
     if (type) {
@@ -301,28 +260,21 @@ export class SqliteEntityStore {
   /**
    * Get the top N entities by mention count.
    */
-  getTopEntities(limit: number = 20): EntityRow[] {
+  async getTopEntities(limit: number = 20): Promise<EntityRow[]> {
     return this.stmts.topEntities.all(limit) as EntityRow[];
   }
 
   /**
    * Get an entity by its ID.
    */
-  getById(id: string): EntityRow | undefined {
+  async getById(id: string): Promise<EntityRow | undefined> {
     return this.stmts.getById.get(id) as EntityRow | undefined;
   }
 
   /**
    * Paginated entity listing with filters.
    */
-  getEntities(options: {
-    type?: string;
-    project?: string;
-    search?: string;
-    sort?: "mentions" | "recent" | "oldest";
-    limit: number;
-    offset: number;
-  }): { entities: EntityRow[]; total: number } {
+  async getEntities(options: EntityListOptions): Promise<{ entities: EntityRow[]; total: number }> {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
@@ -373,10 +325,7 @@ export class SqliteEntityStore {
   /**
    * Graph data for visualization: nodes + edges.
    */
-  getEntityGraph(project?: string): {
-    nodes: Array<{ id: string; name: string; type: string; mentions: number }>;
-    edges: Array<{ source: string; target: string; type: string; context?: string }>;
-  } {
+  async getEntityGraph(project?: string): Promise<EntityGraph> {
     let entityRows: EntityRow[];
     if (project) {
       entityRows = this.db
@@ -418,7 +367,7 @@ export class SqliteEntityStore {
   /**
    * Entity type distribution counts.
    */
-  getEntityTypeDistribution(project?: string): Record<string, number> {
+  async getEntityTypeDistribution(project?: string): Promise<Record<string, number>> {
     let rows: Array<{ type: string; count: number }>;
 
     if (project) {

@@ -47,7 +47,13 @@ async function main(): Promise<void> {
 
   if (knowledgeStore.getEntryCount() > 0) {
     console.log("\nSynthesizing learnings...");
-    const newLearnings = synthesizeLearnings(knowledgeStore);
+    // Wrap sync KnowledgeStore as async-compatible SynthesisStore
+    const asyncStore = {
+      getAllEntries: async () => knowledgeStore.getAllEntries(),
+      hasEntry: async (id: string) => knowledgeStore.hasEntry(id),
+      addEntry: async (entry: import("../knowledge/knowledge-store.js").KnowledgeEntry) => knowledgeStore.addEntry(entry),
+    };
+    const newLearnings = await synthesizeLearnings(asyncStore);
     if (newLearnings.length > 0) {
       knowledgeStore.save();
       console.log(`  Created ${newLearnings.length} new learning(s)`);

@@ -35,7 +35,7 @@ describe("Golden Fixture Pipeline", () => {
   let sanitizer: Sanitizer;
   let tmpDir: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     tmpDir = join(tmpdir(), `strata-golden-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
     db = openDatabase(join(tmpDir, "golden.db"));
@@ -54,17 +54,17 @@ describe("Golden Fixture Pipeline", () => {
   describe("Claude Code golden fixture", () => {
     const parser = new ClaudeCodeParser(join(FIXTURES, "claude-code"));
 
-    it("detects the fixture directory", () => {
+    it("detects the fixture directory", async () => {
       expect(parser.detect()).toBe(true);
     });
 
-    it("discovers session files", () => {
+    it("discovers session files", async () => {
       const files = parser.discover();
       expect(files.length).toBeGreaterThan(0);
       expect(files[0].filePath).toContain("session-001.jsonl");
     });
 
-    it("parses with correct fields", () => {
+    it("parses with correct fields", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0]);
       expect(session).not.toBeNull();
@@ -81,7 +81,7 @@ describe("Golden Fixture Pipeline", () => {
       expect(allTools).toContain("Write");
     });
 
-    it("indexes and searches correctly", () => {
+    it("indexes and searches correctly", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0])!;
       const text = sanitizer.sanitize(
@@ -96,7 +96,7 @@ describe("Golden Fixture Pipeline", () => {
         messageIndex: 0,
       }, "claude-code");
 
-      const results = searchEngine.search("dependency injection");
+      const results = await searchEngine.search("dependency injection");
       expect(results.length).toBeGreaterThan(0);
     });
   });
@@ -106,18 +106,18 @@ describe("Golden Fixture Pipeline", () => {
   describe("Codex CLI golden fixture", () => {
     const parser = new CodexParser(join(FIXTURES, "codex", "sessions"));
 
-    it("detects the fixture directory", () => {
+    it("detects the fixture directory", async () => {
       expect(parser.detect()).toBe(true);
     });
 
-    it("discovers session files in YYYY/MM/DD structure", () => {
+    it("discovers session files in YYYY/MM/DD structure", async () => {
       const files = parser.discover();
       expect(files.length).toBeGreaterThan(0);
       expect(files[0].filePath).toContain("rollout-abc123.jsonl");
       expect(files[0].sessionId).toBe("abc123");
     });
 
-    it("parses with correct fields", () => {
+    it("parses with correct fields", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0]);
       expect(session).not.toBeNull();
@@ -137,7 +137,7 @@ describe("Golden Fixture Pipeline", () => {
       expect(session!.endTime).toBeGreaterThanOrEqual(session!.startTime);
     });
 
-    it("indexes and searches correctly", () => {
+    it("indexes and searches correctly", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0])!;
       const text = sanitizer.sanitize(
@@ -152,7 +152,7 @@ describe("Golden Fixture Pipeline", () => {
         messageIndex: 0,
       }, "codex");
 
-      const results = searchEngine.search("formatDate timezone");
+      const results = await searchEngine.search("formatDate timezone");
       expect(results.length).toBeGreaterThan(0);
     });
   });
@@ -162,18 +162,18 @@ describe("Golden Fixture Pipeline", () => {
   describe("Gemini CLI v1 golden fixture", () => {
     const parser = new GeminiParser(join(FIXTURES, "gemini"));
 
-    it("detects the fixture directory", () => {
+    it("detects the fixture directory", async () => {
       expect(parser.detect()).toBe(true);
     });
 
-    it("discovers checkpoint files in project hash directories", () => {
+    it("discovers checkpoint files in project hash directories", async () => {
       const files = parser.discover();
       expect(files.length).toBeGreaterThan(0);
       expect(files[0].filePath).toContain("checkpoint-session1.json");
       expect(files[0].sessionId).toContain("abc123hash");
     });
 
-    it("parses v1 format with correct fields", () => {
+    it("parses v1 format with correct fields", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0]);
       expect(session).not.toBeNull();
@@ -190,7 +190,7 @@ describe("Golden Fixture Pipeline", () => {
       expect(session!.endTime).toBeGreaterThanOrEqual(session!.startTime);
     });
 
-    it("indexes and searches correctly", () => {
+    it("indexes and searches correctly", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0])!;
       const text = sanitizer.sanitize(
@@ -205,7 +205,7 @@ describe("Golden Fixture Pipeline", () => {
         messageIndex: 0,
       }, "gemini-cli");
 
-      const results = searchEngine.search("PostgreSQL connection pool");
+      const results = await searchEngine.search("PostgreSQL connection pool");
       expect(results.length).toBeGreaterThan(0);
     });
   });
@@ -215,17 +215,17 @@ describe("Golden Fixture Pipeline", () => {
   describe("Gemini CLI v2 golden fixture (real data)", () => {
     const parser = new GeminiParser(join(FIXTURES, "gemini-v2"));
 
-    it("detects the fixture directory", () => {
+    it("detects the fixture directory", async () => {
       expect(parser.detect()).toBe(true);
     });
 
-    it("discovers session-*.json files", () => {
+    it("discovers session-*.json files", async () => {
       const files = parser.discover();
       expect(files.length).toBeGreaterThan(0);
       expect(files[0].filePath).toMatch(/session-.*\.json$/);
     });
 
-    it("parses v2 format with correct fields", () => {
+    it("parses v2 format with correct fields", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0]);
       expect(session).not.toBeNull();
@@ -246,7 +246,7 @@ describe("Golden Fixture Pipeline", () => {
       expect(session!.endTime).toBeGreaterThanOrEqual(session!.startTime);
     });
 
-    it("indexes and searches correctly", () => {
+    it("indexes and searches correctly", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0])!;
       const text = sanitizer.sanitize(
@@ -261,7 +261,7 @@ describe("Golden Fixture Pipeline", () => {
         messageIndex: 0,
       }, "gemini-cli");
 
-      const results = searchEngine.search("hello world index");
+      const results = await searchEngine.search("hello world index");
       expect(results.length).toBeGreaterThan(0);
     });
   });
@@ -271,18 +271,18 @@ describe("Golden Fixture Pipeline", () => {
   describe("Cline golden fixture", () => {
     const parser = new ClineParser(join(FIXTURES, "cline"));
 
-    it("detects the fixture directory", () => {
+    it("detects the fixture directory", async () => {
       expect(parser.detect()).toBe(true);
     });
 
-    it("discovers task directories with api_conversation_history.json", () => {
+    it("discovers task directories with api_conversation_history.json", async () => {
       const files = parser.discover();
       expect(files.length).toBeGreaterThan(0);
       expect(files[0].filePath).toContain("api_conversation_history.json");
       expect(files[0].sessionId).toBe("task-001");
     });
 
-    it("parses with correct fields", () => {
+    it("parses with correct fields", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0]);
       expect(session).not.toBeNull();
@@ -298,7 +298,7 @@ describe("Golden Fixture Pipeline", () => {
       expect(session!.startTime).toBeGreaterThan(0);
     });
 
-    it("indexes and searches correctly", () => {
+    it("indexes and searches correctly", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0])!;
       const text = sanitizer.sanitize(
@@ -313,7 +313,7 @@ describe("Golden Fixture Pipeline", () => {
         messageIndex: 0,
       }, "cline");
 
-      const results = searchEngine.search("error handling");
+      const results = await searchEngine.search("error handling");
       expect(results.length).toBeGreaterThan(0);
     });
   });
@@ -323,17 +323,17 @@ describe("Golden Fixture Pipeline", () => {
   describe("Aider golden fixture", () => {
     const parser = new AiderParser([join(FIXTURES, "aider")]);
 
-    it("detects the fixture directory", () => {
+    it("detects the fixture directory", async () => {
       expect(parser.detect()).toBe(true);
     });
 
-    it("discovers .aider.chat.history.md files", () => {
+    it("discovers .aider.chat.history.md files", async () => {
       const files = parser.discover();
       expect(files.length).toBeGreaterThan(0);
       expect(files[0].filePath).toContain(".aider.chat.history.md");
     });
 
-    it("parses with correct fields", () => {
+    it("parses with correct fields", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0]);
       expect(session).not.toBeNull();
@@ -353,7 +353,7 @@ describe("Golden Fixture Pipeline", () => {
       expect(toolNames).toContain("Bash");
     });
 
-    it("indexes and searches correctly", () => {
+    it("indexes and searches correctly", async () => {
       const files = parser.discover();
       const session = parser.parse(files[0])!;
       const text = sanitizer.sanitize(
@@ -368,7 +368,7 @@ describe("Golden Fixture Pipeline", () => {
         messageIndex: 0,
       }, "aider");
 
-      const results = searchEngine.search("validation zod signup");
+      const results = await searchEngine.search("validation zod signup");
       expect(results.length).toBeGreaterThan(0);
     });
   });
@@ -376,13 +376,13 @@ describe("Golden Fixture Pipeline", () => {
   // ── Cross-tool search ───────────────────────────────────────────────
 
   describe("Cross-tool search after indexing all 5 tools", () => {
-    it("search returns results from multiple tools", () => {
+    it("search returns results from multiple tools", async () => {
       // All 5 tools have been indexed in prior tests
-      const results = searchEngine.search("error");
+      const results = await searchEngine.search("error");
       expect(results.length).toBeGreaterThan(0);
     });
 
-    it("tool filter works across golden fixtures", () => {
+    it("tool filter works across golden fixtures", async () => {
       const tools = db
         .prepare("SELECT DISTINCT tool FROM documents")
         .all() as { tool: string }[];
@@ -395,7 +395,7 @@ describe("Golden Fixture Pipeline", () => {
       expect(toolIds.has("aider")).toBe(true);
     });
 
-    it("each tool has at least one indexed document", () => {
+    it("each tool has at least one indexed document", async () => {
       for (const tool of ["claude-code", "codex", "gemini-cli", "cline", "aider"]) {
         const count = db
           .prepare("SELECT COUNT(*) as c FROM documents WHERE tool = ?")

@@ -49,9 +49,52 @@ export async function handleFindSolutions(
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
 
-  const results = asyncSearchSolutions
+  let results = asyncSearchSolutions
     ? await asyncSearchSolutions(args.error_or_problem, args.technology, args.user)
-    : engine.searchSolutions(args.error_or_problem, args.technology, args.user);
+    : await engine.searchSolutions(args.error_or_problem, args.technology, args.user);
+
+  // Also search knowledge entries for stored solutions/error_fixes
+  if (db) {
+    const solutionTypes = ["solution", "error_fix"];
+    const terms = args.error_or_problem.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+    if (terms.length > 0) {
+      const conditions = terms.map(() => "(LOWER(summary || ' ' || details) LIKE ?)");
+      const params: unknown[] = terms.map(t => `%${t}%`);
+      let sql = `SELECT id, type, project, session_id, timestamp, summary, details, tags, importance
+        FROM knowledge WHERE (${conditions.join(" AND ")})`;
+      if (args.user) { sql += " AND user = ?"; params.push(args.user); }
+      sql += " ORDER BY importance DESC, timestamp DESC LIMIT 20";
+      try {
+        const rows = db.prepare(sql).all(...params) as Array<{
+          id: string; type: string; project: string; session_id: string;
+          timestamp: number; summary: string; details: string; tags: string;
+          importance: number | null;
+        }>;
+        const knowledgeResults = rows.map(r => {
+          const text = r.details && r.details !== r.summary
+            ? `[${r.type}] ${r.summary}\n${r.details}`
+            : `[${r.type}] ${r.summary}`;
+          const isSolutionType = solutionTypes.includes(r.type);
+          const baseScore = ((r.importance ?? 0.5) * 10) * (isSolutionType ? 1.5 : 1);
+          return {
+            sessionId: r.session_id || "knowledge",
+            project: r.project,
+            text,
+            score: baseScore,
+            confidence: Math.min(baseScore / 10, 1) as number,
+            timestamp: r.timestamp,
+            toolNames: [] as string[],
+            role: "assistant" as const,
+          };
+        });
+        if (knowledgeResults.length > 0) {
+          results = [...results, ...knowledgeResults]
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 20);
+        }
+      } catch { /* best-effort */ }
+    }
+  }
 
   // Record evidence gap if results are empty or low-confidence
   if (db && CONFIG.gaps.enabled) {

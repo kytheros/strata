@@ -41,7 +41,7 @@ describe("Smoke: HTTP Transport E2E", () => {
   });
 
   it("serve starts and health responds", async () => {
-    const { server } = createServer();
+    const { server } = await createServer();
     handle = await startHttpTransport(server, { port: 0 });
 
     const addr = handle.server.address();
@@ -57,7 +57,7 @@ describe("Smoke: HTTP Transport E2E", () => {
   });
 
   it("full MCP lifecycle via HTTP", async () => {
-    const { server } = createServer();
+    const { server } = await createServer();
     handle = await startHttpTransport(server, { port: 0 });
 
     const addr = handle.server.address();
@@ -125,7 +125,7 @@ describe("Smoke: HTTP Transport E2E", () => {
   });
 
   it("graceful shutdown", async () => {
-    const { server } = createServer();
+    const { server } = await createServer();
     handle = await startHttpTransport(server, { port: 0 });
 
     await handle.close();
@@ -142,7 +142,7 @@ describe("Smoke: store_memory → search round-trip", () => {
   let searchEngine: SqliteSearchEngine;
   let knowledgeStore: SqliteKnowledgeStore;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     db = openDatabase(":memory:");
     docStore = new SqliteDocumentStore(db);
     searchEngine = new SqliteSearchEngine(docStore);
@@ -164,7 +164,7 @@ describe("Smoke: store_memory → search round-trip", () => {
     expect(storeResult).toContain("Stored decision");
 
     // The knowledge store should have the entry
-    const entries = knowledgeStore.search("PostgreSQL");
+    const entries = await knowledgeStore.search("PostgreSQL");
     expect(entries.length).toBeGreaterThan(0);
     expect(entries[0].details).toContain("PostgreSQL");
     expect(entries[0].type).toBe("decision");
@@ -180,7 +180,7 @@ describe("Smoke: store_memory → search round-trip", () => {
     });
 
     // Knowledge store should find it
-    const entries = knowledgeStore.search("ECONNREFUSED");
+    const entries = await knowledgeStore.search("ECONNREFUSED");
     expect(entries.length).toBeGreaterThan(0);
     expect(entries.some(e => e.details.includes("ECONNREFUSED"))).toBe(true);
   });
@@ -237,7 +237,7 @@ describe("Smoke: Real-time watcher → extract → searchable", () => {
   let tmpDir: string;
   let watcher: RealtimeWatcher;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     db = openDatabase(":memory:");
     knowledgeStore = new SqliteKnowledgeStore(db);
 
@@ -255,7 +255,7 @@ describe("Smoke: Real-time watcher → extract → searchable", () => {
     }
   });
 
-  it("watcher processes JSONL and knowledge is queryable", () => {
+  it("watcher processes JSONL and knowledge is queryable", async () => {
     const sessionFile = join(tmpDir, "test-project", "smoke-session.jsonl");
 
     // Write JSONL lines simulating a session with a clear decision
@@ -294,7 +294,7 @@ describe("Smoke: Real-time watcher → extract → searchable", () => {
 describe("Smoke: Parser round-trip", () => {
   let tmpDir: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     tmpDir = join(tmpdir(), `phase4-smoke-parsers-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
   });
@@ -307,7 +307,7 @@ describe("Smoke: Parser round-trip", () => {
     }
   });
 
-  it("Cline session is parseable", () => {
+  it("Cline session is parseable", async () => {
     // Create a temp Cline-like task directory
     const taskDir = join(tmpDir, "cline-tasks", "task-001");
     mkdirSync(taskDir, { recursive: true });
@@ -348,7 +348,7 @@ describe("Smoke: Parser round-trip", () => {
     expect(session!.messages[1].toolNames).toContain("write_to_file");
   });
 
-  it("Gemini session is parseable", () => {
+  it("Gemini session is parseable", async () => {
     // Create a temp Gemini-like directory
     const projectHash = "abc123hash";
     const chatsDir = join(tmpDir, "gemini-tmp", projectHash, "chats");
@@ -394,7 +394,7 @@ describe("Smoke: Parser round-trip", () => {
 describe("Smoke: Deploy artifacts", () => {
   const repoRoot = join(__dirname, "..", "..");
 
-  it("Dockerfile has multi-stage build, HEALTHCHECK, USER strata, CMD serve", () => {
+  it("Dockerfile has multi-stage build, HEALTHCHECK, USER strata, CMD serve", async () => {
     const dockerfile = readFileSync(join(repoRoot, "Dockerfile"), "utf-8");
 
     // Multi-stage build
@@ -410,7 +410,7 @@ describe("Smoke: Deploy artifacts", () => {
     expect(dockerfile).toContain("serve");
   });
 
-  it("cloud-run.yaml has required fields", () => {
+  it("cloud-run.yaml has required fields", async () => {
     const yaml = readFileSync(join(repoRoot, "deploy", "cloud-run.yaml"), "utf-8");
 
     // Resource limits

@@ -241,12 +241,12 @@ const idMap = new Map<string, string>();
 /**
  * Seed the database with test entries and pre-compute importance.
  */
-function seedDatabase(): void {
+async function seedDatabase(): Promise<void> {
   const now = Date.now();
 
   for (let i = 0; i < SEED_ENTRIES.length; i++) {
     const entry = SEED_ENTRIES[i];
-    const generatedId = documentStore.add(
+    const generatedId = await documentStore.add(
       entry.text,
       entry.text.split(/\s+/).length,
       {
@@ -278,8 +278,8 @@ function seedDatabase(): void {
  * Run a search and find the rank (1-based) of the expected document.
  * Returns 0 if the expected document is not found in results.
  */
-function findRank(query: string, expectedId: string): number {
-  const results = engine.search(query, { limit: 50 });
+async function findRank(query: string, expectedId: string): Promise<number> {
+  const results = await engine.search(query, { limit: 50 });
   const targetUuid = idMap.get(expectedId);
   if (!targetUuid) return 0;
 
@@ -298,10 +298,10 @@ function findRank(query: string, expectedId: string): number {
 /**
  * Compute Mean Reciprocal Rank across all eval queries.
  */
-function computeMRR(): number {
+async function computeMRR(): Promise<number> {
   let reciprocalSum = 0;
   for (const { query, expectedTopId } of EVAL_QUERIES) {
-    const rank = findRank(query, expectedTopId);
+    const rank = await findRank(query, expectedTopId);
     if (rank > 0) {
       reciprocalSum += 1 / rank;
     }
@@ -312,10 +312,10 @@ function computeMRR(): number {
 /**
  * Compute top-1 accuracy: fraction of queries where expected entry ranks #1.
  */
-function computeTop1Accuracy(): number {
+async function computeTop1Accuracy(): Promise<number> {
   let correct = 0;
   for (const { query, expectedTopId } of EVAL_QUERIES) {
-    const rank = findRank(query, expectedTopId);
+    const rank = await findRank(query, expectedTopId);
     if (rank === 1) correct++;
   }
   return correct / EVAL_QUERIES.length;
@@ -326,11 +326,11 @@ function computeTop1Accuracy(): number {
 // ---------------------------------------------------------------------------
 
 describe("Importance scoring ranking evaluation", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     db = openDatabase(":memory:");
     documentStore = new SqliteDocumentStore(db);
     engine = new SqliteSearchEngine(documentStore);
-    seedDatabase();
+    await seedDatabase();
   });
 
   afterAll(() => {
@@ -340,26 +340,26 @@ describe("Importance scoring ranking evaluation", () => {
   // ── Test 7: Importance changes result ordering ───────────────────────
 
   describe("Test 7: Importance changes result ordering", () => {
-    it("should rank the PostgreSQL decision above the database status message for 'database'", () => {
-      const rank = findRank("database", "decision-postgresql");
-      const statusRank = findRank("database", "status-database");
+    it("should rank the PostgreSQL decision above the database status message for 'database'", async () => {
+      const rank = await findRank("database", "decision-postgresql");
+      const statusRank = await findRank("database", "status-database");
       expect(rank).toBe(1);
       expect(rank).toBeLessThan(statusRank);
     });
 
-    it("should rank the bun decision above casual package mention for 'package manager'", () => {
-      const rank = findRank("package manager", "decision-bun");
+    it("should rank the bun decision above casual package mention for 'package manager'", async () => {
+      const rank = await findRank("package manager", "decision-bun");
       expect(rank).toBe(1);
     });
 
-    it("should rank the JWT decision above casual auth check for 'authentication'", () => {
-      const rank = findRank("authentication", "decision-auth");
+    it("should rank the JWT decision above casual auth check for 'authentication'", async () => {
+      const rank = await findRank("authentication", "decision-auth");
       expect(rank).toBe(1);
     });
 
-    it("should rank high-importance entries first for key queries", () => {
+    it("should rank high-importance entries first for key queries", async () => {
       // Check that at least 70% of queries have the expected top-1 result
-      const accuracy = computeTop1Accuracy();
+      const accuracy = await computeTop1Accuracy();
       expect(accuracy).toBeGreaterThanOrEqual(0.5);
     });
   });
@@ -367,13 +367,13 @@ describe("Importance scoring ranking evaluation", () => {
   // ── Test 8: boostMax = 0 disables importance ─────────────────────────
 
   describe("Test 8: boostMax = 0 disables importance", () => {
-    it("should produce different rankings when importance is enabled vs disabled", () => {
+    it("should produce different rankings when importance is enabled vs disabled", async () => {
       // Capture ranking with importance enabled (current state)
       const originalBoostMax = CONFIG.importance.boostMax;
 
       const ranksWithImportance: number[] = [];
       for (const { query, expectedTopId } of EVAL_QUERIES) {
-        ranksWithImportance.push(findRank(query, expectedTopId));
+        ranksWithImportance.push(await findRank(query, expectedTopId));
       }
 
       // Disable importance
@@ -384,7 +384,7 @@ describe("Importance scoring ranking evaluation", () => {
 
       const ranksWithoutImportance: number[] = [];
       for (const { query, expectedTopId } of EVAL_QUERIES) {
-        ranksWithoutImportance.push(findRank(query, expectedTopId));
+        ranksWithoutImportance.push(await findRank(query, expectedTopId));
       }
 
       // Restore original config and importance values
@@ -421,22 +421,22 @@ describe("Importance scoring ranking evaluation", () => {
   // ── MRR evaluation ──────────────────────────────────────────────────
 
   describe("MRR evaluation", () => {
-    it("should achieve positive MRR with importance enabled", () => {
-      const mrr = computeMRR();
+    it("should achieve positive MRR with importance enabled", async () => {
+      const mrr = await computeMRR();
       // MRR should be reasonably high — the expected entries should rank well
       expect(mrr).toBeGreaterThan(0.5);
     });
 
-    it("should improve MRR compared to boostMax=0 baseline", () => {
+    it("should improve MRR compared to boostMax=0 baseline", async () => {
       // Compute MRR with importance enabled
-      const importanceMRR = computeMRR();
+      const importanceMRR = await computeMRR();
 
       // Disable importance and compute baseline MRR
       const originalBoostMax = CONFIG.importance.boostMax;
       (CONFIG.importance as { boostMax: number }).boostMax = 0;
       db.prepare("UPDATE documents SET importance = 0").run();
 
-      const baselineMRR = computeMRR();
+      const baselineMRR = await computeMRR();
 
       // Restore
       (CONFIG.importance as { boostMax: number }).boostMax = originalBoostMax;
@@ -460,8 +460,8 @@ describe("Importance scoring ranking evaluation", () => {
   // ── Top-1 accuracy ──────────────────────────────────────────────────
 
   describe("Top-1 accuracy", () => {
-    it("should achieve reasonable top-1 accuracy with importance enabled", () => {
-      const accuracy = computeTop1Accuracy();
+    it("should achieve reasonable top-1 accuracy with importance enabled", async () => {
+      const accuracy = await computeTop1Accuracy();
       // At least 50% of queries should have the expected entry at rank 1
       expect(accuracy).toBeGreaterThanOrEqual(0.5);
     });
@@ -470,9 +470,9 @@ describe("Importance scoring ranking evaluation", () => {
   // ── Regression guard ────────────────────────────────────────────────
 
   describe("Regression guard", () => {
-    it("should not demote any high-importance entry below rank 5", () => {
+    it("should not demote any high-importance entry below rank 5", async () => {
       for (const { query, expectedTopId } of EVAL_QUERIES) {
-        const rank = findRank(query, expectedTopId);
+        const rank = await findRank(query, expectedTopId);
         // The expected result should at least appear in the top 5
         if (rank > 0) {
           expect(rank).toBeLessThanOrEqual(5);
@@ -480,10 +480,10 @@ describe("Importance scoring ranking evaluation", () => {
       }
     });
 
-    it("should return all expected entries somewhere in the results", () => {
+    it("should return all expected entries somewhere in the results", async () => {
       let found = 0;
       for (const { query, expectedTopId } of EVAL_QUERIES) {
-        const rank = findRank(query, expectedTopId);
+        const rank = await findRank(query, expectedTopId);
         if (rank > 0) found++;
       }
       // At least 80% of expected entries should be retrievable

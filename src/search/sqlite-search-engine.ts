@@ -4,7 +4,8 @@
  * when an embedder and VectorSearch instance are provided.
  */
 
-import type { SqliteDocumentStore, FtsSearchResult } from "../storage/sqlite-document-store.js";
+import type { SqliteDocumentStore } from "../storage/sqlite-document-store.js";
+import type { FtsSearchResult } from "../storage/interfaces/document-store.js";
 import { parseQuery, type QueryFilters } from "./query-processor.js";
 import { applyBoosts, applyFilters, reciprocalRankFusion, type RankedResult } from "./result-ranker.js";
 import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js";
@@ -75,7 +76,7 @@ export class SqliteSearchEngine {
    * reciprocalRankFusion() before applying boosts and filters. If the embedding
    * call fails, search gracefully falls back to FTS5-only results.
    */
-  search(rawQuery: string, options: SearchOptions = {}): SearchResult[] {
+  async search(rawQuery: string, options: SearchOptions = {}): Promise<SearchResult[]> {
     const { text, filters } = parseQuery(rawQuery);
 
     // Merge explicit project option into filters
@@ -88,7 +89,7 @@ export class SqliteSearchEngine {
     if (!text.trim()) return [];
 
     // FTS5 search — fetch extra results for post-filtering
-    const ftsResults = this.documentStore.search(text, limit * 3, options.user);
+    const ftsResults = await this.documentStore.search(text, limit * 3, options.user);
 
     // Convert FTS results to RankedResult format for the ranker
     // FTS5 bm25() returns negative scores (more negative = more relevant)
@@ -124,7 +125,7 @@ export class SqliteSearchEngine {
     if (!text.trim()) return [];
 
     // FTS5 search
-    const ftsResults = this.documentStore.search(text, limit * 3, options.user);
+    const ftsResults = await this.documentStore.search(text, limit * 3, options.user);
 
     const ftsRanked: RankedResult[] = ftsResults.map((r) => ({
       docId: r.chunk.id,
@@ -152,7 +153,7 @@ export class SqliteSearchEngine {
           }));
 
           // Merge using Reciprocal Rank Fusion
-          const fusedScores = reciprocalRankFusion(ftsList, vectorList);
+          const fusedScores = reciprocalRankFusion([ftsList, vectorList]);
 
           // Build a map of all docs by ID for lookup
           const docMap = new Map<string, RankedResult>();
@@ -195,17 +196,17 @@ export class SqliteSearchEngine {
   /**
    * Search specifically for error/solution patterns.
    */
-  searchSolutions(
+  async searchSolutions(
     errorOrProblem: string,
     technology?: string,
     user?: string
-  ): SearchResult[] {
+  ): Promise<SearchResult[]> {
     let query = errorOrProblem;
     if (technology) {
       query = `${technology} ${query}`;
     }
 
-    const results = this.search(query, { limit: 50, user });
+    const results = await this.search(query, { limit: 50, user });
 
     return this.applySolutionBoost(results);
   }

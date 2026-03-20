@@ -1,18 +1,19 @@
 /**
  * SQLite-backed document store.
  * Replaces the in-memory Map-based DocumentStore with SQLite + FTS5.
+ * Implements IDocumentStore for pluggable storage support.
  */
 
 import type Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 import type { DocumentChunk, DocumentMetadata } from "../indexing/document-store.js";
+import type { IDocumentStore } from "./interfaces/index.js";
 
-export interface FtsSearchResult {
-  chunk: DocumentChunk;
-  rank: number;
-}
+// Re-export types from interfaces for backward compatibility
+export type { FtsSearchResult } from "./interfaces/document-store.js";
+import type { FtsSearchResult } from "./interfaces/document-store.js";
 
-export class SqliteDocumentStore {
+export class SqliteDocumentStore implements IDocumentStore {
   private stmts: {
     insert: Database.Statement;
     getById: Database.Statement;
@@ -68,13 +69,13 @@ export class SqliteDocumentStore {
   /**
    * Add a document chunk. Returns the generated ID.
    */
-  add(
+  async add(
     text: string,
     tokenCount: number,
     metadata: DocumentMetadata,
     tool: string = "claude-code",
     user: string = "default"
-  ): string {
+  ): Promise<string> {
     const id = randomUUID();
     this.stmts.insert.run({
       id,
@@ -95,7 +96,7 @@ export class SqliteDocumentStore {
   /**
    * Get a document by ID.
    */
-  get(id: string): DocumentChunk | undefined {
+  async get(id: string): Promise<DocumentChunk | undefined> {
     const row = this.stmts.getById.get(id) as SqliteDocumentRow | undefined;
     return row ? rowToChunk(row) : undefined;
   }
@@ -103,7 +104,7 @@ export class SqliteDocumentStore {
   /**
    * Get all documents for a session.
    */
-  getBySession(sessionId: string): DocumentChunk[] {
+  async getBySession(sessionId: string): Promise<DocumentChunk[]> {
     const rows = this.stmts.getBySession.all(sessionId) as SqliteDocumentRow[];
     return rows.map(rowToChunk);
   }
@@ -111,7 +112,7 @@ export class SqliteDocumentStore {
   /**
    * Get all documents for a project.
    */
-  getByProject(project: string): DocumentChunk[] {
+  async getByProject(project: string): Promise<DocumentChunk[]> {
     const rows = this.stmts.getByProject.all(project) as SqliteDocumentRow[];
     return rows.map(rowToChunk);
   }
@@ -119,14 +120,14 @@ export class SqliteDocumentStore {
   /**
    * Remove a document by ID.
    */
-  remove(id: string): void {
+  async remove(id: string): Promise<void> {
     this.stmts.removeById.run(id);
   }
 
   /**
    * Remove all documents for a session.
    */
-  removeSession(sessionId: string): void {
+  async removeSession(sessionId: string): Promise<void> {
     this.stmts.removeBySession.run(sessionId);
   }
 
@@ -134,7 +135,7 @@ export class SqliteDocumentStore {
    * Full-text search using FTS5 with BM25 ranking.
    * Optionally filtered by user scope.
    */
-  search(query: string, limit: number = 20, user?: string): FtsSearchResult[] {
+  async search(query: string, limit: number = 20, user?: string): Promise<FtsSearchResult[]> {
     // Escape FTS5 special characters and build a query
     const sanitized = sanitizeFtsQuery(query);
     if (!sanitized) return [];
@@ -144,10 +145,27 @@ export class SqliteDocumentStore {
 
     try {
       const rows = stmt.all(...args) as (SqliteDocumentRow & { rank: number })[];
-      return rows.map((row) => ({
+      const results = rows.map((row) => ({
         chunk: rowToChunk(row),
         rank: row.rank,
       }));
+
+      // AND->OR fallback: if implicit-AND returned nothing for a multi-word
+      // query, retry with OR so that entries matching any term are surfaced.
+      if (results.length === 0) {
+        const tokens = sanitized.split(" ").filter(Boolean);
+        if (tokens.length > 1) {
+          const orQuery = tokens.join(" OR ");
+          const orArgs = user ? [orQuery, user, limit] : [orQuery, limit];
+          const orRows = stmt.all(...orArgs) as (SqliteDocumentRow & { rank: number })[];
+          return orRows.map((row) => ({
+            chunk: rowToChunk(row),
+            rank: row.rank,
+          }));
+        }
+      }
+
+      return results;
     } catch {
       // If FTS query syntax is invalid, try as a phrase
       try {
@@ -167,7 +185,7 @@ export class SqliteDocumentStore {
   /**
    * Get total document count.
    */
-  getDocumentCount(): number {
+  async getDocumentCount(): Promise<number> {
     const row = this.stmts.count.get() as { count: number };
     return row.count;
   }
@@ -175,7 +193,7 @@ export class SqliteDocumentStore {
   /**
    * Get average token count across all documents.
    */
-  getAverageTokenCount(): number {
+  async getAverageTokenCount(): Promise<number> {
     const row = this.stmts.avgTokenCount.get() as { avg: number | null };
     return row.avg ?? 0;
   }
@@ -183,7 +201,7 @@ export class SqliteDocumentStore {
   /**
    * Get all documents.
    */
-  getAllDocuments(): DocumentChunk[] {
+  async getAllDocuments(): Promise<DocumentChunk[]> {
     const rows = this.stmts.getAll.all() as SqliteDocumentRow[];
     return rows.map(rowToChunk);
   }
@@ -191,7 +209,7 @@ export class SqliteDocumentStore {
   /**
    * Get unique session IDs.
    */
-  getSessionIds(): Set<string> {
+  async getSessionIds(): Promise<Set<string>> {
     const rows = this.stmts.sessionIds.all() as { session_id: string }[];
     return new Set(rows.map((r) => r.session_id));
   }
@@ -199,7 +217,7 @@ export class SqliteDocumentStore {
   /**
    * Get unique project names.
    */
-  getProjects(): Set<string> {
+  async getProjects(): Promise<Set<string>> {
     const rows = this.stmts.projects.all() as { project: string }[];
     return new Set(rows.map((r) => r.project));
   }

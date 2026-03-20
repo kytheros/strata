@@ -1,6 +1,7 @@
 /**
  * SQLite-backed knowledge store.
  * Replaces the JSON file-based KnowledgeStore with SQLite persistence.
+ * Implements IKnowledgeStore for pluggable storage support.
  */
 
 import type Database from "better-sqlite3";
@@ -8,26 +9,11 @@ import type { KnowledgeEntry } from "../knowledge/knowledge-store.js";
 import { parseProcedureDetails } from "../knowledge/procedure-extractor.js";
 import type { ProcedureDetails } from "../knowledge/procedure-extractor.js";
 import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js";
+import type { IKnowledgeStore, KnowledgeListOptions } from "./interfaces/index.js";
 
-/** Partial update fields for a knowledge entry. */
-export interface KnowledgeUpdatePatch {
-  summary?: string;
-  details?: string;
-  tags?: string[];
-  type?: KnowledgeEntry["type"];
-}
-
-/** A row from the knowledge_history table. */
-export interface KnowledgeHistoryRow {
-  id: number;
-  entry_id: string;
-  old_summary: string | null;
-  new_summary: string | null;
-  old_details: string | null;
-  new_details: string | null;
-  event: "add" | "update" | "delete";
-  created_at: number;
-}
+// Re-export types from interfaces for backward compatibility
+export type { KnowledgeUpdatePatch, KnowledgeHistoryRow } from "./interfaces/knowledge-store.js";
+import type { KnowledgeUpdatePatch, KnowledgeHistoryRow } from "./interfaces/knowledge-store.js";
 
 /** Default user value resolved from env. */
 const DEFAULT_USER = process.env.STRATA_DEFAULT_USER || "default";
@@ -37,7 +23,7 @@ function escapeLike(input: string): string {
   return input.replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-export class SqliteKnowledgeStore {
+export class SqliteKnowledgeStore implements IKnowledgeStore {
   private defaultUser: string;
   private stmts: {
     insert: Database.Statement;
@@ -168,7 +154,7 @@ export class SqliteKnowledgeStore {
    * Add a knowledge entry. Skips duplicates by project+type+summary.
    * Logs an "add" event to knowledge_history (skipped for dedup rejections).
    */
-  addEntry(entry: KnowledgeEntry): void {
+  async addEntry(entry: KnowledgeEntry): Promise<void> {
     const user = entry.user || this.defaultUser;
     const dup = this.stmts.hasDuplicate.get(entry.project, entry.type, entry.summary, user);
     if (dup) return;
@@ -193,7 +179,7 @@ export class SqliteKnowledgeStore {
   /**
    * Upsert a knowledge entry (insert or replace by ID).
    */
-  upsertEntry(entry: KnowledgeEntry): void {
+  async upsertEntry(entry: KnowledgeEntry): Promise<void> {
     this.stmts.upsert.run(entryToRow(entry));
     this.embedEntryAsync(entry);
   }
@@ -221,7 +207,7 @@ export class SqliteKnowledgeStore {
   /**
    * Get an entry by ID.
    */
-  getEntry(id: string): KnowledgeEntry | undefined {
+  async getEntry(id: string): Promise<KnowledgeEntry | undefined> {
     const row = this.stmts.getById.get(id) as SqliteKnowledgeRow | undefined;
     return row ? rowToEntry(row) : undefined;
   }
@@ -229,14 +215,14 @@ export class SqliteKnowledgeStore {
   /**
    * Check if an entry with the given ID exists.
    */
-  hasEntry(id: string): boolean {
+  async hasEntry(id: string): Promise<boolean> {
     return this.stmts.getById.get(id) !== undefined;
   }
 
   /**
    * Search entries by query text, optionally filtered by project and/or user.
    */
-  search(query: string, project?: string, user?: string): KnowledgeEntry[] {
+  async search(query: string, project?: string, user?: string): Promise<KnowledgeEntry[]> {
     const safeQuery = escapeLike(query);
     let rows: SqliteKnowledgeRow[];
     if (project && user) {
@@ -254,7 +240,7 @@ export class SqliteKnowledgeStore {
   /**
    * Get entries for a project, optionally filtered by user.
    */
-  getProjectEntries(project: string, user?: string): KnowledgeEntry[] {
+  async getProjectEntries(project: string, user?: string): Promise<KnowledgeEntry[]> {
     const safeProject = escapeLike(project);
     const rows = user
       ? (this.stmts.getByProjectAndUser.all(safeProject, user) as SqliteKnowledgeRow[])
@@ -265,7 +251,7 @@ export class SqliteKnowledgeStore {
   /**
    * Get entries by type, optionally filtered by project and/or user.
    */
-  getByType(type: KnowledgeEntry["type"], project?: string, user?: string): KnowledgeEntry[] {
+  async getByType(type: KnowledgeEntry["type"], project?: string, user?: string): Promise<KnowledgeEntry[]> {
     let rows: SqliteKnowledgeRow[];
     if (project && user) {
       rows = this.stmts.getByTypeAndProjectAndUser.all(type, escapeLike(project), user) as SqliteKnowledgeRow[];
@@ -282,7 +268,7 @@ export class SqliteKnowledgeStore {
   /**
    * Get all learning entries, optionally filtered by project and/or user.
    */
-  getGlobalLearnings(project?: string, user?: string): KnowledgeEntry[] {
+  async getGlobalLearnings(project?: string, user?: string): Promise<KnowledgeEntry[]> {
     let rows: SqliteKnowledgeRow[];
     if (project && user) {
       rows = this.stmts.getLearningsForProjectAndUser.all(escapeLike(project), user) as SqliteKnowledgeRow[];
@@ -305,7 +291,7 @@ export class SqliteKnowledgeStore {
    * @param patch - Partial fields to change (summary, details, tags, type).
    * @returns true if the entry was found and updated, false if not found or patch was empty.
    */
-  updateEntry(id: string, patch: KnowledgeUpdatePatch): boolean {
+  async updateEntry(id: string, patch: KnowledgeUpdatePatch): Promise<boolean> {
     const keys = Object.keys(patch).filter(
       (k) => patch[k as keyof KnowledgeUpdatePatch] !== undefined
     );
@@ -361,7 +347,7 @@ export class SqliteKnowledgeStore {
    * @param id - The entry ID to delete.
    * @returns true if the entry was found and deleted, false if not found.
    */
-  deleteEntry(id: string): boolean {
+  async deleteEntry(id: string): Promise<boolean> {
     const row = this.stmts.getById.get(id) as SqliteKnowledgeRow | undefined;
     if (!row) return false;
 
@@ -385,7 +371,7 @@ export class SqliteKnowledgeStore {
   /**
    * Remove an entry by ID. Delegates to deleteEntry() for audit trail.
    */
-  removeEntry(id: string): void {
+  async removeEntry(id: string): Promise<void> {
     this.deleteEntry(id);
   }
 
@@ -396,7 +382,7 @@ export class SqliteKnowledgeStore {
    * @param limit - Max rows to return (default 20, max 100).
    * @returns Array of KnowledgeHistoryRow objects.
    */
-  getHistory(entryId: string, limit: number = 20): KnowledgeHistoryRow[] {
+  async getHistory(entryId: string, limit: number = 20): Promise<KnowledgeHistoryRow[]> {
     const effectiveLimit = Math.min(Math.max(limit, 1), 100);
     return this.stmts.getHistory.all(entryId, effectiveLimit) as KnowledgeHistoryRow[];
   }
@@ -417,7 +403,7 @@ export class SqliteKnowledgeStore {
    * If no existing entry matches, falls through to a normal insert.
    * Runs in a SQLite transaction for safety.
    */
-  mergeProcedure(entry: KnowledgeEntry): void {
+  async mergeProcedure(entry: KnowledgeEntry): Promise<void> {
     const user = entry.user || this.defaultUser;
     const mergeTxn = this.db.transaction(() => {
       const existingRow = this.stmts.hasDuplicate.get(
@@ -495,7 +481,7 @@ export class SqliteKnowledgeStore {
   /**
    * Get total entry count.
    */
-  getEntryCount(): number {
+  async getEntryCount(): Promise<number> {
     const row = this.stmts.count.get() as { count: number };
     return row.count;
   }
@@ -503,7 +489,7 @@ export class SqliteKnowledgeStore {
   /**
    * Get all entries, optionally filtered by user.
    */
-  getAllEntries(user?: string): KnowledgeEntry[] {
+  async getAllEntries(user?: string): Promise<KnowledgeEntry[]> {
     const rows = user
       ? (this.stmts.getAllWithUser.all(user) as SqliteKnowledgeRow[])
       : (this.stmts.getAll.all() as SqliteKnowledgeRow[]);
@@ -513,14 +499,7 @@ export class SqliteKnowledgeStore {
   /**
    * Paginated listing with filters for the dashboard.
    */
-  getEntries(options: {
-    type?: string;
-    project?: string;
-    search?: string;
-    sort?: "newest" | "oldest" | "importance";
-    limit: number;
-    offset: number;
-  }): { entries: KnowledgeEntry[]; total: number } {
+  async getEntries(options: KnowledgeListOptions): Promise<{ entries: KnowledgeEntry[]; total: number }> {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
@@ -571,7 +550,7 @@ export class SqliteKnowledgeStore {
   /**
    * Aggregate knowledge counts by type, optionally filtered by project.
    */
-  getTypeDistribution(project?: string): Record<string, number> {
+  async getTypeDistribution(project?: string): Promise<Record<string, number>> {
     let rows: Array<{ type: string; count: number }>;
 
     if (project) {

@@ -9,6 +9,7 @@ import type { VectorStore, VectorSearchResult } from "../extensions/vector-searc
 import type { EmbeddingProvider } from "../extensions/vector-search/embedding-provider.js";
 import { reciprocalRankFusion, applyBoosts, applyFilters, type RankedResult } from "./result-ranker.js";
 import { parseQuery } from "./query-processor.js";
+import { CONFIG } from "../config.js";
 import type { DocumentChunk } from "../indexing/document-store.js";
 
 export interface HybridSearchOptions {
@@ -81,7 +82,7 @@ export class HybridSearchEngine {
     // Also look up docs for vector-only results
     for (const vr of vectorResults) {
       if (!docMap.has(vr.documentId)) {
-        const doc = this.documentStore.get(vr.documentId);
+        const doc = await this.documentStore.get(vr.documentId);
         if (doc) {
           docMap.set(vr.documentId, doc);
         }
@@ -104,7 +105,22 @@ export class HybridSearchEngine {
     }));
 
     // Apply RRF fusion
-    const rrfScores = reciprocalRankFusion(bm25List, vectorList);
+    const rrfScores = reciprocalRankFusion([bm25List, vectorList]);
+
+    // Add cosine similarity tiebreaker: a small bonus proportional to actual
+    // semantic similarity. RRF discards score magnitude (rank 3 at sim=0.95
+    // scores the same as rank 3 at sim=0.35). This restores that signal as a
+    // tiebreaker for entries at similar RRF scores.
+    const simBonus = CONFIG.search.vectorSimBonus;
+    if (simBonus > 0) {
+      for (const vr of vectorResults) {
+        const similarity = 1 - vr.distance;
+        const current = rrfScores.get(vr.documentId);
+        if (current !== undefined) {
+          rrfScores.set(vr.documentId, current + similarity * simBonus);
+        }
+      }
+    }
 
     // Build ranked results
     const ranked: RankedResult[] = [];
@@ -139,14 +155,13 @@ export class HybridSearchEngine {
     });
   }
 
-  private bm25Search(text: string, limit: number): Promise<RankedResult[]> {
-    const ftsResults = this.documentStore.search(text, limit);
-    const ranked = ftsResults.map((r) => ({
+  private async bm25Search(text: string, limit: number): Promise<RankedResult[]> {
+    const ftsResults = await this.documentStore.search(text, limit);
+    return ftsResults.map((r) => ({
       docId: r.chunk.id,
       score: -r.rank,
       doc: r.chunk,
     }));
-    return Promise.resolve(ranked);
   }
 
   private async vectorSearch(

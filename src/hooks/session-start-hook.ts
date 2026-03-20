@@ -131,10 +131,10 @@ async function main(): Promise<void> {
 
   try {
     // Load recent summaries for this project
-    const summaries = indexManager.summaries.getByProject(projectDir);
-    const knowledge = indexManager.knowledge.getProjectEntries(projectDir)
+    const summaries = await indexManager.summaries.getByProject(projectDir);
+    const knowledge = (await indexManager.knowledge.getProjectEntries(projectDir))
       .filter((e) => e.type !== "learning");
-    const globalLearnings = indexManager.knowledge.getGlobalLearnings(projectDir);
+    const globalLearnings = await indexManager.knowledge.getGlobalLearnings(projectDir);
     const recurringIssue = loadTopRecurringIssue();
 
     if (

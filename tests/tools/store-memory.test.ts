@@ -30,7 +30,7 @@ describe("store_memory tool", () => {
 
     expect(result).toContain("Stored decision");
     expect(result).toContain("Always run migrations before seeding");
-    expect(store.getEntryCount()).toBe(1);
+    expect(await store.getEntryCount()).toBe(1);
   });
 
   it("stores a solution memory with tags", async () => {
@@ -42,9 +42,9 @@ describe("store_memory tool", () => {
 
     expect(result).toContain("Stored solution");
     expect(result).toContain("[tags: docker, build]");
-    expect(store.getEntryCount()).toBe(1);
+    expect(await store.getEntryCount()).toBe(1);
 
-    const entries = store.getAllEntries();
+    const entries = await store.getAllEntries();
     expect(entries[0].tags).toEqual(["docker", "build"]);
   });
 
@@ -56,9 +56,9 @@ describe("store_memory tool", () => {
     });
 
     expect(result).toContain("Stored pattern");
-    expect(store.getEntryCount()).toBe(1);
+    expect(await store.getEntryCount()).toBe(1);
 
-    const entries = store.getAllEntries();
+    const entries = await store.getAllEntries();
     expect(entries[0].project).toBe("my-project");
   });
 
@@ -70,7 +70,7 @@ describe("store_memory tool", () => {
     });
 
     // SqliteKnowledgeStore.search does LIKE matching on individual terms
-    const results = store.search("bun");
+    const results = await store.search("bun");
     expect(results.length).toBe(1);
     expect(results[0].summary).toContain("bun instead of npm");
   });
@@ -82,7 +82,7 @@ describe("store_memory tool", () => {
     });
 
     expect(result).toContain("Error");
-    expect(store.getEntryCount()).toBe(0);
+    expect(await store.getEntryCount()).toBe(0);
   });
 
   it("rejects too-short memory", async () => {
@@ -92,7 +92,7 @@ describe("store_memory tool", () => {
     });
 
     expect(result).toContain("Error");
-    expect(store.getEntryCount()).toBe(0);
+    expect(await store.getEntryCount()).toBe(0);
   });
 
   it("defaults project to global when not specified", async () => {
@@ -101,7 +101,7 @@ describe("store_memory tool", () => {
       type: "decision",
     });
 
-    const entries = store.getAllEntries();
+    const entries = await store.getAllEntries();
     expect(entries[0].project).toBe("global");
   });
 
@@ -112,7 +112,7 @@ describe("store_memory tool", () => {
       type: "pattern",
     });
 
-    const entries = store.getAllEntries();
+    const entries = await store.getAllEntries();
     expect(entries[0].summary.length).toBe(200);
     expect(entries[0].details.length).toBe(300);
   });
@@ -127,6 +127,6 @@ describe("store_memory tool", () => {
       type: "decision",
     });
 
-    expect(store.getEntryCount()).toBe(1);
+    expect(await store.getEntryCount()).toBe(1);
   });
 });

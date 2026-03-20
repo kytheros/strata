@@ -86,11 +86,11 @@ function createGeminiFixture(baseDir: string): string {
 }
 
 /** Index a parsed session into the document store */
-function indexSession(
+async function indexSession(
   store: SqliteDocumentStore,
   session: ParsedSession,
   parserId: string
-): void {
+): Promise<void> {
   const tool = session.tool || parserId;
   const allText = session.messages.map((m) => m.text).join("\n");
   const toolNames = [
@@ -98,7 +98,7 @@ function indexSession(
   ];
   const tokenCount = allText.split(/\s+/).length;
 
-  store.add(
+  await store.add(
     allText,
     tokenCount,
     {
@@ -122,7 +122,7 @@ describe("Cross-tool memory", () => {
   let searchEngine: SqliteSearchEngine;
   let knowledgeStore: SqliteKnowledgeStore;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     tmpDir = join(tmpdir(), `cross-tool-memory-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
 
@@ -142,7 +142,7 @@ describe("Cross-tool memory", () => {
     const claudeFiles = claudeParser.discover();
     for (const file of claudeFiles) {
       const session = claudeParser.parse(file);
-      if (session) indexSession(docStore, session, claudeParser.id);
+      if (session) await indexSession(docStore, session, claudeParser.id);
     }
 
     // Parse and index Gemini CLI sessions
@@ -151,11 +151,11 @@ describe("Cross-tool memory", () => {
     const geminiFiles = geminiParser.discover();
     for (const file of geminiFiles) {
       const session = geminiParser.parse(file);
-      if (session) indexSession(docStore, session, geminiParser.id);
+      if (session) await indexSession(docStore, session, geminiParser.id);
     }
 
     // Store a knowledge entry (simulates store_memory from either tool)
-    knowledgeStore.addEntry({
+    await knowledgeStore.addEntry({
       id: "mem-cross-1",
       type: "decision",
       project: "global",
@@ -179,7 +179,7 @@ describe("Cross-tool memory", () => {
 
   // ── Both tools indexed ──────────────────────────────────────────────
 
-  it("indexes both Claude Code and Gemini CLI sessions", () => {
+  it("indexes both Claude Code and Gemini CLI sessions", async () => {
     const tools = (
       db
         .prepare("SELECT DISTINCT tool FROM documents")
@@ -194,7 +194,7 @@ describe("Cross-tool memory", () => {
 
   // ── Tool attribution ───────────────────────────────────────────────
 
-  it("tool attribution is correct (gemini-cli vs claude-code)", () => {
+  it("tool attribution is correct (gemini-cli vs claude-code)", async () => {
     const claudeDocs = db
       .prepare("SELECT * FROM documents WHERE tool = ?")
       .all("claude-code") as { text: string }[];
@@ -219,25 +219,25 @@ describe("Cross-tool memory", () => {
 
   // ── Cross-tool search ──────────────────────────────────────────────
 
-  it("search_history returns Claude Code results", () => {
-    const results = searchEngine.search("ESLint TypeScript");
+  it("search_history returns Claude Code results", async () => {
+    const results = await searchEngine.search("ESLint TypeScript");
     expect(results.length).toBeGreaterThan(0);
     expect(
       results.some((r) => r.text.toLowerCase().includes("eslint"))
     ).toBe(true);
   });
 
-  it("search_history returns Gemini CLI results", () => {
-    const results = searchEngine.search("Vitest testing");
+  it("search_history returns Gemini CLI results", async () => {
+    const results = await searchEngine.search("Vitest testing");
     expect(results.length).toBeGreaterThan(0);
     expect(
       results.some((r) => r.text.toLowerCase().includes("vitest"))
     ).toBe(true);
   });
 
-  it("search_history returns both Gemini and Claude results for broad query", () => {
+  it("search_history returns both Gemini and Claude results for broad query", async () => {
     // Both sessions involve TypeScript — broad query should find both
-    const results = searchEngine.search("TypeScript config");
+    const results = await searchEngine.search("TypeScript config");
     expect(results.length).toBeGreaterThanOrEqual(2);
 
     // Verify results come from different tools
@@ -255,8 +255,8 @@ describe("Cross-tool memory", () => {
 
   // ── Tool filtering ─────────────────────────────────────────────────
 
-  it("tool: filter correctly isolates Gemini sessions", () => {
-    const results = searchEngine.search("tool:gemini-cli TypeScript");
+  it("tool: filter correctly isolates Gemini sessions", async () => {
+    const results = await searchEngine.search("tool:gemini-cli TypeScript");
 
     for (const r of results) {
       const doc = db
@@ -268,8 +268,8 @@ describe("Cross-tool memory", () => {
     }
   });
 
-  it("tool: filter correctly isolates Claude sessions", () => {
-    const results = searchEngine.search("tool:claude-code TypeScript");
+  it("tool: filter correctly isolates Claude sessions", async () => {
+    const results = await searchEngine.search("tool:claude-code TypeScript");
 
     for (const r of results) {
       const doc = db
@@ -283,18 +283,18 @@ describe("Cross-tool memory", () => {
 
   // ── Knowledge store is tool-agnostic ───────────────────────────────
 
-  it("memory stored via store_memory is searchable regardless of tool", () => {
+  it("memory stored via store_memory is searchable regardless of tool", async () => {
     // The knowledge entry we stored manually should be findable
-    const results = knowledgeStore.search("ESLint flat config");
+    const results = await knowledgeStore.search("ESLint flat config");
     expect(results.length).toBeGreaterThan(0);
     expect(
       results.some((r) => r.summary.includes("flat config"))
     ).toBe(true);
   });
 
-  it("knowledge entries from different tools coexist", () => {
+  it("knowledge entries from different tools coexist", async () => {
     // Store knowledge entries attributed to different sessions/tools
-    knowledgeStore.addEntry({
+    await knowledgeStore.addEntry({
       id: "mem-claude-1",
       type: "solution",
       project: "my-project",
@@ -306,7 +306,7 @@ describe("Cross-tool memory", () => {
       relatedFiles: [],
     });
 
-    knowledgeStore.addEntry({
+    await knowledgeStore.addEntry({
       id: "mem-gemini-1",
       type: "solution",
       project: "my-project",
@@ -319,17 +319,17 @@ describe("Cross-tool memory", () => {
     });
 
     // Both should be searchable
-    const eslintResults = knowledgeStore.search("ESLint config import");
+    const eslintResults = await knowledgeStore.search("ESLint config import");
     expect(eslintResults.length).toBeGreaterThan(0);
 
-    const vitestResults = knowledgeStore.search("Vitest timeout");
+    const vitestResults = await knowledgeStore.search("Vitest timeout");
     expect(vitestResults.length).toBeGreaterThan(0);
   });
 
   // ── find_solutions works across tools ──────────────────────────────
 
-  it("searchSolutions finds solutions across tools", () => {
-    const results = searchEngine.searchSolutions("TypeScript configuration");
+  it("searchSolutions finds solutions across tools", async () => {
+    const results = await searchEngine.searchSolutions("TypeScript configuration");
     expect(results.length).toBeGreaterThan(0);
   });
 });

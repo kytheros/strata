@@ -33,13 +33,13 @@ describe("search intelligence", () => {
   let store: SqliteDocumentStore;
   let engine: SqliteSearchEngine;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     db = openDatabase(":memory:");
     store = new SqliteDocumentStore(db);
     engine = new SqliteSearchEngine(store);
 
     // Recent auto-indexed entry (5 days old)
-    store.add(
+    await store.add(
       "Configured docker compose for production deployment with nginx reverse proxy",
       14,
       makeMetadata({
@@ -50,7 +50,7 @@ describe("search intelligence", () => {
     );
 
     // Old auto-indexed entry (200 days old) — same topic, should decay
-    store.add(
+    await store.add(
       "Docker compose configuration for staging environment with nginx proxy setup",
       13,
       makeMetadata({
@@ -61,7 +61,7 @@ describe("search intelligence", () => {
     );
 
     // Old explicit memory (200 days old) — same topic, should NOT decay
-    store.add(
+    await store.add(
       "Always use docker compose with nginx proxy for reliable container orchestration",
       12,
       makeMetadata({
@@ -72,7 +72,7 @@ describe("search intelligence", () => {
     );
 
     // Medium-age auto-indexed entry (120 days old) — 90d decay band
-    store.add(
+    await store.add(
       "Docker networking troubleshooting guide for compose bridge driver issues",
       11,
       makeMetadata({
@@ -83,7 +83,7 @@ describe("search intelligence", () => {
     );
 
     // Entry for weak-match / low-confidence testing
-    store.add(
+    await store.add(
       "The React component rendering pipeline uses a virtual DOM diffing algorithm for reconciliation",
       18,
       makeMetadata({
@@ -94,7 +94,7 @@ describe("search intelligence", () => {
     );
 
     // Solution-style entry
-    store.add(
+    await store.add(
       "Fixed the CORS error by adding proxy configuration to vite.config.ts. The issue was resolved after setting the proxy target.",
       20,
       makeMetadata({
@@ -112,8 +112,8 @@ describe("search intelligence", () => {
   // ── Memory Decay ──────────────────────────────────────────────────
 
   describe("memory decay", () => {
-    it("recent auto-indexed entry scores higher than old auto-indexed entry", () => {
-      const results = engine.search("docker compose nginx");
+    it("recent auto-indexed entry scores higher than old auto-indexed entry", async () => {
+      const results = await engine.search("docker compose nginx");
       const recent = results.find((r) => r.sessionId === "s-recent");
       const old = results.find((r) => r.sessionId === "s-old");
 
@@ -122,8 +122,8 @@ describe("search intelligence", () => {
       expect(recent!.score).toBeGreaterThan(old!.score);
     });
 
-    it.skip("explicit memory at same age does NOT receive decay penalty", () => {
-      const results = engine.search("docker compose nginx");
+    it.skip("explicit memory at same age does NOT receive decay penalty", async () => {
+      const results = await engine.search("docker compose nginx");
       const explicit = results.find((r) => r.sessionId === "explicit-memory");
       const oldAutoIndexed = results.find((r) => r.sessionId === "s-old");
 
@@ -133,8 +133,8 @@ describe("search intelligence", () => {
       expect(explicit!.score).toBeGreaterThan(oldAutoIndexed!.score);
     });
 
-    it("90-day-old entry decays less than 180-day-old entry", () => {
-      const results = engine.search("docker compose");
+    it("90-day-old entry decays less than 180-day-old entry", async () => {
+      const results = await engine.search("docker compose");
       const medium = results.find((r) => r.sessionId === "s-medium");
       const old = results.find((r) => r.sessionId === "s-old");
 
@@ -149,14 +149,14 @@ describe("search intelligence", () => {
   // ── Confidence Scoring ────────────────────────────────────────────
 
   describe("confidence scoring", () => {
-    it("top result has confidence 1.0", () => {
-      const results = engine.search("docker compose");
+    it("top result has confidence 1.0", async () => {
+      const results = await engine.search("docker compose");
       expect(results.length).toBeGreaterThan(0);
       expect(results[0].confidence).toBe(1);
     });
 
-    it("lower results have confidence < 1.0", () => {
-      const results = engine.search("docker compose");
+    it("lower results have confidence < 1.0", async () => {
+      const results = await engine.search("docker compose");
       expect(results.length).toBeGreaterThan(1);
 
       for (let i = 1; i < results.length; i++) {
@@ -165,8 +165,8 @@ describe("search intelligence", () => {
       }
     });
 
-    it("confidence is normalized relative to top score", () => {
-      const results = engine.search("docker");
+    it("confidence is normalized relative to top score", async () => {
+      const results = await engine.search("docker");
       expect(results.length).toBeGreaterThan(1);
 
       const topScore = results[0].score;
@@ -176,16 +176,16 @@ describe("search intelligence", () => {
       }
     });
 
-    it("single result has confidence 1.0", () => {
-      const results = engine.search("reconciliation virtual DOM diffing");
+    it("single result has confidence 1.0", async () => {
+      const results = await engine.search("reconciliation virtual DOM diffing");
       // Should match only the React entry
       if (results.length === 1) {
         expect(results[0].confidence).toBe(1);
       }
     });
 
-    it("searchSolutions also includes confidence", () => {
-      const results = engine.searchSolutions("CORS error");
+    it("searchSolutions also includes confidence", async () => {
+      const results = await engine.searchSolutions("CORS error");
       expect(results.length).toBeGreaterThan(0);
       expect(results[0].confidence).toBe(1);
       for (const r of results) {

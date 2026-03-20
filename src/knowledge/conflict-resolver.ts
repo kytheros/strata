@@ -58,7 +58,7 @@ export async function resolveConflicts(
 
   try {
     // Retrieve up to 5 similar entries
-    const similar = store.search(candidate.summary).slice(0, 5);
+    const similar = (await store.search(candidate.summary)).slice(0, 5);
 
     // No similar entries → bypass LLM entirely (no unnecessary API call)
     if (similar.length === 0) {
@@ -91,22 +91,22 @@ export async function resolveConflicts(
  * @param candidate - The candidate entry to potentially add
  * @param store - Knowledge store to mutate
  */
-export function executeResolution(
+export async function executeResolution(
   resolution: ConflictResolution,
   candidate: KnowledgeEntry,
   store: SqliteKnowledgeStore
-): void {
+): Promise<void> {
   // Deletes first
   for (const action of resolution.actions) {
     if (action.action === "delete") {
-      store.deleteEntry(action.id);
+      await store.deleteEntry(action.id);
     }
   }
 
   // Updates second
   for (const action of resolution.actions) {
     if (action.action === "update") {
-      store.updateEntry(action.id, {
+      await store.updateEntry(action.id, {
         summary: action.mergedSummary,
         details: action.mergedDetails,
       });
@@ -115,7 +115,7 @@ export function executeResolution(
 
   // Add candidate last, only if shouldAdd is true
   if (resolution.shouldAdd) {
-    store.addEntry(candidate);
+    await store.addEntry(candidate);
   }
 }
 

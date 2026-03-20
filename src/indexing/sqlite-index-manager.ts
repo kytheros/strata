@@ -65,9 +65,9 @@ export class SqliteIndexManager {
     // Clear existing documents (within a transaction)
     this.db.exec("DELETE FROM documents");
 
-    // Reset metadata
-    this.meta.setJson("lastIndexed", {});
-    this.meta.set("version", "1");
+    // Reset metadata — these are sync under the hood (SQLite adapter)
+    void this.meta.setJson("lastIndexed", {});
+    void this.meta.set("version", "1");
 
     let sessionCount = 0;
     const lastIndexed: Record<string, number> = {};
@@ -87,12 +87,16 @@ export class SqliteIndexManager {
     insertBatch();
 
     const buildTime = Date.now() - startTime;
-    this.meta.setJson("lastIndexed", lastIndexed);
-    this.meta.set("buildTime", String(buildTime));
+    void this.meta.setJson("lastIndexed", lastIndexed);
+    void this.meta.set("buildTime", String(buildTime));
+
+    // getDocumentCount() is async but resolves synchronously in SQLite adapter.
+    // Access the underlying sync count for the return value.
+    const countRow = this.db.prepare("SELECT COUNT(*) as count FROM documents").get() as { count: number };
 
     return {
       sessions: sessionCount,
-      chunks: this.documents.getDocumentCount(),
+      chunks: countRow.count,
     };
   }
 
@@ -106,7 +110,9 @@ export class SqliteIndexManager {
     unchanged: number;
   } {
     const available = this.registry.detectAvailable();
-    const lastIndexed = this.meta.getJson<Record<string, number>>("lastIndexed") || {};
+    // Read lastIndexed synchronously from the SQLite database directly
+    const lastIndexedRaw = this.db.prepare("SELECT value FROM index_meta WHERE key = ?").get("lastIndexed") as { value: string } | undefined;
+    const lastIndexed: Record<string, number> = lastIndexedRaw ? JSON.parse(lastIndexedRaw.value) : {};
     let added = 0;
     let updated = 0;
     let unchanged = 0;
@@ -122,7 +128,8 @@ export class SqliteIndexManager {
             lastIndexed[file.filePath] = file.mtime;
             added++;
           } else if (file.mtime > lastMtime) {
-            this.documents.removeSession(file.sessionId);
+            // removeSession is async but executes synchronously in SQLite adapter
+            void this.documents.removeSession(file.sessionId);
             this.indexFileWithParser(file, parser);
             lastIndexed[file.filePath] = file.mtime;
             updated++;
@@ -134,7 +141,7 @@ export class SqliteIndexManager {
     });
 
     updateBatch();
-    this.meta.setJson("lastIndexed", lastIndexed);
+    void this.meta.setJson("lastIndexed", lastIndexed);
 
     return { added, updated, unchanged };
   }
@@ -150,7 +157,8 @@ export class SqliteIndexManager {
     const chunks = this.chunkSession(session);
     for (const chunk of chunks) {
       const tokenCount = chunk.text.split(/\s+/).length;
-      this.documents.add(chunk.text, tokenCount, {
+      // add() is async but executes synchronously in SQLite adapter; return value not needed here
+      void this.documents.add(chunk.text, tokenCount, {
         sessionId: session.sessionId,
         project: session.project,
         role: chunk.role,
@@ -182,26 +190,53 @@ export class SqliteIndexManager {
       messageIndex: number;
     }> = [];
 
-    const { chunkSize, maxChunksPerSession } = CONFIG.indexing;
+    const { chunkSize, chunkOverlap, maxChunksPerSession } = CONFIG.indexing;
     let currentText = "";
     let currentRole: "user" | "assistant" | "mixed" | null = null;
     let currentTimestamp = 0;
     let currentToolNames: string[] = [];
     let currentMessageIndex = 0;
+    // Tail words from the previous flush, prepended to the next chunk for cross-boundary overlap
+    let overlapTail = "";
 
     const flush = () => {
       if (currentText.trim() && currentRole) {
-        const words = currentText.split(/\s+/);
+        const words = currentText.split(/\s+/).filter(Boolean);
+        // Cross-flush overlap prefix: last N words of the previous chunk.
+        // Prepended only to the first sub-chunk so it doesn't inflate the
+        // accumulated text length and cause spurious extra sub-chunks.
+        const prefixWords = overlapTail ? overlapTail.split(/\s+/).filter(Boolean) : [];
+
         for (let i = 0; i < words.length; i += chunkSize) {
-          if (chunks.length >= maxChunksPerSession) return;
+          if (chunks.length >= maxChunksPerSession) break;
+
+          let chunkText: string;
+          if (i === 0 && prefixWords.length > 0) {
+            // First sub-chunk: prepend cross-flush overlap
+            chunkText = [...prefixWords, ...words.slice(0, chunkSize)].join(" ");
+          } else if (i > 0 && chunkOverlap > 0) {
+            // Non-first sub-chunks: apply within-flush overlap by backing up start
+            const start = Math.max(0, i - chunkOverlap);
+            chunkText = words.slice(start, i + chunkSize).join(" ");
+          } else {
+            chunkText = words.slice(i, i + chunkSize).join(" ");
+          }
+
           chunks.push({
-            text: words.slice(i, i + chunkSize).join(" "),
+            text: chunkText,
             role: currentRole,
             timestamp: currentTimestamp,
             toolNames: [...currentToolNames],
             messageIndex: currentMessageIndex,
           });
         }
+
+        // Save tail for the next flush's cross-flush overlap
+        overlapTail = chunkOverlap > 0
+          ? words.slice(Math.max(0, words.length - chunkOverlap)).join(" ")
+          : "";
+      } else {
+        overlapTail = "";
       }
       currentText = "";
       currentRole = null;
@@ -254,11 +289,17 @@ export class SqliteIndexManager {
     projects: number;
     buildTimeMs: number;
   } {
+    // Access SQLite directly for synchronous stats (IndexManager is always SQLite-backed)
+    const docCount = this.db.prepare("SELECT COUNT(*) as count FROM documents").get() as { count: number };
+    const sessionRows = this.db.prepare("SELECT DISTINCT session_id FROM documents").all() as { session_id: string }[];
+    const projectRows = this.db.prepare("SELECT DISTINCT project FROM documents").all() as { project: string }[];
+    const buildTimeRow = this.db.prepare("SELECT value FROM index_meta WHERE key = ?").get("buildTime") as { value: string } | undefined;
+
     return {
-      documents: this.documents.getDocumentCount(),
-      sessions: this.documents.getSessionIds().size,
-      projects: this.documents.getProjects().size,
-      buildTimeMs: parseInt(this.meta.get("buildTime") || "0", 10),
+      documents: docCount.count,
+      sessions: sessionRows.length,
+      projects: projectRows.length,
+      buildTimeMs: parseInt(buildTimeRow?.value || "0", 10),
     };
   }
 

@@ -1,11 +1,13 @@
 /**
  * SQLite-backed metadata key-value store.
  * Replaces the meta.json file for index metadata.
+ * Implements IMetaStore for pluggable storage support.
  */
 
 import type Database from "better-sqlite3";
+import type { IMetaStore } from "./interfaces/index.js";
 
-export class SqliteMetaStore {
+export class SqliteMetaStore implements IMetaStore {
   private stmts: {
     get: Database.Statement;
     set: Database.Statement;
@@ -25,7 +27,7 @@ export class SqliteMetaStore {
   /**
    * Get a metadata value by key.
    */
-  get(key: string): string | undefined {
+  async get(key: string): Promise<string | undefined> {
     const row = this.stmts.get.get(key) as { value: string } | undefined;
     return row?.value;
   }
@@ -33,8 +35,8 @@ export class SqliteMetaStore {
   /**
    * Get a metadata value parsed as JSON.
    */
-  getJson<T>(key: string): T | undefined {
-    const value = this.get(key);
+  async getJson<T>(key: string): Promise<T | undefined> {
+    const value = await this.get(key);
     if (value === undefined) return undefined;
     try {
       return JSON.parse(value) as T;
@@ -46,28 +48,28 @@ export class SqliteMetaStore {
   /**
    * Set a metadata value.
    */
-  set(key: string, value: string): void {
+  async set(key: string, value: string): Promise<void> {
     this.stmts.set.run(key, value);
   }
 
   /**
    * Set a metadata value as JSON.
    */
-  setJson(key: string, value: unknown): void {
+  async setJson(key: string, value: unknown): Promise<void> {
     this.stmts.set.run(key, JSON.stringify(value));
   }
 
   /**
    * Remove a metadata key.
    */
-  remove(key: string): void {
+  async remove(key: string): Promise<void> {
     this.stmts.remove.run(key);
   }
 
   /**
    * Get all metadata as a record.
    */
-  getAll(): Record<string, string> {
+  async getAll(): Promise<Record<string, string>> {
     const rows = this.stmts.getAll.all() as { key: string; value: string }[];
     const result: Record<string, string> = {};
     for (const row of rows) {

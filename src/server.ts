@@ -13,6 +13,7 @@
  * - Compact JSON responses with _meta tracking
  */
 
+import { join } from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SqliteIndexManager } from "./indexing/sqlite-index-manager.js";
@@ -30,26 +31,32 @@ import { handleDeleteMemory } from "./tools/delete-memory.js";
 import { LRUCache, cacheKey } from "./utils/cache.js";
 import { buildTextResponse } from "./utils/response.js";
 import { SqliteEntityStore } from "./storage/sqlite-entity-store.js";
+import type { IEntityStore } from "./storage/interfaces/index.js";
 import { RealtimeWatcher } from "./watcher/realtime-watcher.js";
 import { IncrementalIndexer } from "./watcher/incremental-indexer.js";
 import { tryCreateGeminiEmbedder } from "./extensions/embeddings/gemini-embedder.js";
+import type { StorageContext } from "./storage/interfaces/index.js";
 
-/** Search result cache: 200 entries, 5 min TTL */
-const searchCache = new LRUCache<string, string>(200, 300_000);
+export interface CreateServerOptions {
+  /** Override data directory (for multi-tenant: per-user database path). */
+  dataDir?: string;
+  /** Inject an external StorageContext (e.g., D1 adapter). When omitted, defaults to SQLite. */
+  storage?: StorageContext;
+}
 
-/** History parse cache: 10 entries, 60s TTL */
-const historyCache = new LRUCache<string, string>(10, 60_000);
-
-export function createServer(): {
+export interface CreateServerResult {
   server: McpServer;
   indexManager: SqliteIndexManager;
-  entityStore: SqliteEntityStore;
+  entityStore: IEntityStore;
+  storage: StorageContext;
   init: () => Promise<void>;
   startRealtimeWatcher: (sessionFilePath: string) => RealtimeWatcher | null;
   stopRealtimeWatcher: () => void;
   startIncrementalIndexer: () => IncrementalIndexer;
   stopIncrementalIndexer: () => void;
-} {
+}
+
+export async function createServer(options?: CreateServerOptions): Promise<CreateServerResult> {
   const server = new McpServer(
     { name: "strata-mcp", version: "1.0.0" },
     {
@@ -59,9 +66,31 @@ export function createServer(): {
     }
   );
 
-  const indexManager = new SqliteIndexManager();
+  /** Search result cache: 200 entries, 5 min TTL (per-server instance) */
+  const searchCache = new LRUCache<string, string>(200, 300_000);
+
+  /** History parse cache: 10 entries, 60s TTL (per-server instance) */
+  const historyCache = new LRUCache<string, string>(10, 60_000);
+
+  // ── Storage resolution ────────────────────────────────────────────
+  // When an external StorageContext is provided (e.g., D1 adapter), use it directly.
+  // Otherwise, build the default SQLite-backed storage via IndexManager for backward compat.
+  const dbPath = options?.dataDir ? join(options.dataDir, "strata.db") : undefined;
+  const indexManager = new SqliteIndexManager(dbPath);
+
+  // Build the StorageContext. When injected (D1 path), use the provided context.
+  // When defaulting to SQLite, wrap IndexManager's own stores to avoid opening the DB twice.
+  const storage: StorageContext = options?.storage ?? {
+    knowledge: indexManager.knowledge,
+    documents: indexManager.documents,
+    entities: new SqliteEntityStore(indexManager.db),
+    summaries: indexManager.summaries,
+    meta: indexManager.meta,
+    close: async () => { indexManager.close(); },
+  };
+
   const searchEngine = new SqliteSearchEngine(indexManager.documents);
-  const entityStore = new SqliteEntityStore(indexManager.db);
+  const entityStore: IEntityStore = storage.entities;
   let initialized = false;
 
   // -- Semantic search bridge (lazy init, graceful degradation) --
@@ -113,8 +142,8 @@ export function createServer(): {
   const asyncSearch = async (query: string, options: SearchOptions): Promise<SearchResult[]> => {
     const hybridResults = await semanticBridge.search(query, options);
     if (hybridResults !== null) return hybridResults;
-    // Fallback: synchronous FTS5 search
-    return searchEngine.search(query, options);
+    // Fallback: FTS5 search
+    return await searchEngine.search(query, options);
   };
 
   const asyncSearchSolutions = async (
@@ -124,8 +153,8 @@ export function createServer(): {
   ): Promise<SearchResult[]> => {
     const hybridResults = await semanticBridge.searchSolutions(errorOrProblem, technology, user);
     if (hybridResults !== null) return hybridResults;
-    // Fallback: synchronous FTS5 search
-    return searchEngine.searchSolutions(errorOrProblem, technology, user);
+    // Fallback: FTS5 search
+    return await searchEngine.searchSolutions(errorOrProblem, technology, user);
   };
 
   // ── search_history ─────────────────────────────────────────────────
@@ -134,7 +163,7 @@ export function createServer(): {
     "search_history",
     `🔍 SEARCH: Full-text search across past conversations.
 
-FTS5 full-text search with BM25 ranking, automatically enhanced with semantic vector search when GEMINI_API_KEY is set. Supports inline filter syntax for project, date range, and tool filtering.
+FTS5 full-text search with BM25 ranking, automatically enhanced with semantic vector search when GEMINI_API_KEY is set. Use to locate past discussions about any topic — including finding where you talked about bugs, errors, or specific subjects. Supports inline filter syntax for project, date range, and tool filtering.
 
 Parameters:
 - query: Search text with optional filters (required)
@@ -151,7 +180,7 @@ Filter syntax (include in query string):
 - tool:Bash — filter by tool used
 
 Example: Search for Docker configuration discussions in a specific project
-Example: Find all TypeScript migration work from the last week`,
+Example: Find where we talked about login issues`,
     {
       query: z.string().describe("Search query with optional inline filters (e.g., 'docker compose project:myapp after:7d')"),
       project: z.string().optional().describe("Filter to a specific project name or path"),
@@ -216,9 +245,9 @@ Example: Find which project has the most conversation sessions`,
 
   server.tool(
     "find_solutions",
-    `🔍 SEARCH: Find solutions to errors or problems from past conversations.
+    `🔍 SEARCH: Find how you solved a specific error or problem in a past session.
 
-Searches conversation history with solution-biased ranking — results containing fix/resolution language score 1.5x higher. Automatically enhanced with semantic search when GEMINI_API_KEY is set. Use when encountering an error you may have solved before.
+Use when you have an ACTIVE problem and need past fixes — solution-biased ranking surfaces fix/resolution language. NOT for general topic searches; use search_history to find past discussions about any subject. Automatically enhanced with semantic search when GEMINI_API_KEY is set.
 
 Parameters:
 - error_or_problem: The error message or problem description (required)
@@ -314,7 +343,7 @@ Example: Search for database optimization approaches in a specific project`,
       }
 
       // Fallback: FTS5 keyword search with helpful message
-      const ftsResults = searchEngine.search(args.query, {
+      const ftsResults = await searchEngine.search(args.query, {
         limit: args.limit,
         project: args.project,
         user: args.user,
@@ -354,9 +383,9 @@ Example: Search for database optimization approaches in a specific project`,
 
   server.tool(
     "get_session_summary",
-    `📖 READ: Get a structured summary of a specific conversation session.
+    `📖 READ: Get a summary of a single conversation session — what happened today, in your last session, or in a specific session by ID.
 
-Returns session metadata, initial topic, tools used, key topics, and conversation flow. Provide either a session ID (exact match) or project name (returns most recent session).
+Returns session metadata, initial topic, tools used, key topics, and conversation flow. Provide either a session ID or project name (returns most recent session). NOT for multi-session overviews — use list_projects for "what have I been working on lately" or find_patterns for recurring trends.
 
 Parameters:
 - session_id: Specific session UUID (optional)
@@ -364,7 +393,7 @@ Parameters:
 - At least one parameter is required.
 
 Example: Get summary of the most recent session for the Kytheros project
-Example: Review what happened in a specific session by UUID`,
+Example: What did I work on today?`,
     {
       session_id: z.string().optional().describe("Specific session UUID"),
       project: z.string().optional().describe("Project name or path — returns most recent session"),
@@ -391,16 +420,16 @@ Example: Review what happened in a specific session by UUID`,
 
   server.tool(
     "get_project_context",
-    `📖 READ: Get comprehensive project context — recent sessions, key topics, and patterns.
+    `📖 READ: Get comprehensive context for a specific project — recent sessions, key topics, and patterns.
 
-Useful for session-start context injection. Returns recent sessions with topics, message counts, and optionally common topics analysis.
+Deep dive into one named project. Use when the user asks "what do you know about [project]?" or wants project-level context before starting work. Returns recent sessions with topics, message counts, and optionally common topics analysis.
 
 Parameters:
 - project: Project name or path (required)
 - depth: Detail level — 'brief' (last session), 'normal' (last 3), 'detailed' (last 5 + topic analysis). Default: normal.
 
 Example: Get brief context for the current project before starting work
-Example: Get detailed analysis of all activity on the Kytheros project`,
+Example: What do you know about my React project?`,
     {
       project: z.string().optional().describe("Project name or path"),
       depth: z.enum(["brief", "normal", "detailed"]).optional().describe("Detail level (default: normal)"),
@@ -491,9 +520,9 @@ Example: Store a fact like "API rate limit is 100/min"`,
 
   server.tool(
     "delete_memory",
-    `🗑️ MEMORY: Permanently delete a memory entry.
+    `🗑️ MEMORY: Remove or permanently delete a stored memory entry.
 
-Hard-delete a knowledge entry by ID. The deletion is recorded in the audit history so the change can be traced later via memory_history.
+Use this directly — NOT search_history — when the user wants to delete, remove, erase, retract, or discard an incorrect/stale/wrong memory. The deletion is recorded in the audit history.
 
 Parameters:
 - id: The entry ID to delete (required)
@@ -521,6 +550,7 @@ Example: Delete a stale entry — delete_memory({ id: "abc-123" })`,
     server,
     indexManager,
     entityStore,
+    storage,
     init: ensureIndex,
     startRealtimeWatcher(sessionFilePath: string): RealtimeWatcher | null {
       if (realtimeWatcher) {

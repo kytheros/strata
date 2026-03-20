@@ -28,6 +28,10 @@
   "exports": {
     ".": "./dist/index.js",
     "./server": "./dist/server.js",
+    "./d1": "./dist/storage/d1/index.js",
+    "./storage/interfaces": "./dist/storage/interfaces/index.js",
+    "./storage/sqlite": "./dist/storage/sqlite/index.js",
+    "./storage/factory": "./dist/storage/factory.js",
     "./tools/*": "./dist/tools/*.js",
     "./storage/*": "./dist/storage/*.js",
     "./indexing/*": "./dist/indexing/*.js",
@@ -68,6 +72,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240806.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "husky": "^9.1.0",

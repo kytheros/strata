@@ -66,7 +66,7 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
   let parseErrors = 0;
   const toolSessionCounts: Record<string, number> = {};
 
-  beforeAll(() => {
+  beforeAll(async () => {
     tmpDbDir = join(tmpdir(), `strata-smoke-${Date.now()}`);
     mkdirSync(tmpDbDir, { recursive: true });
 
@@ -128,14 +128,14 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
 
   // ── 1. Detection ───────────────────────────────────────────────────
 
-  it("at least one parser detects data on this machine", () => {
+  it("at least one parser detects data on this machine", async () => {
     expect(detected.length).toBeGreaterThan(0);
     console.log(`  Detected parsers: ${detectedIds.join(", ")}`);
   });
 
   // ── 2. Discovery + Parsing ─────────────────────────────────────────
 
-  it("discovered and indexed real sessions without excessive errors", () => {
+  it("discovered and indexed real sessions without excessive errors", async () => {
     console.log(`  Total sessions indexed: ${totalSessions}`);
     console.log(`  Parse errors: ${parseErrors}`);
     for (const [tool, count] of Object.entries(toolSessionCounts)) {
@@ -153,19 +153,19 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
 
   // ── 3. Database integrity ──────────────────────────────────────────
 
-  it("database has correct structure and data", () => {
-    const docCount = docStore.getDocumentCount();
+  it("database has correct structure and data", async () => {
+    const docCount = await docStore.getDocumentCount();
     expect(docCount).toBe(totalChunks);
 
-    const sessionIds = docStore.getSessionIds();
+    const sessionIds = await docStore.getSessionIds();
     expect(sessionIds.size).toBe(totalSessions);
 
-    const projects = docStore.getProjects();
+    const projects = await docStore.getProjects();
     expect(projects.size).toBeGreaterThan(0);
     console.log(`  Unique projects: ${projects.size}`);
   });
 
-  it("all indexed documents have valid tool labels", () => {
+  it("all indexed documents have valid tool labels", async () => {
     const tools = db
       .prepare("SELECT DISTINCT tool FROM documents")
       .all() as { tool: string }[];
@@ -181,8 +181,8 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
 
   // ── 4. Search works on real data ───────────────────────────────────
 
-  it("keyword search returns results", () => {
-    const results = searchEngine.search("error");
+  it("keyword search returns results", async () => {
+    const results = await searchEngine.search("error");
     expect(results.length).toBeGreaterThan(0);
     // Results should have non-empty text
     for (const r of results) {
@@ -191,7 +191,7 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
     }
   });
 
-  it("search with project filter returns only matching projects", () => {
+  it("search with project filter returns only matching projects", async () => {
     // Get a project that actually has searchable content
     const projectRows = db
       .prepare("SELECT DISTINCT project FROM documents LIMIT 5")
@@ -199,7 +199,7 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
     if (projectRows.length === 0) return;
 
     const targetProject = projectRows[0].project;
-    const results = searchEngine.search("test", { project: targetProject });
+    const results = await searchEngine.search("test", { project: targetProject });
     // Project filter uses substring matching (`.includes()`), so results
     // should all contain the target project name
     for (const r of results) {
@@ -207,8 +207,8 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
     }
   });
 
-  it("searchSolutions returns results for common errors", () => {
-    const results = searchEngine.searchSolutions("error");
+  it("searchSolutions returns results for common errors", async () => {
+    const results = await searchEngine.searchSolutions("error");
     // May or may not have results depending on data, but shouldn't crash
     expect(Array.isArray(results)).toBe(true);
   });
@@ -232,7 +232,7 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
 
   // ── 6. Sanitizer didn't let secrets through ────────────────────────
 
-  it("no obvious API keys in indexed text", () => {
+  it("no obvious API keys in indexed text", async () => {
     // Sample check: scan a portion of indexed documents for secret patterns
     const sampleDocs = db
       .prepare("SELECT text FROM documents ORDER BY RANDOM() LIMIT 100")
@@ -363,13 +363,13 @@ describe.skipIf(!hasAnyData)("CLI Smoke Test (real data)", () => {
       encoding: "utf-8",
     });
 
-  it("--version matches package.json", () => {
+  it("--version matches package.json", async () => {
     const output = run("--version").trim();
     const pkg = require("../../package.json");
     expect(output).toBe(pkg.version);
   });
 
-  it("status command completes and shows parser info", () => {
+  it("status command completes and shows parser info", async () => {
     // status uses the real data dir and prints parser names (human-readable)
     const output = run("status", 60000);
     expect(output).toContain("Strata");
@@ -383,7 +383,7 @@ describe.skipIf(!hasAnyData)("CLI Smoke Test (real data)", () => {
     ).toBe(true);
   });
 
-  it("search command works against existing index", () => {
+  it("search command works against existing index", async () => {
     // Use the real data dir (not a fresh one) so we don't rebuild the index
     try {
       const output = run('search "error" --limit 5', 60000);

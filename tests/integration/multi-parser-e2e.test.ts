@@ -183,7 +183,7 @@ describe("Multi-Parser E2E: all 5 tools → SQLite → search", () => {
   let searchEngine: SqliteSearchEngine;
   let registry: ParserRegistry;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     tmpDir = join(tmpdir(), `multi-parser-e2e-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
 
@@ -235,7 +235,7 @@ describe("Multi-Parser E2E: all 5 tools → SQLite → search", () => {
 
   // ── Detection ──────────────────────────────────────────────────────
 
-  it("all 5 parsers detect their fixture data", () => {
+  it("all 5 parsers detect their fixture data", async () => {
     const available = registry.detectAvailable();
     const ids = available.map((p) => p.id).sort();
     expect(ids).toEqual(["aider", "claude-code", "cline", "codex", "gemini-cli"]);
@@ -243,12 +243,12 @@ describe("Multi-Parser E2E: all 5 tools → SQLite → search", () => {
 
   // ── Indexing ───────────────────────────────────────────────────────
 
-  it("all 5 parsers produced indexed documents", () => {
-    const count = docStore.getDocumentCount();
+  it("all 5 parsers produced indexed documents", async () => {
+    const count = await docStore.getDocumentCount();
     expect(count).toBeGreaterThanOrEqual(5); // At least 1 chunk per parser
   });
 
-  it("documents have correct tool labels", () => {
+  it("documents have correct tool labels", async () => {
     const allDocs = db.prepare("SELECT DISTINCT tool FROM documents").all() as { tool: string }[];
     const tools = allDocs.map((d) => d.tool).sort();
     expect(tools).toContain("claude-code");
@@ -260,44 +260,44 @@ describe("Multi-Parser E2E: all 5 tools → SQLite → search", () => {
 
   // ── Cross-tool Search ──────────────────────────────────────────────
 
-  it("search finds Claude Code content (Docker Compose)", () => {
-    const results = searchEngine.search("Docker Compose PostgreSQL");
+  it("search finds Claude Code content (Docker Compose)", async () => {
+    const results = await searchEngine.search("Docker Compose PostgreSQL");
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((r) => r.text.toLowerCase().includes("docker"))).toBe(true);
   });
 
-  it("search finds Codex content (Kubernetes)", () => {
-    const results = searchEngine.search("Kubernetes deployment manifests");
+  it("search finds Codex content (Kubernetes)", async () => {
+    const results = await searchEngine.search("Kubernetes deployment manifests");
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((r) => r.text.toLowerCase().includes("kubernetes"))).toBe(true);
   });
 
-  it("search finds Cline content (JWT authentication)", () => {
-    const results = searchEngine.search("JWT authentication middleware");
+  it("search finds Cline content (JWT authentication)", async () => {
+    const results = await searchEngine.search("JWT authentication middleware");
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((r) => r.text.toLowerCase().includes("jwt"))).toBe(true);
   });
 
-  it("search finds Gemini content (GraphQL schema)", () => {
-    const results = searchEngine.search("GraphQL schema blog");
+  it("search finds Gemini content (GraphQL schema)", async () => {
+    const results = await searchEngine.search("GraphQL schema blog");
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((r) => r.text.toLowerCase().includes("graphql"))).toBe(true);
   });
 
-  it("search finds Aider content (Prisma migration)", () => {
-    const results = searchEngine.search("Prisma migration database");
+  it("search finds Aider content (Prisma migration)", async () => {
+    const results = await searchEngine.search("Prisma migration database");
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((r) => r.text.toLowerCase().includes("prisma"))).toBe(true);
   });
 
   // ── Tool Filtering ─────────────────────────────────────────────────
 
-  it("tool: filter restricts results to specific parser", () => {
+  it("tool: filter restricts results to specific parser", async () => {
     // Index a document that would match from any parser
     // Then filter by tool — only that parser's results should come back
-    const allResults = searchEngine.search("deployment");
+    const allResults = await searchEngine.search("deployment");
     // With tool filter
-    const codexOnly = searchEngine.search("tool:codex deployment");
+    const codexOnly = await searchEngine.search("tool:codex deployment");
 
     // All codex-filtered results should be from codex sessions
     for (const r of codexOnly) {
@@ -310,10 +310,10 @@ describe("Multi-Parser E2E: all 5 tools → SQLite → search", () => {
 
   // ── Mixed Results ──────────────────────────────────────────────────
 
-  it("broad search returns results from multiple tools", () => {
+  it("broad search returns results from multiple tools", async () => {
     // Each fixture mentions a distinct topic but all contain assistant responses.
     // Use OR-style FTS5 query to match content across multiple tools.
-    const results = searchEngine.search("docker OR kubernetes OR JWT OR graphql OR prisma");
+    const results = await searchEngine.search("docker OR kubernetes OR JWT OR graphql OR prisma");
     // We just need results from more than one tool
     const tools = new Set<string>();
     for (const r of results) {
@@ -326,8 +326,8 @@ describe("Multi-Parser E2E: all 5 tools → SQLite → search", () => {
 
   // ── Session Dedup ──────────────────────────────────────────────────
 
-  it("search deduplicates by session (one result per session)", () => {
-    const results = searchEngine.search("create");
+  it("search deduplicates by session (one result per session)", async () => {
+    const results = await searchEngine.search("create");
     const sessionCounts = new Map<string, number>();
     for (const r of results) {
       sessionCounts.set(r.sessionId, (sessionCounts.get(r.sessionId) || 0) + 1);
@@ -339,8 +339,8 @@ describe("Multi-Parser E2E: all 5 tools → SQLite → search", () => {
 
   // ── find_solutions with multi-tool data ────────────────────────────
 
-  it("searchSolutions finds solutions across tools", () => {
-    const results = searchEngine.searchSolutions("database migration");
+  it("searchSolutions finds solutions across tools", async () => {
+    const results = await searchEngine.searchSolutions("database migration");
     expect(results.length).toBeGreaterThan(0);
   });
 });
@@ -348,7 +348,7 @@ describe("Multi-Parser E2E: all 5 tools → SQLite → search", () => {
 // ── SqliteIndexManager wiring test ──────────────────────────────────────
 
 describe("SqliteIndexManager: all 5 parsers registered", () => {
-  it("registers all 5 parsers by default", () => {
+  it("registers all 5 parsers by default", async () => {
     const manager = new SqliteIndexManager(":memory:");
     try {
       const parserIds = manager.registry.getAll().map((p) => p.id).sort();
@@ -358,7 +358,7 @@ describe("SqliteIndexManager: all 5 parsers registered", () => {
     }
   });
 
-  it("buildFullIndex indexes fixture data through the real pipeline", () => {
+  it("buildFullIndex indexes fixture data through the real pipeline", async () => {
     // Build fixtures, then replace the manager's registry with parsers pointed at fixtures
     const fixtureDir = join(tmpdir(), `idx-manager-e2e-${Date.now()}`);
     mkdirSync(fixtureDir, { recursive: true });
@@ -407,7 +407,7 @@ describe("SqliteIndexManager: all 5 parsers registered", () => {
     }
   });
 
-  it("getStats returns correct counts after indexing", () => {
+  it("getStats returns correct counts after indexing", async () => {
     const manager = new SqliteIndexManager(":memory:");
     try {
       // Fresh database should have zero stats
@@ -428,7 +428,7 @@ describe("SqliteIndexManager: all 5 parsers registered", () => {
 describe("Parser format contracts", () => {
   let tmpDir: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     tmpDir = join(tmpdir(), `parser-format-contracts-${Date.now()}`);
     mkdirSync(tmpDir, { recursive: true });
   });
@@ -441,7 +441,7 @@ describe("Parser format contracts", () => {
     }
   });
 
-  it("Claude Code: handles multi-block assistant content with tool_use", () => {
+  it("Claude Code: handles multi-block assistant content with tool_use", async () => {
     const projectsDir = join(tmpDir, "cc-format");
     const projDir = join(projectsDir, "my-project");
     mkdirSync(projDir, { recursive: true });
@@ -513,7 +513,7 @@ describe("Parser format contracts", () => {
     expect(assistant!.toolNames).toContain("Write");
   });
 
-  it("Codex: handles created_at timestamp format and nested content", () => {
+  it("Codex: handles created_at timestamp format and nested content", async () => {
     const sessionsDir = join(tmpDir, "codex-format");
     const dayDir = join(sessionsDir, "2026", "03", "01");
     mkdirSync(dayDir, { recursive: true });
@@ -578,7 +578,7 @@ describe("Parser format contracts", () => {
     expect(session!.messages.some(m => m.toolNames.includes("Write"))).toBe(true);
   });
 
-  it("Cline: handles tool_use and tool_result content blocks", () => {
+  it("Cline: handles tool_use and tool_result content blocks", async () => {
     const tasksDir = join(tmpDir, "cline-format");
     const taskDir = join(tasksDir, "task-real1");
     mkdirSync(taskDir, { recursive: true });
@@ -633,7 +633,7 @@ describe("Parser format contracts", () => {
     expect(toolMessages.some(m => m.toolNames.includes("write_to_file"))).toBe(true);
   });
 
-  it("Gemini: handles functionCall parts and multi-turn conversations", () => {
+  it("Gemini: handles functionCall parts and multi-turn conversations", async () => {
     const geminiDir = join(tmpDir, "gemini-format");
     const projectHash = "proj-real1";
     const chatsDir = join(geminiDir, projectHash, "chats");
@@ -681,7 +681,7 @@ describe("Parser format contracts", () => {
     expect(modelMessages.some(m => m.toolNames.includes("edit_file"))).toBe(true);
   });
 
-  it("Aider: handles SEARCH/REPLACE blocks and bash code blocks", () => {
+  it("Aider: handles SEARCH/REPLACE blocks and bash code blocks", async () => {
     const aiderDir = join(tmpDir, "aider-format");
     const projectDir = join(aiderDir, "my-aider-project");
     mkdirSync(projectDir, { recursive: true });
@@ -740,7 +740,7 @@ Yes, all WebSocket tests pass. The memory leak is fixed.
 
 // ── Helper ───────────────────────────────────────────────────────────────
 
-function indexSession(
+async function indexSession(
   store: SqliteDocumentStore,
   session: ParsedSession,
   parserId: string
@@ -750,7 +750,7 @@ function indexSession(
   const toolNames = [...new Set(session.messages.flatMap((m) => m.toolNames))];
   const tokenCount = allText.split(/\s+/).length;
 
-  store.add(allText, tokenCount, {
+  await store.add(allText, tokenCount, {
     sessionId: session.sessionId,
     project: session.project,
     role: "mixed",
