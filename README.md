@@ -4,7 +4,7 @@ Local memory layer for AI coding assistants. Strata indexes your conversations f
 
 **Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid FTS5 + vector search with 3072-dimensional embeddings. Falls back to keyword search without it.
 
-No cloud required. No memory caps. Everything stays on your machine.
+No cloud required. No memory caps. Everything stays on your machine. Or [deploy on Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) for a serverless multi-tenant setup.
 
 **Cross-tool memory.** Store a decision in Claude Code, recall it from Gemini CLI. One shared knowledge base across all your AI coding assistants.
 
@@ -70,7 +70,7 @@ strata status
 ```
 
 ```
-Strata v1.2.1
+Strata v1.3.0
 Database: ~/.strata/strata.db
 Sessions: 142 | Documents: 3847 | Projects: 12
 ```
@@ -125,20 +125,68 @@ Entries that fail any gate are rejected. This keeps the knowledge base clean and
 
 ---
 
+## Deploy on Cloudflare Workers + D1
+
+Strata ships a pluggable storage layer with a Cloudflare D1 adapter. Deploy Strata as a serverless MCP server on Cloudflare's global edge — zero ops, infinite scale, $0 idle cost.
+
+```bash
+npm install strata-mcp @modelcontextprotocol/sdk
+```
+
+```typescript
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server";
+import { createD1Storage } from "strata-mcp/d1";
+import { createServer } from "strata-mcp/server";
+
+export default {
+  async fetch(request: Request, env: { STRATA_DB: D1Database }): Promise<Response> {
+    const url = new URL(request.url);
+    const match = url.pathname.match(/^\/strata\/([a-f0-9-]+)\/mcp$/);
+    if (!match) return new Response("Not found", { status: 404 });
+
+    const storage = await createD1Storage({ d1: env.STRATA_DB, userId: match[1] });
+    const { server } = createServer({ storage });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await server.connect(transport);
+    return transport.handleRequest(request);
+  },
+};
+```
+
+Full-text search (FTS5) works out of the box. Add a `GEMINI_API_KEY` secret for semantic search with 3072-dim embeddings — same quality as the local SQLite path.
+
+See the full deployment guide at [kytheros.dev/docs/cloudflare-workers-d1](https://kytheros.dev/docs/cloudflare-workers-d1).
+
+### Storage Backends
+
+| Backend | Use Case | Install |
+|---------|----------|---------|
+| **SQLite** (default) | Local CLI, single user | `npm install -g strata-mcp` |
+| **D1** | Cloudflare Workers, multi-tenant | `import { createD1Storage } from "strata-mcp/d1"` |
+
+Both backends support the same 9 MCP tools, FTS5 search, and semantic search. The storage layer is pluggable via the `StorageContext` interface — pass it to `createServer({ storage })`.
+
+---
+
 ## Search Intelligence
 
-Every search result is scored through multiple ranking signals:
+Every search result is scored through multiple ranking signals, all [empirically optimized](CHANGELOG.md) via AutoResearch:
 
-- **BM25 full-text ranking** via SQLite FTS5 with Porter stemming
+- **BM25 full-text ranking** via SQLite FTS5 with Porter stemming (`k1=1.2`, `b=0.75`)
 - **Vector cosine similarity** via Gemini `gemini-embedding-001` (3072-dim) with code-optimized task types
-- **Reciprocal Rank Fusion** -- merges keyword and vector results for best-of-both retrieval
-- **Recency boosts** -- last 7 days: 1.2x, last 30 days: 1.1x
+- **Reciprocal Rank Fusion** (`k=40`) -- merges keyword and vector results for best-of-both retrieval
+- **Dual-list bonus** (`0.3x`) -- results appearing in both keyword and vector lists get a score boost
+- **Vector similarity tiebreaker** (`0.005`) -- restores magnitude information that RRF rank-based scoring discards
+- **Recency boosts** -- last 7 days: 1.1x, last 30 days: 1.05x
 - **Project match boost** -- results from the current project: 1.3x
-- **Importance scoring** -- composite heuristic (type, language cues, frequency, explicit storage)
+- **Importance scoring** -- composite heuristic across type (0.35), frequency (0.35), language cues (0.20), explicit storage (0.10)
 - **Memory decay** -- auto-indexed entries older than 90 days: 0.85x, older than 180 days: 0.7x (explicit memories exempt)
 - **Confidence bands** -- results normalized to [0, 1] and bucketed into HIGH/MED/LOW
+- **Chunking** -- 1600-token chunks with 50-token overlap for optimal context preservation
 
 Vector search uses `CODE_RETRIEVAL_QUERY` task type for queries and `RETRIEVAL_DOCUMENT` for stored entries, optimizing Gemini's attention for code retrieval patterns.
+
+All ranking parameters are centralized in [`src/config.ts`](src/config.ts) and were validated against frozen eval suites (search retrieval: 30/30, chunking: 25/25, RRF fusion: 58/58).
 
 ---
 
@@ -217,14 +265,17 @@ You can also set the Gemini key in `~/.strata/config.json` instead of an environ
 
 - Node.js >= 18
 
-No other system dependencies. SQLite is bundled via better-sqlite3.
+No other system dependencies. SQLite is bundled via better-sqlite3. For Cloudflare Workers deployment, the D1 adapter has no native dependencies.
 
 ---
 
 ## Documentation
 
+Full documentation at [kytheros.dev/docs](https://kytheros.dev/docs).
+
 | Document | Description |
 |----------|-------------|
+| [Cloudflare Workers + D1 Guide](https://kytheros.dev/docs/cloudflare-workers-d1) | Deploy Strata as a serverless MCP server |
 | [Architecture](docs/architecture.md) | System design, storage model, retrieval pipeline |
 | [Evaluator Pipeline](docs/evaluator-pipeline.md) | Quality gates, accepted/rejected examples, importance scoring |
 | [Provenance & Audit](docs/provenance.md) | knowledge_history table, tracing entries to origin |
