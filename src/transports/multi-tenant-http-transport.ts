@@ -41,7 +41,7 @@ export interface MultiTenantHttpTransportOptions {
  */
 interface UserEntry {
   userId: string;
-  mcpServer: Awaited<ReturnType<typeof createServer>>;
+  mcpServer: ReturnType<typeof createServer>;
   transports: Map<string, StreamableHTTPServerTransport>;
   lastAccess: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -111,8 +111,8 @@ export async function startMultiTenantHttpTransport(
    * Create an MCP server for a specific user with an explicit data directory.
    * No global state mutation — safe for concurrent async operations.
    */
-  async function createUserServer(userId: string): Promise<Awaited<ReturnType<typeof createServer>>> {
-    return await createServer({ dataDir: join(baseDir, userId) });
+  function createUserServer(userId: string): ReturnType<typeof createServer> {
+    return createServer({ dataDir: join(baseDir, userId) });
   }
 
   /**
@@ -181,7 +181,7 @@ export async function startMultiTenantHttpTransport(
     misses++;
     await evictIfNeeded();
 
-    const mcpServer = await createUserServer(userId);
+    const mcpServer = createUserServer(userId);
 
     const entry: UserEntry = {
       userId,

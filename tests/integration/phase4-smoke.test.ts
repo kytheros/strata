@@ -41,7 +41,7 @@ describe("Smoke: HTTP Transport E2E", () => {
   });
 
   it("serve starts and health responds", async () => {
-    const { server } = await createServer();
+    const { server } = createServer();
     handle = await startHttpTransport(server, { port: 0 });
 
     const addr = handle.server.address();
@@ -57,7 +57,7 @@ describe("Smoke: HTTP Transport E2E", () => {
   });
 
   it("full MCP lifecycle via HTTP", async () => {
-    const { server } = await createServer();
+    const { server } = createServer();
     handle = await startHttpTransport(server, { port: 0 });
 
     const addr = handle.server.address();
@@ -125,7 +125,7 @@ describe("Smoke: HTTP Transport E2E", () => {
   });
 
   it("graceful shutdown", async () => {
-    const { server } = await createServer();
+    const { server } = createServer();
     handle = await startHttpTransport(server, { port: 0 });
 
     await handle.close();

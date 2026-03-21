@@ -600,7 +600,7 @@ async function runServe(
     const { createServer } = await import("./server.js");
     const { startHttpTransport } = await import("./transports/http-transport.js");
 
-    const { server } = await createServer();
+    const { server } = createServer();
     const handle = await startHttpTransport(server, { port });
 
     // Graceful shutdown
@@ -621,7 +621,7 @@ async function startServer(): Promise<void> {
   );
   const { createServer } = await import("./server.js");
 
-  const { server } = await createServer();
+  const { server } = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

@@ -56,7 +56,7 @@ export interface CreateServerResult {
   stopIncrementalIndexer: () => void;
 }
 
-export async function createServer(options?: CreateServerOptions): Promise<CreateServerResult> {
+export function createServer(options?: CreateServerOptions): CreateServerResult {
   const server = new McpServer(
     { name: "strata-mcp", version: "1.0.0" },
     {

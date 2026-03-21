@@ -53,7 +53,7 @@ describe.skipIf(process.platform === "win32")("Live HTTP Transport — Full MCP 
 
   it("complete lifecycle: health → init → list tools → store → search → shutdown", async () => {
     // ── Start real server ──────────────────────────────────────────────
-    const { server } = await createServer();
+    const { server } = createServer();
     handle = await startHttpTransport(server, { port: 0 });
 
     const addr = handle.server.address();
@@ -217,7 +217,7 @@ describe.skipIf(process.platform === "win32")("Live HTTP Transport — Full MCP 
   }, 30000);
 
   it("404 for unknown endpoints", async () => {
-    const { server } = await createServer();
+    const { server } = createServer();
     handle = await startHttpTransport(server, { port: 0 });
     const addr = handle.server.address();
     if (typeof addr !== "object" || addr === null) throw new Error("No address");
@@ -227,7 +227,7 @@ describe.skipIf(process.platform === "win32")("Live HTTP Transport — Full MCP 
   });
 
   it("POST to /mcp without session returns new session", async () => {
-    const { server } = await createServer();
+    const { server } = createServer();
     handle = await startHttpTransport(server, { port: 0 });
     const addr = handle.server.address();
     if (typeof addr !== "object" || addr === null) throw new Error("No address");
