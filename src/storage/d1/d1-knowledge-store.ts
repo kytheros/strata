@@ -290,8 +290,8 @@ export class D1KnowledgeStore implements IKnowledgeStore {
     params.push(id, this.userId);
 
     await this.db.batch([
+      // nosemgrep: semgrep.sql-injection-template-literal — setClauses contains hardcoded column names like "summary = ?", user values bound via .bind()
       this.db
-        // nosemgrep: semgrep.sql-injection-template-literal — setClauses contains hardcoded column names like "summary = ?", user values bound via .bind()
         .prepare(`UPDATE knowledge SET ${setClauses.join(", ")} WHERE id = ? AND user = ?`)
         .bind(...params),
       this.db
@@ -513,14 +513,14 @@ export class D1KnowledgeStore implements IKnowledgeStore {
         break;
     }
 
+    // nosemgrep: semgrep.sql-injection-template-literal — where built from code-controlled conditions, user values bound via .bind()
     const countRow = await this.db
-      // nosemgrep: semgrep.sql-injection-template-literal — where built from code-controlled conditions, user values bound via .bind()
       .prepare(`SELECT COUNT(*) as count FROM knowledge ${where}`)
       .bind(...params)
       .first<{ count: number }>();
 
+    // nosemgrep: semgrep.sql-injection-template-literal — where/orderBy built from code-controlled conditions, user values bound via .bind()
     const result = await this.db
-      // nosemgrep: semgrep.sql-injection-template-literal — where/orderBy built from code-controlled conditions, user values bound via .bind()
       .prepare(`SELECT * FROM knowledge ${where} ${orderBy} LIMIT ? OFFSET ?`)
       .bind(...params, options.limit, options.offset)
       .all<D1KnowledgeRow>();
