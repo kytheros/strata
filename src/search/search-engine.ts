@@ -55,7 +55,7 @@ export class SearchEngine {
     const tfidfResults = this.indexManager.tfidf.search(tokens, limit * 3);
 
     // Fuse rankings
-    const fusedScores = reciprocalRankFusion(bm25Results, tfidfResults);
+    const fusedScores = reciprocalRankFusion([bm25Results, tfidfResults]);
 
     // Build ranked results with document data
     const ranked: RankedResult[] = [];

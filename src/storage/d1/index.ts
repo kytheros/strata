@@ -91,14 +91,79 @@ async function initD1Schema(db: D1Database): Promise<void> {
     // Table doesn't exist yet — proceed with schema creation
   }
 
-  // Apply the full schema
-  await db.exec(D1_SCHEMA);
+  // D1's exec() can fail on multi-line statements and SQL comments.
+  // Split the schema into individual statements and execute each via
+  // prepare().run() for maximum compatibility across D1 implementations.
+  const statements = splitSchemaStatements(D1_SCHEMA);
+  for (const stmt of statements) {
+    await db.exec(stmt);
+  }
 
   // Record the schema version
   await db
     .prepare("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('schema_version', ?)")
     .bind(D1_SCHEMA_VERSION)
     .run();
+}
+
+/**
+ * Split a multi-statement SQL string into individual executable statements.
+ * Strips SQL line comments (--) and handles BEGIN...END blocks in triggers
+ * (which contain internal semicolons that are not statement terminators).
+ * Each returned string is a complete, single statement ready for exec().
+ */
+function splitSchemaStatements(schema: string): string[] {
+  // Remove line comments
+  const noComments = schema
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith("--")) return "";
+      const commentIdx = line.indexOf("--");
+      if (commentIdx > 0) return line.slice(0, commentIdx);
+      return line;
+    })
+    .join(" ");
+
+  // Parse into statements, respecting BEGIN...END trigger blocks
+  const statements: string[] = [];
+  let current = "";
+  let depth = 0; // Track BEGIN...END nesting
+
+  // Tokenize by splitting on word boundaries around BEGIN/END and semicolons
+  const tokens = noComments.split(/(\bBEGIN\b|\bEND\b|;)/i);
+
+  for (const token of tokens) {
+    const upper = token.trim().toUpperCase();
+
+    if (upper === "BEGIN") {
+      depth++;
+      current += token;
+    } else if (upper === "END") {
+      depth--;
+      current += token;
+    } else if (token === ";") {
+      current += ";";
+      if (depth <= 0) {
+        const trimmed = current.replace(/\s+/g, " ").trim();
+        if (trimmed.length > 1) { // More than just ";"
+          statements.push(trimmed);
+        }
+        current = "";
+        depth = 0;
+      }
+    } else {
+      current += token;
+    }
+  }
+
+  // Handle any trailing statement without semicolon
+  const trailing = current.replace(/\s+/g, " ").trim();
+  if (trailing.length > 0) {
+    statements.push(trailing.endsWith(";") ? trailing : trailing + ";");
+  }
+
+  return statements;
 }
 
 // Re-export types for consumer convenience

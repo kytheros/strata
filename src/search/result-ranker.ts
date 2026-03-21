@@ -19,21 +19,47 @@ interface RankEntry {
   score: number;
 }
 
+export interface RRFOptions {
+  /** Per-list weights (default: all 1.0). */
+  weights?: number[];
+  /** Bonus multiplier for docs appearing in multiple lists (default: from config). */
+  dualListBonus?: number;
+}
+
 /**
  * Reciprocal Rank Fusion: merge multiple ranked lists.
- * RRF(d) = Σ 1 / (k + rank_i(d))
+ * RRF(d) = Σ w_i / (k + rank_i(d))
+ *
+ * Documents appearing in multiple lists get a bonus:
+ * score *= (1 + bonus × (listCount - 1))
  */
 export function reciprocalRankFusion(
-  ...rankedLists: RankEntry[][]
+  rankedLists: RankEntry[][],
+  options?: RRFOptions
 ): Map<string, number> {
   const k = CONFIG.search.rrfK;
+  const dualListBonus = options?.dualListBonus ?? CONFIG.search.rrfDualListBonus;
+  const weights = options?.weights;
   const scores = new Map<string, number>();
+  const listCount = new Map<string, number>();
 
-  for (const list of rankedLists) {
+  for (let i = 0; i < rankedLists.length; i++) {
+    const list = rankedLists[i];
+    const weight = weights?.[i] ?? 1.0;
     for (let rank = 0; rank < list.length; rank++) {
       const entry = list[rank];
-      const rrfScore = 1 / (k + rank + 1);
+      const rrfScore = weight * (1 / (k + rank + 1));
       scores.set(entry.docId, (scores.get(entry.docId) || 0) + rrfScore);
+      listCount.set(entry.docId, (listCount.get(entry.docId) || 0) + 1);
+    }
+  }
+
+  // Boost documents that appear in multiple ranked lists
+  if (dualListBonus > 0) {
+    for (const [docId, count] of listCount) {
+      if (count > 1) {
+        scores.set(docId, scores.get(docId)! * (1 + dualListBonus * (count - 1)));
+      }
     }
   }
 

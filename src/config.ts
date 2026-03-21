@@ -47,12 +47,18 @@ export const CONFIG = {
     maxLimit: 100,
     contextLines: 3,
     // Recency boosts
-    recencyBoost7d: 1.2,
-    recencyBoost30d: 1.1,
+    recencyBoost7d: 1.1,
+    recencyBoost30d: 1.05,
     // Project match boost
     projectMatchBoost: 1.3,
     // RRF constant
-    rrfK: 60,
+    rrfK: 40,
+    // Bonus multiplier for docs appearing in multiple ranked lists (0 = disabled)
+    rrfDualListBonus: 0.3,
+    // Cosine similarity tiebreaker: additive bonus proportional to actual
+    // semantic similarity, restoring magnitude information that RRF discards.
+    // 0 = disabled, 0.005 = subtle tiebreaker, 0.02 = significant reordering.
+    vectorSimBonus: 0.005,
     // Memory decay (auto-indexed only; explicit memories exempt)
     decayPenalty90d: 0.85,
     decayPenalty180d: 0.7,
@@ -64,9 +70,9 @@ export const CONFIG = {
 
   // Indexing
   indexing: {
-    chunkSize: 500, // tokens per chunk
+    chunkSize: 1600, // tokens per chunk
     chunkOverlap: 50,
-    maxChunksPerSession: 200,
+    maxChunksPerSession: 500,
   },
 
   // File watcher
@@ -108,7 +114,7 @@ export const CONFIG = {
     frequencyWeight: 0.35,
     explicitWeight: 0.10,
     // Max boost multiplier applied in search ranking (0 = disabled)
-    boostMax: 0.5,
+    boostMax: 1.0,
   },
 
   // Evidence gap tracking

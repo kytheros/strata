@@ -17,7 +17,7 @@ export interface D1VectorSearchResult {
 
 /** Row shape from the D1 embeddings table. */
 interface D1EmbeddingRow {
-  entry_id: string;
+  id: string;
   embedding: ArrayBuffer;
 }
 
@@ -42,9 +42,9 @@ export class D1VectorSearch {
   ): Promise<D1VectorSearchResult[]> {
     // Load all embeddings for this project by joining with the knowledge table
     let sql = `
-      SELECT e.entry_id, e.embedding
+      SELECT e.id, e.embedding
       FROM embeddings e
-      JOIN knowledge k ON k.id = e.entry_id
+      JOIN knowledge k ON k.id = e.id
       WHERE LOWER(k.project) LIKE '%' || LOWER(?) || '%'
     `;
     const params: unknown[] = [project];
@@ -62,14 +62,19 @@ export class D1VectorSearch {
     const results: D1VectorSearchResult[] = [];
 
     for (const row of rows) {
-      // D1 returns ArrayBuffer for BLOB columns — simpler than SQLite's Buffer
-      const vec = new Float32Array(row.embedding);
+      // D1 returns ArrayBuffer for BLOB columns. Some D1 implementations (e.g.
+      // miniflare) may return a plain byte Array instead — convert to ArrayBuffer
+      // before constructing Float32Array.
+      const buf = row.embedding instanceof ArrayBuffer
+        ? row.embedding
+        : new Uint8Array(row.embedding as unknown as number[]).buffer;
+      const vec = new Float32Array(buf);
 
       const score = cosineSimilarity(queryVec, vec);
 
       // Exclude anti-correlated and zero-similarity results
       if (score > 0.0) {
-        results.push({ entryId: row.entry_id, score });
+        results.push({ entryId: row.id, score });
       }
     }
 
