@@ -27,7 +27,7 @@ import {
   summarizeSession,
   cacheSummary,
 } from "../knowledge/session-summarizer.js";
-import { getCachedGeminiProvider } from "../extensions/llm-extraction/gemini-provider.js";
+import { getExtractionProvider, getSummarizationProvider } from "../extensions/llm-extraction/provider-factory.js";
 import { enhancedExtract } from "../extensions/llm-extraction/enhanced-extractor.js";
 import { smartSummarize } from "../extensions/llm-extraction/smart-summarizer.js";
 import { synthesizeLearnings } from "../knowledge/learning-synthesizer.js";
@@ -171,7 +171,7 @@ export class IncrementalIndexer {
         const tool = session.tool || parserId;
         const projectDir = session.project;
 
-        const provider = await getCachedGeminiProvider();
+        const provider = await getExtractionProvider();
         const knowledge = provider
           ? await enhancedExtract(session, provider)
           : extractKnowledge(session);
@@ -238,9 +238,10 @@ export class IncrementalIndexer {
           }
         }
 
-        // Cache summary
-        const summary = provider
-          ? await smartSummarize(session, provider)
+        // Cache summary (may use a different model than extraction)
+        const summaryProvider = await getSummarizationProvider();
+        const summary = summaryProvider
+          ? await smartSummarize(session, summaryProvider)
           : summarizeSession(session);
         cacheSummary(summary);
       }
