@@ -2,7 +2,7 @@
 
 Local memory layer for AI coding assistants. Strata indexes your conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a local SQLite database, then exposes MCP tools so your assistant can recall past decisions, solutions, and patterns across sessions.
 
-**Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid FTS5 + vector search with 3072-dimensional embeddings. Falls back to keyword search without it.
+**Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid FTS5 + vector search with 3072-dimensional embeddings, LLM-powered knowledge extraction, and training data accumulation for local model distillation. Falls back to keyword search without it.
 
 No cloud required. No memory caps. Everything stays on your machine. Or [deploy on Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) for a serverless multi-tenant setup.
 
@@ -190,6 +190,21 @@ All ranking parameters are centralized in [`src/config.ts`](src/config.ts) and w
 
 ---
 
+## Local Model Distillation
+
+Fine-tune a private model from your own coding sessions. When `GEMINI_API_KEY` is set, Strata captures (input, output) training pairs from every LLM-powered extraction and summarization. Once you have enough data (~1,000 pairs), export and train a local model that runs entirely offline.
+
+```bash
+strata distill status        # Check training data readiness
+strata distill export-data   # Export pairs to JSONL
+strata distill activate      # Switch to hybrid provider (local model first, Gemini fallback)
+strata distill deactivate    # Revert to frontier-only
+```
+
+The training pipeline lives in `strata-py`. Install with `pip install strata-memory[distill]` and run `strata-distill start` to fine-tune via QLoRA. See the [distillation spec](specs/strata-local-model-distillation.md) for the full architecture.
+
+---
+
 ## Supported AI Tools
 
 | Tool | Data Location |
@@ -218,8 +233,9 @@ Audit trails, entity intelligence, LLM-powered extraction, local dashboard, and 
 | `cloud_sync_push/pull/status` | Encrypted cross-machine sync |
 | `get_analytics` | Local usage analytics -- search patterns, tool usage, trends |
 | `list_evidence_gaps` | Knowledge blind spots -- topics searched but never answered |
-| LLM-powered extraction | Smart summaries via Gemini 2.5 Flash (uses same API key) |
+| Multi-provider extraction | LLM-powered extraction with Anthropic, OpenAI, and Gemini (community gets Gemini with API key; Pro adds provider choice) |
 | Local dashboard | Browser-based UI for knowledge exploration, settings, and maintenance |
+| Pre-trained base models | Skip months of training data accumulation with Pro-only base models for distillation |
 
 ---
 
