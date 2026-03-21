@@ -1,0 +1,9 @@
+name = "strata-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "STRATA_DB"
+database_name = "strata-db"
+# Replace with your database_id from: wrangler d1 create strata-db
+database_id = "<your-database-id>"

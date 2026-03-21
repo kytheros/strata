@@ -75,6 +75,7 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
   // ── Storage resolution ────────────────────────────────────────────
   // When an external StorageContext is provided (e.g., D1 adapter), use it directly.
   // Otherwise, build the default SQLite-backed storage via IndexManager for backward compat.
+  // nosemgrep: semgrep.mcp-path-traversal-risk — dataDir comes from CLI args or developer config, not user input
   const dbPath = options?.dataDir ? join(options.dataDir, "strata.db") : undefined;
   const indexManager = new SqliteIndexManager(dbPath);
 

@@ -135,11 +135,13 @@ export class D1SummaryStore implements ISummaryStore {
     const where = `WHERE ${conditions.join(" AND ")}`;
 
     const countRow = await this.db
+      // nosemgrep: semgrep.sql-injection-template-literal — where built from code-controlled conditions, user values bound via .bind()
       .prepare(`SELECT COUNT(*) as count FROM summaries ${where}`)
       .bind(...params)
       .first<{ count: number }>();
 
     const result = await this.db
+      // nosemgrep: semgrep.sql-injection-template-literal — where built from code-controlled conditions, user values bound via .bind()
       .prepare(`SELECT * FROM summaries ${where} ORDER BY end_time DESC LIMIT ? OFFSET ?`)
       .bind(...params, options.limit, options.offset)
       .all<D1SummaryRow>();

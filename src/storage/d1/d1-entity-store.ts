@@ -338,11 +338,13 @@ export class D1EntityStore implements IEntityStore {
     }
 
     const countRow = await this.db
+      // nosemgrep: semgrep.sql-injection-template-literal — where built from code-controlled conditions, user values bound via .bind()
       .prepare(`SELECT COUNT(*) as count FROM entities ${where}`)
       .bind(...params)
       .first<{ count: number }>();
 
     const result = await this.db
+      // nosemgrep: semgrep.sql-injection-template-literal — where/orderBy built from code-controlled conditions, user values bound via .bind()
       .prepare(`SELECT * FROM entities ${where} ${orderBy} LIMIT ? OFFSET ?`)
       .bind(...params, options.limit, options.offset)
       .all<EntityRow>();
