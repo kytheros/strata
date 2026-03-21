@@ -51,6 +51,10 @@ Usage:
   strata update                           Check for and install newer versions
   strata license                          Show current license status
   strata embed                            Generate embeddings for vector search
+  strata distill status                   Show distillation training data stats
+  strata distill export-data              Export training data to JSONL
+  strata distill activate                 Enable local model distillation mode
+  strata distill deactivate              Disable local model distillation mode
   strata init                             Auto-detect CLIs and set up all found
   strata init --claude                   Set up Claude Code integration only
   strata init --gemini                   Set up Gemini CLI integration only
@@ -100,6 +104,11 @@ Init flags:
   --all             Set up all supported CLIs (even if not detected)
   --global          Install skills and commands to ~ instead of project dir
   --force           Overwrite existing skills, hooks, and context files
+
+Distill export-data flags:
+  --task <type>     Task type: extraction or summarization (required)
+  --output <path>   Output file path for JSONL (required)
+  --min-quality <n> Minimum quality score (default: 0.7)
 
 Migrate flags:
   --force           Re-run migration even if already completed
@@ -166,6 +175,12 @@ function parseArgs(argv: string[]): {
       flags.global = true;
     } else if (arg === "--no-color") {
       flags["no-color"] = true;
+    } else if (arg === "--task" && i + 1 < argv.length) {
+      flags.task = argv[++i];
+    } else if (arg === "--output" && i + 1 < argv.length) {
+      flags.output = argv[++i];
+    } else if (arg === "--min-quality" && i + 1 < argv.length) {
+      flags["min-quality"] = argv[++i];
     } else if (!arg.startsWith("-") && !command) {
       command = arg;
     } else if (!arg.startsWith("-")) {
@@ -689,6 +704,37 @@ async function main(): Promise<void> {
     case "embed":
       await runEmbed();
       break;
+    case "distill": {
+      const subcommand = args[0];
+      const distillArgs = args.slice(1);
+      const { runDistillStatus, runDistillExport, runDistillActivate, runDistillDeactivate } =
+        await import("./cli/distill.js");
+
+      switch (subcommand) {
+        case "status":
+          await runDistillStatus(flags);
+          break;
+        case "export-data":
+          await runDistillExport(distillArgs, flags);
+          break;
+        case "activate":
+          await runDistillActivate();
+          break;
+        case "deactivate":
+          await runDistillDeactivate();
+          break;
+        default:
+          console.log("Usage: strata distill <status|export-data|activate|deactivate>");
+          console.log("");
+          console.log("Subcommands:");
+          console.log("  status        Show training data statistics and readiness");
+          console.log("  export-data   Export training data to JSONL for fine-tuning");
+          console.log("  activate      Enable local model distillation mode");
+          console.log("  deactivate    Disable local model distillation mode");
+          process.exit(subcommand ? 1 : 0);
+      }
+      break;
+    }
     case "dashboard":
       proFeatureMessage("dashboard");
       break;

@@ -13,9 +13,12 @@ import {
   summarizeSession,
   type SessionSummary,
 } from "../../knowledge/session-summarizer.js";
+import { Sanitizer } from "../../sanitizer/sanitizer.js";
 import type { LlmProvider } from "./llm-provider.js";
 import { saveTrainingPair } from "./training-capture.js";
 import type Database from "better-sqlite3";
+
+const sanitizer = new Sanitizer();
 
 /** Extended summary with LLM-extracted fields */
 export interface SmartSummary extends SessionSummary {
@@ -160,7 +163,8 @@ function formatTranscript(session: ParsedSession): string {
     charBudget -= line.length;
   }
 
-  return lines.join("\n");
+  // Sanitize: redact secrets/credentials before sending to Gemini API or storing as training data
+  return sanitizer.sanitize(lines.join("\n"));
 }
 
 /**

@@ -13,9 +13,12 @@ import { randomUUID } from "crypto";
 import type { ParsedSession } from "../../parsers/session-parser.js";
 import type { KnowledgeEntry } from "../../knowledge/knowledge-store.js";
 import { extractKnowledge } from "../../knowledge/knowledge-extractor.js";
+import { Sanitizer } from "../../sanitizer/sanitizer.js";
 import type { LlmProvider } from "./llm-provider.js";
 import { saveTrainingPair } from "./training-capture.js";
 import type Database from "better-sqlite3";
+
+const sanitizer = new Sanitizer();
 
 /** Raw extraction output from LLM */
 interface LlmExtractionOutput {
@@ -130,7 +133,8 @@ function formatTranscript(session: ParsedSession): string {
     charBudget -= line.length;
   }
 
-  return lines.join("\n");
+  // Sanitize: redact secrets/credentials before sending to Gemini API or storing as training data
+  return sanitizer.sanitize(lines.join("\n"));
 }
 
 /**
