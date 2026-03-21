@@ -11,6 +11,8 @@ import { CONFIG } from "../config.js";
 export interface IndexManagerLike {
   incrementalUpdate(): unknown;
   save?(): unknown;
+  /** Database handle for training data capture (optional — only SQLite backend exposes this) */
+  db?: import("better-sqlite3").Database;
 }
 import { parseSessionFile } from "../parsers/session-parser.js";
 import type { SessionFileInfo, ParsedSession } from "../parsers/session-parser.js";
@@ -173,7 +175,7 @@ export class IncrementalIndexer {
 
         const provider = await getExtractionProvider();
         const knowledge = provider
-          ? await enhancedExtract(session, provider)
+          ? await enhancedExtract(session, provider, this.indexManager.db)
           : extractKnowledge(session);
 
         // Conflict resolution: when provider is available, resolve semantic conflicts
@@ -241,7 +243,7 @@ export class IncrementalIndexer {
         // Cache summary (may use a different model than extraction)
         const summaryProvider = await getSummarizationProvider();
         const summary = summaryProvider
-          ? await smartSummarize(session, summaryProvider)
+          ? await smartSummarize(session, summaryProvider, this.indexManager.db)
           : summarizeSession(session);
         cacheSummary(summary);
       }
