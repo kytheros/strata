@@ -318,6 +318,24 @@ function initSchema(db: Database.Database): void {
     db.exec("ALTER TABLE documents ADD COLUMN importance REAL");
   }
 
+  // Training data for local model distillation
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS training_data (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization')),
+      input_text TEXT NOT NULL,
+      output_json TEXT NOT NULL,
+      model_used TEXT NOT NULL,
+      quality_score REAL NOT NULL DEFAULT 1.0,
+      heuristic_diverged INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      used_in_run INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_training_task ON training_data(task_type, quality_score DESC);
+    CREATE INDEX IF NOT EXISTS idx_training_created ON training_data(created_at);
+  `);
+
   // Evidence gap tracking table
   db.exec(`
     CREATE TABLE IF NOT EXISTS evidence_gaps (
