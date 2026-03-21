@@ -1,6 +1,6 @@
 import {
   WebStandardStreamableHTTPServerTransport,
-} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+} from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createD1Storage } from "strata-mcp/d1";
 import { createServer } from "strata-mcp/server";
 import { extractUserId, validateAuth } from "./auth.js";
