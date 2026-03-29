@@ -148,6 +148,12 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
 
   // Document storage and embedder for store_document tool
   const documentChunkStore = indexManager ? new DocumentChunkStore(indexManager.db) : null;
+
+  // Wire document chunk store into search engine for document search integration
+  if (documentChunkStore) {
+    searchEngine.setDocumentChunkStore(documentChunkStore);
+  }
+
   const geminiKey = loadGeminiApiKeyFromConfig();
   const documentEmbedder = geminiKey
     ? new DocumentEmbedder({ apiKey: geminiKey, model: CONFIG.embeddings.documentModel })

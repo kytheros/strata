@@ -21,6 +21,7 @@ import { extractEntities } from "../knowledge/entity-extractor.js";
 import type { IReranker } from "./reranker/types.js";
 import { isCountingQuestion, isTemporalQuestion } from "./query-classifier.js";
 import { resolveModelRouting } from "./model-router.js";
+import type { DocumentChunkStore } from "../storage/document-chunk-store.js";
 
 export interface SearchResult {
   sessionId: string;
@@ -55,8 +56,8 @@ function attachConfidence(results: RankedResult[]): Array<RankedResult & { confi
   }));
 }
 
-/** Convert ranked results to SearchResult[] with confidence. */
-function toSearchResults(ranked: RankedResult[], limit: number): SearchResult[] {
+/** Convert ranked results to SearchResult[] with confidence and source tagging. */
+function toSearchResults(ranked: RankedResult[], limit: number, docChunkIds?: Set<string>): SearchResult[] {
   const withConfidence = attachConfidence(ranked.slice(0, limit));
   return withConfidence.map((r) => ({
     sessionId: r.doc.sessionId,
@@ -67,6 +68,7 @@ function toSearchResults(ranked: RankedResult[], limit: number): SearchResult[] 
     timestamp: r.doc.timestamp,
     toolNames: r.doc.toolNames,
     role: r.doc.role,
+    source: docChunkIds?.has(r.docId) ? "document" as const : "conversation" as const,
   }));
 }
 
@@ -77,6 +79,7 @@ export class SqliteSearchEngine {
   private knowledgeStore: IKnowledgeStore | null;
   private eventStore: IEventStore | null = null;
   private reranker: IReranker | null = null;
+  private docChunkStore: DocumentChunkStore | null = null;
 
   constructor(
     private documentStore: IDocumentStore,
@@ -99,6 +102,11 @@ export class SqliteSearchEngine {
   /** Inject a reranker after construction (lazy initialization pattern). */
   setReranker(reranker: IReranker): void {
     this.reranker = reranker;
+  }
+
+  /** Inject a document chunk store after construction (lazy initialization pattern). */
+  setDocumentChunkStore(store: DocumentChunkStore): void {
+    this.docChunkStore = store;
   }
 
   /**
@@ -133,13 +141,38 @@ export class SqliteSearchEngine {
       doc: r.chunk,
     }));
 
+    // FTS5 search — stored document chunks
+    const docChunkIds = new Set<string>();
+    if (this.docChunkStore) {
+      const docFtsResults = this.docChunkStore.searchFts(text, limit * 2);
+      for (const r of docFtsResults) {
+        const syntheticDoc: DocumentChunk = {
+          id: r.chunkId,
+          sessionId: r.documentId,
+          project: r.project,
+          text: r.content || r.title,
+          role: "assistant" as const,
+          timestamp: r.createdAt,
+          toolNames: [],
+          tokenCount: 0,
+          messageIndex: 0,
+        };
+        ranked.push({
+          docId: r.chunkId,
+          score: -r.rank,
+          doc: syntheticDoc,
+        });
+        docChunkIds.add(r.chunkId);
+      }
+    }
+
     // Apply query filters (project, before, after, tool)
     const filtered = applyFilters(ranked, filters);
 
     // Apply boosts (recency, project match) and dedup per session
     const boosted = applyBoosts(filtered, filters, options.currentProject);
 
-    return toSearchResults(boosted, limit);
+    return toSearchResults(boosted, limit, docChunkIds);
   }
 
   /**
@@ -157,7 +190,7 @@ export class SqliteSearchEngine {
 
     if (!text.trim()) return [];
 
-    // FTS5 search
+    // FTS5 search — conversation chunks
     const ftsResults = await this.documentStore.search(text, limit * 3, options.user);
 
     const ftsRanked: RankedResult[] = ftsResults.map((r) => ({
@@ -166,11 +199,36 @@ export class SqliteSearchEngine {
       doc: r.chunk,
     }));
 
+    // FTS5 search — stored document chunks
+    const docChunkIds = new Set<string>();
+    if (this.docChunkStore) {
+      const docFtsResults = this.docChunkStore.searchFts(text, limit * 2);
+      for (const r of docFtsResults) {
+        const syntheticDoc: DocumentChunk = {
+          id: r.chunkId,
+          sessionId: r.documentId,
+          project: r.project,
+          text: r.content || r.title,
+          role: "assistant" as const,
+          timestamp: r.createdAt,
+          toolNames: [],
+          tokenCount: 0,
+          messageIndex: 0,
+        };
+        ftsRanked.push({
+          docId: r.chunkId,
+          score: -r.rank,
+          doc: syntheticDoc,
+        });
+        docChunkIds.add(r.chunkId);
+      }
+    }
+
     // Collect RRF channel lists. FTS5 always present; vector and entity are optional.
     const channels: Array<Array<{ docId: string; score: number }>> = [];
     const docMap = new Map<string, RankedResult>();
 
-    // Channel 1: FTS5 (always)
+    // Channel 1: FTS5 (always — includes both conversation and document chunks)
     const ftsList = ftsRanked
       .slice()
       .sort((a, b) => b.score - a.score)
@@ -194,6 +252,25 @@ export class SqliteSearchEngine {
         const docVectorResults = this.vectorSearch.searchDocumentChunks(queryVec, limit * 2, project || undefined);
         for (const dvr of docVectorResults) {
           vectorResults.push(dvr);
+          // Hydrate document chunk vector results into docMap so they survive RRF merge
+          if (!docMap.has(dvr.entryId) && this.docChunkStore) {
+            const chunkData = this.docChunkStore.getChunkWithMeta(dvr.entryId);
+            if (chunkData) {
+              const syntheticDoc: DocumentChunk = {
+                id: chunkData.chunkId,
+                sessionId: chunkData.documentId,
+                project: chunkData.project,
+                text: chunkData.content || chunkData.title,
+                role: "assistant" as const,
+                timestamp: chunkData.createdAt,
+                toolNames: [],
+                tokenCount: 0,
+                messageIndex: 0,
+              };
+              docMap.set(dvr.entryId, { docId: dvr.entryId, score: 0, doc: syntheticDoc });
+              docChunkIds.add(dvr.entryId);
+            }
+          }
         }
 
         if (vectorResults.length > 0) {
@@ -230,7 +307,7 @@ export class SqliteSearchEngine {
     if (channels.length === 1) {
       const filtered = applyFilters(ftsRanked, filters);
       const boosted = applyBoosts(filtered, filters, options.currentProject);
-      return toSearchResults(boosted, limit);
+      return toSearchResults(boosted, limit, docChunkIds);
     }
 
     // RRF fusion across all available channels
@@ -249,7 +326,7 @@ export class SqliteSearchEngine {
     const filtered = applyFilters(merged, filters);
     const boosted = applyBoosts(filtered, filters, options.currentProject);
 
-    return toSearchResults(boosted, limit);
+    return toSearchResults(boosted, limit, docChunkIds);
   }
 
   /**
@@ -293,10 +370,35 @@ export class SqliteSearchEngine {
       doc: r.chunk,
     }));
 
+    // FTS5 search — stored document chunks
+    const docChunkIds = new Set<string>();
+    if (this.docChunkStore) {
+      const docFtsResults = this.docChunkStore.searchFts(text, candidateLimit * 2);
+      for (const r of docFtsResults) {
+        const syntheticDoc: DocumentChunk = {
+          id: r.chunkId,
+          sessionId: r.documentId,
+          project: r.project,
+          text: r.content || r.title,
+          role: "assistant" as const,
+          timestamp: r.createdAt,
+          toolNames: [],
+          tokenCount: 0,
+          messageIndex: 0,
+        };
+        ftsRanked.push({
+          docId: r.chunkId,
+          score: -r.rank,
+          doc: syntheticDoc,
+        });
+        docChunkIds.add(r.chunkId);
+      }
+    }
+
     const channels: Array<Array<{ docId: string; score: number }>> = [];
     const docMap = new Map<string, RankedResult>();
 
-    // Channel 1: FTS5 (always)
+    // Channel 1: FTS5 (always — includes both conversation and document chunks)
     const ftsList = ftsRanked
       .slice()
       .sort((a, b) => b.score - a.score)
@@ -320,6 +422,25 @@ export class SqliteSearchEngine {
         const docVectorResults = this.vectorSearch.searchDocumentChunks(queryVec, candidateLimit * 2, project || undefined);
         for (const dvr of docVectorResults) {
           vectorResults.push(dvr);
+          // Hydrate document chunk vector results into docMap so they survive RRF merge
+          if (!docMap.has(dvr.entryId) && this.docChunkStore) {
+            const chunkData = this.docChunkStore.getChunkWithMeta(dvr.entryId);
+            if (chunkData) {
+              const syntheticDoc: DocumentChunk = {
+                id: chunkData.chunkId,
+                sessionId: chunkData.documentId,
+                project: chunkData.project,
+                text: chunkData.content || chunkData.title,
+                role: "assistant" as const,
+                timestamp: chunkData.createdAt,
+                toolNames: [],
+                tokenCount: 0,
+                messageIndex: 0,
+              };
+              docMap.set(dvr.entryId, { docId: dvr.entryId, score: 0, doc: syntheticDoc });
+              docChunkIds.add(dvr.entryId);
+            }
+          }
         }
 
         if (vectorResults.length > 0) {
@@ -497,6 +618,14 @@ export class SqliteSearchEngine {
     const loadFullSessions = options.includeContext !== false;
     const sessionTextMap = new Map<string, string>();
 
+    // Track which sessionIds correspond to stored documents (for source tagging)
+    const docSessionIds = new Set<string>();
+    for (const chunk of rankedChunks) {
+      if (docChunkIds.has(chunk.docId)) {
+        docSessionIds.add(chunk.doc.sessionId);
+      }
+    }
+
     if (loadFullSessions) {
       const candidateCount = this.reranker && CONFIG.reranker.enabled
         ? Math.min(CONFIG.reranker.candidateCount, boostedSessions.length)
@@ -504,14 +633,27 @@ export class SqliteSearchEngine {
       const sessionsToLoad = boostedSessions.slice(0, candidateCount);
 
       for (const session of sessionsToLoad) {
-        try {
-          const allChunks = await this.documentStore.getBySession(session.sessionId);
-          if (allChunks.length > 0) {
-            allChunks.sort((a, b) => a.messageIndex - b.messageIndex);
-            sessionTextMap.set(session.sessionId, allChunks.map((c) => c.text).join("\n\n"));
+        // Document "sessions" use documentId — load from document chunk store
+        if (docSessionIds.has(session.sessionId) && this.docChunkStore) {
+          try {
+            const docChunks = this.docChunkStore.getChunks(session.sessionId);
+            if (docChunks.length > 0) {
+              docChunks.sort((a, b) => a.chunkIndex - b.chunkIndex);
+              sessionTextMap.set(session.sessionId, docChunks.map((c) => c.content || "").join("\n\n"));
+            }
+          } catch {
+            // Fall back to bestChunk text
           }
-        } catch {
-          // Fall back to bestChunk text (set below)
+        } else {
+          try {
+            const allChunks = await this.documentStore.getBySession(session.sessionId);
+            if (allChunks.length > 0) {
+              allChunks.sort((a, b) => a.messageIndex - b.messageIndex);
+              sessionTextMap.set(session.sessionId, allChunks.map((c) => c.text).join("\n\n"));
+            }
+          } catch {
+            // Fall back to bestChunk text (set below)
+          }
         }
       }
     }
@@ -597,6 +739,7 @@ export class SqliteSearchEngine {
         timestamp: session.bestChunk.doc.timestamp,
         toolNames: session.bestChunk.doc.toolNames,
         role: session.bestChunk.doc.role,
+        source: docSessionIds.has(session.sessionId) ? "document" as const : "conversation" as const,
       });
     }
 
