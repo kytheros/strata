@@ -521,20 +521,56 @@ function initSchema(db: Database.Database): void {
     `);
   }
 
-  // FTS5 virtual table for document chunk text search (contentless)
+  // FTS5 virtual table for document chunk text search
+  // Migration: contentless → content-storing so columns are retrievable for search JOINs.
+  // The original contentless version stored terms for MATCH but returned null for all columns,
+  // making it impossible to JOIN with document_chunks/stored_documents.
   const docChunksFtsExists = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='document_chunks_fts'"
   ).get();
 
-  if (!docChunksFtsExists) {
+  if (docChunksFtsExists) {
+    // Check if the existing table is contentless (has no retrievable column values).
+    // If so, drop and recreate with content-storing FTS5.
+    const testRow = db.prepare(
+      "SELECT document_id FROM document_chunks_fts LIMIT 1"
+    ).get() as any;
+    if (testRow && testRow.document_id === null) {
+      // Contentless FTS5 — drop and recreate
+      db.exec("DROP TABLE document_chunks_fts");
+      db.exec(`
+        CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+          content,
+          document_id UNINDEXED,
+          chunk_id UNINDEXED,
+          project UNINDEXED,
+          tokenize='porter unicode61'
+        );
+      `);
+      // Backfill from document_chunks
+      const existingChunks = db.prepare(`
+        SELECT dc.content, dc.document_id, dc.id as chunk_id, sd.project
+        FROM document_chunks dc
+        JOIN stored_documents sd ON sd.id = dc.document_id
+        WHERE dc.content IS NOT NULL
+      `).all() as any[];
+      if (existingChunks.length > 0) {
+        const insertFts = db.prepare(
+          "INSERT INTO document_chunks_fts (content, document_id, chunk_id, project) VALUES (?, ?, ?, ?)"
+        );
+        for (const row of existingChunks) {
+          insertFts.run(row.content, row.document_id, row.chunk_id, row.project);
+        }
+      }
+    }
+  } else {
     db.exec(`
       CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
         content,
         document_id UNINDEXED,
         chunk_id UNINDEXED,
         project UNINDEXED,
-        content='',
-        contentless_delete=1
+        tokenize='porter unicode61'
       );
     `);
   }

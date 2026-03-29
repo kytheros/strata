@@ -38,6 +38,17 @@ export interface ChunkEmbeddingRow {
   embedding: Buffer;
 }
 
+/** Result from FTS5 keyword search over stored document chunks. */
+export interface DocChunkFtsResult {
+  chunkId: string;
+  documentId: string;
+  project: string;
+  title: string;
+  content: string;
+  rank: number;       // BM25 score (negative, more negative = better match)
+  createdAt: number;
+}
+
 export class DocumentChunkStore {
   private insertDoc: Database.Statement;
   private insertChunk: Database.Statement;
@@ -172,6 +183,68 @@ export class DocumentChunkStore {
       project: row.project,
       embedding: row.embedding,
     }));
+  }
+
+  /** FTS5 keyword search over stored document chunks. */
+  searchFts(query: string, limit: number): DocChunkFtsResult[] {
+    // Sanitize: strip FTS5 special chars (including hyphen which acts as NOT operator),
+    // then join with implicit AND
+    const sanitized = query
+      .replace(/[*":()^~{}<>\-]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 1)
+      .join(" ");
+
+    if (!sanitized.trim()) return [];
+
+    const rows = this.db.prepare(`
+      SELECT
+        f.chunk_id,
+        f.document_id,
+        f.project,
+        f.content,
+        sd.title,
+        dc.created_at,
+        bm25(document_chunks_fts) as rank
+      FROM document_chunks_fts f
+      JOIN stored_documents sd ON sd.id = f.document_id
+      JOIN document_chunks dc ON dc.id = f.chunk_id
+      WHERE document_chunks_fts MATCH ?
+      ORDER BY rank
+      LIMIT ?
+    `).all(sanitized, limit) as any[];
+
+    return rows.map((r) => ({
+      chunkId: r.chunk_id,
+      documentId: r.document_id,
+      project: r.project,
+      title: r.title,
+      content: r.content,
+      rank: r.rank,
+      createdAt: r.created_at,
+    }));
+  }
+
+  /** Get a single chunk with its parent document metadata (for search result hydration). */
+  getChunkWithMeta(chunkId: string): DocChunkFtsResult | undefined {
+    const row = this.db.prepare(`
+      SELECT dc.id as chunk_id, dc.document_id, sd.project, sd.title,
+             dc.content, dc.created_at
+      FROM document_chunks dc
+      JOIN stored_documents sd ON sd.id = dc.document_id
+      WHERE dc.id = ?
+    `).get(chunkId) as any;
+
+    if (!row) return undefined;
+    return {
+      chunkId: row.chunk_id,
+      documentId: row.document_id,
+      project: row.project,
+      title: row.title,
+      content: row.content ?? "",
+      rank: 0,
+      createdAt: row.created_at,
+    };
   }
 
   /** Delete a document and all its chunks (CASCADE). */
