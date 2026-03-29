@@ -206,6 +206,24 @@ export const CONFIG = {
     },
   },
 
+  // Vector quantization (TurboQuant-inspired)
+  quantization: {
+    /** Default bit-width for vector quantization (1, 2, 4, or 8) */
+    bitWidth: 4,
+    /** Enable quantization for new embeddings */
+    enabled: true,
+    /** Padded dimension for Hadamard transform (must be power of 2 >= EMBEDDING_DIM) */
+    paddedDim: 4096,
+    /** Original embedding dimension */
+    embeddingDim: 3072,
+    /** BLOB header size in bytes */
+    headerSize: 4,
+    /** Migration batch size */
+    migrationBatchSize: 100,
+    /** Minimum cosine similarity for verify-before-overwrite during migration */
+    migrationVerifyThreshold: 0.99,
+  },
+
   // Embeddings model configuration
   embeddings: {
     /** Model for text embeddings (conversation chunks, knowledge entries) */

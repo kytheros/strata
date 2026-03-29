@@ -225,6 +225,18 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_document_chunks_doc ON document_chunks(document_id);
+
+    -- Quantization migration state
+    CREATE TABLE IF NOT EXISTS migration_state (
+      id TEXT PRIMARY KEY DEFAULT 'quantization',
+      current_bit_width INTEGER,
+      target_bit_width INTEGER,
+      total_vectors INTEGER DEFAULT 0,
+      migrated_vectors INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'idle',
+      started_at INTEGER,
+      completed_at INTEGER
+    );
   `);
 
   // ── Migrations for existing databases ──────────────────────────────
@@ -346,6 +358,27 @@ function initSchema(db: Database.Database): void {
   ).get();
   if (!hasImportanceDocuments) {
     db.exec("ALTER TABLE documents ADD COLUMN importance REAL");
+  }
+
+  // Add format column to embeddings table (quantization support)
+  const hasFormatEmbed = db.prepare(
+    "SELECT 1 FROM pragma_table_info('embeddings') WHERE name = 'format'"
+  ).get();
+  if (!hasFormatEmbed) {
+    db.exec("ALTER TABLE embeddings ADD COLUMN format TEXT NOT NULL DEFAULT 'float32'");
+  }
+
+  // Add format column to document_chunks table if it exists
+  const hasDocChunks = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_chunks'"
+  ).get();
+  if (hasDocChunks) {
+    const hasFormatChunks = db.prepare(
+      "SELECT 1 FROM pragma_table_info('document_chunks') WHERE name = 'format'"
+    ).get();
+    if (!hasFormatChunks) {
+      db.exec("ALTER TABLE document_chunks ADD COLUMN format TEXT NOT NULL DEFAULT 'float32'");
+    }
   }
 
   // Training data for local model distillation

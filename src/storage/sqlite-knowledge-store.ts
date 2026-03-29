@@ -10,6 +10,8 @@ import { parseProcedureDetails } from "../knowledge/procedure-extractor.js";
 import type { ProcedureDetails } from "../knowledge/procedure-extractor.js";
 import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js";
 import type { IKnowledgeStore, KnowledgeListOptions } from "./interfaces/index.js";
+import { quantize } from "../extensions/quantization/turbo-quant.js";
+import { CONFIG } from "../config.js";
 
 // Re-export types from interfaces for backward compatibility
 export type { KnowledgeUpdatePatch, KnowledgeHistoryRow } from "./interfaces/knowledge-store.js";
@@ -124,7 +126,7 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
     this.embedder = embedder ?? null;
     this.defaultUser = DEFAULT_USER;
     this.upsertEmbedding = db.prepare(
-      "INSERT OR REPLACE INTO embeddings (entry_id, embedding, model, created_at) VALUES (?, ?, ?, ?)"
+      "INSERT OR REPLACE INTO embeddings (entry_id, embedding, model, created_at, format) VALUES (?, ?, ?, ?, ?)"
     );
 
     // Detect FTS5 availability
@@ -299,9 +301,20 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
     this.embedder
       .embed(text, "RETRIEVAL_DOCUMENT")
       .then((vec) => {
-        // Serialize Float32Array to Buffer for BLOB storage
-        const buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
-        this.upsertEmbedding.run(entry.id, buf, "gemini-embedding-001", Date.now());
+        let buf: Buffer;
+        let format: string;
+
+        if (CONFIG.quantization.enabled) {
+          const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
+          const quantized = quantize(vec, bitWidth);
+          buf = Buffer.from(quantized);
+          format = `tq${bitWidth}`;
+        } else {
+          buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
+          format = "float32";
+        }
+
+        this.upsertEmbedding.run(entry.id, buf, "gemini-embedding-001", Date.now(), format);
       })
       .catch((err) => {
         console.error(`[strata] Failed to embed entry ${entry.id}:`, err);

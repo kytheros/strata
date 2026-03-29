@@ -6,6 +6,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { blobToFloat32 } from "../quantization/turbo-quant.js";
 
 /** A single vector search result */
 export interface VectorSearchResult {
@@ -108,13 +109,9 @@ export class VectorSearch {
     const results: VectorSearchResult[] = [];
 
     for (const row of rows) {
-      // Deserialize BLOB to Float32Array, handling byteOffset pitfall
+      // Deserialize BLOB to Float32Array, handling both raw and quantized formats
       const buf = row.embedding;
-      const vec = new Float32Array(
-        buf.buffer,
-        buf.byteOffset,
-        buf.byteLength / 4
-      );
+      const vec = blobToFloat32(buf);
 
       const score = cosineSimilarity(queryVec, vec);
 
