@@ -74,6 +74,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^11.0.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
     "zod": "^4.3.6"
   },
   "optionalDependencies": {
@@ -83,6 +85,7 @@
     "@cloudflare/workers-types": "^4.20240806.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "husky": "^9.1.0",
     "miniflare": "^4.20260317.1",
     "tsx": "^4.19.0",

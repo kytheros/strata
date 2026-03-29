@@ -9,6 +9,7 @@ import { readFileSync, existsSync, statSync } from "fs";
 import { DocumentChunkStore, type StoredDocument, type DocumentChunk as StoredChunk } from "../storage/document-chunk-store.js";
 import type { DocumentEmbedder } from "../extensions/embeddings/document-embedder.js";
 import { CONFIG } from "../config.js";
+import { chunkPdf } from "./pdf-chunker.js";
 
 const SUPPORTED_MIME_TYPES = new Set([
   "application/pdf",
@@ -71,6 +72,8 @@ export async function handleStoreDocument(
   const now = Date.now();
   const chunks: StoredChunk[] = [];
   const errors: string[] = [];
+  let totalPages: number | undefined;
+  let fullText: string | undefined;
 
   try {
     if (mime_type === "text/plain") {
@@ -113,23 +116,34 @@ export async function handleStoreDocument(
         errors.push(`Image: ${err instanceof Error ? err.message : String(err)}`);
       }
     } else if (mime_type === "application/pdf") {
-      // --- PDF chunking by page groups ---
-      // For now, embed the entire PDF in one call if <= 6 pages,
-      // or split into 6-page chunks. Text extraction requires pdf-parse
-      // which will be added as a dependency.
+      // --- PDF chunking by page groups (max 6 pages per Gemini request) ---
+      let pdfResult;
       try {
-        const embedding = await embedder.embedBinary(docBytes, mime_type);
-        chunks.push({
-          id: randomUUID(),
-          documentId: docId,
-          chunkIndex: 0,
-          embedding,
-          model: CONFIG.embeddings.documentModel,
-          pageStart: 1,
-          createdAt: now,
-        });
+        pdfResult = await chunkPdf(docBytes);
       } catch (err) {
-        errors.push(`PDF: ${err instanceof Error ? err.message : String(err)}`);
+        return `Error: PDF processing failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+
+      totalPages = pdfResult.totalPages;
+      fullText = pdfResult.fullText;
+
+      for (const pdfChunk of pdfResult.chunks) {
+        try {
+          const embedding = await embedder.embedBinary(pdfChunk.pdfBytes, mime_type);
+          chunks.push({
+            id: randomUUID(),
+            documentId: docId,
+            chunkIndex: pdfChunk.index,
+            content: pdfChunk.text || undefined,
+            embedding,
+            model: CONFIG.embeddings.documentModel,
+            pageStart: pdfChunk.pageStart,
+            pageEnd: pdfChunk.pageEnd,
+            createdAt: now,
+          });
+        } catch (err) {
+          errors.push(`PDF chunk ${pdfChunk.index} (pages ${pdfChunk.pageStart}-${pdfChunk.pageEnd}): ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     }
   } catch (err) {
@@ -150,6 +164,7 @@ export async function handleStoreDocument(
     user,
     tags,
     chunkCount: chunks.length,
+    totalPages,
     fileSize: docBytes.length,
     createdAt: now,
   };
@@ -157,8 +172,9 @@ export async function handleStoreDocument(
   store.addDocument(doc, chunks);
 
   // --- Result ---
+  const pageInfo = totalPages ? `${totalPages} page${totalPages === 1 ? "" : "s"}, ` : "";
   const lines = [
-    `Stored "${title}" (${chunks.length} chunk${chunks.length === 1 ? "" : "s"}, ${chunks.length} embedding${chunks.length === 1 ? "" : "s"} generated)`,
+    `Stored "${title}" (${pageInfo}${chunks.length} chunk${chunks.length === 1 ? "" : "s"}, ${chunks.length} embedding${chunks.length === 1 ? "" : "s"} generated)`,
     `Document ID: ${docId}`,
     `Searchable via semantic_search and search_history`,
   ];
