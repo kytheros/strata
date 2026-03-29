@@ -3,7 +3,7 @@
  * Allows Claude to hard-delete a knowledge entry by ID.
  */
 
-import type { SqliteKnowledgeStore } from "../storage/sqlite-knowledge-store.js";
+import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 
 export interface DeleteMemoryArgs {
   id: string;
@@ -15,13 +15,13 @@ export interface DeleteMemoryArgs {
  * Returns a confirmation string or error message (never throws).
  */
 export async function handleDeleteMemory(
-  knowledgeStore: SqliteKnowledgeStore,
+  knowledgeStore: IKnowledgeStore,
   args: DeleteMemoryArgs
 ): Promise<string> {
   const { id } = args;
 
   try {
-    const deleted = knowledgeStore.deleteEntry(id);
+    const deleted = await knowledgeStore.deleteEntry(id);
     if (!deleted) {
       return `Error: entry ${id} not found.`;
     }

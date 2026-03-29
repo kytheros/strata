@@ -221,6 +221,29 @@ export class SqliteDocumentStore implements IDocumentStore {
     const rows = this.stmts.projects.all() as { project: string }[];
     return new Set(rows.map((r) => r.project));
   }
+
+  /**
+   * Browse documents within a date range (no text query required).
+   * Returns chunks ordered by timestamp descending.
+   */
+  async searchByDateRange(
+    afterMs: number,
+    beforeMs: number,
+    limit: number = 30,
+    user?: string
+  ): Promise<DocumentChunk[]> {
+    let sql = `SELECT * FROM documents WHERE timestamp >= ? AND timestamp <= ?`;
+    const params: unknown[] = [afterMs, beforeMs];
+    if (user) {
+      sql += ` AND user = ?`;
+      params.push(user);
+    }
+    sql += ` ORDER BY timestamp DESC LIMIT ?`;
+    params.push(limit);
+
+    const rows = this.db.prepare(sql).all(...params) as SqliteDocumentRow[];
+    return rows.map(rowToChunk);
+  }
 }
 
 // --- Internal helpers ---
@@ -255,8 +278,34 @@ function rowToChunk(row: SqliteDocumentRow): DocumentChunk {
 }
 
 /**
+ * Common English stop words that carry no semantic weight.
+ * Removing these from FTS5 queries dramatically improves precision
+ * of the AND→OR fallback — without removal, words like "I", "did",
+ * "the" match virtually every document when used as OR terms.
+ */
+const STOP_WORDS = new Set([
+  "a", "an", "the", "is", "am", "are", "was", "were", "be", "been",
+  "being", "have", "has", "had", "do", "does", "did", "will", "would",
+  "shall", "should", "may", "might", "can", "could", "must",
+  "i", "me", "my", "mine", "myself", "we", "us", "our", "ours",
+  "you", "your", "yours", "he", "him", "his", "she", "her", "hers",
+  "it", "its", "they", "them", "their", "theirs",
+  "this", "that", "these", "those",
+  "to", "of", "in", "for", "on", "with", "at", "by", "from",
+  "as", "into", "through", "during", "before", "after", "above",
+  "below", "between", "out", "off", "up", "down", "over", "under",
+  "and", "but", "or", "nor", "not", "no", "so", "if", "then",
+  "than", "too", "very", "just", "about", "also",
+  "how", "what", "when", "where", "which", "who", "whom", "why",
+  "all", "each", "every", "both", "few", "more", "most", "other",
+  "some", "such", "any", "only", "own", "same",
+  "here", "there", "again", "once", "further",
+]);
+
+/**
  * Sanitize a query string for FTS5 MATCH syntax.
- * Converts user input into safe FTS5 query tokens.
+ * Strips special characters, removes stop words, and joins tokens
+ * with implicit AND for precise matching.
  */
 function sanitizeFtsQuery(query: string): string {
   // Strip FTS5 operators and special chars, keep alphanumeric + spaces
@@ -267,7 +316,18 @@ function sanitizeFtsQuery(query: string): string {
 
   if (!cleaned) return "";
 
-  // Join tokens with implicit AND
-  const tokens = cleaned.split(" ").filter(Boolean);
+  // Remove stop words — critical for OR fallback precision.
+  // Without this, function words like "I", "did", "the" become OR terms
+  // that match virtually every document (8.7:1 distractor ratio).
+  const tokens = cleaned
+    .split(" ")
+    .filter((t) => t.length > 0 && !STOP_WORDS.has(t.toLowerCase()));
+
+  // If all tokens were stop words, fall back to the original cleaned query
+  // to avoid returning zero results on queries like "what is it"
+  if (tokens.length === 0) {
+    return cleaned.split(" ").filter(Boolean).join(" ");
+  }
+
   return tokens.join(" ");
 }

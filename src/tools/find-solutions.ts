@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { SqliteSearchEngine, SearchResult } from "../search/sqlite-search-engine.js";
+import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 import { extractProjectName } from "../utils/path-encoder.js";
 import { ResponseFormat } from "../utils/response-format.js";
 import { CompactSerializer } from "../utils/compact-serializer.js";
@@ -41,11 +42,45 @@ function toRecords(results: SearchResult[], maxChars: number): Record<string, un
   }));
 }
 
+/**
+ * Search knowledge entries for solutions via IKnowledgeStore (D1-compatible).
+ */
+async function searchSolutionsViaStore(
+  store: IKnowledgeStore,
+  query: string,
+  user?: string
+): Promise<SearchResult[]> {
+  try {
+    const entries = await store.search(query, undefined, user);
+    const solutionTypes = ["solution", "error_fix"];
+    return entries.map(entry => {
+      const text = entry.details && entry.details !== entry.summary
+        ? `[${entry.type}] ${entry.summary}\n${entry.details}`
+        : `[${entry.type}] ${entry.summary}`;
+      const isSolutionType = solutionTypes.includes(entry.type);
+      const baseScore = ((entry.importance ?? 0.5) * 10) * (isSolutionType ? 1.5 : 1);
+      return {
+        sessionId: entry.sessionId || "knowledge",
+        project: entry.project,
+        text,
+        score: baseScore,
+        confidence: Math.min(baseScore / 10, 1) as number,
+        timestamp: entry.timestamp,
+        toolNames: [] as string[],
+        role: "assistant" as const,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function handleFindSolutions(
   engine: SqliteSearchEngine,
   args: FindSolutionsArgs,
   db?: Database.Database,
-  asyncSearchSolutions?: (errorOrProblem: string, technology?: string, user?: string) => Promise<SearchResult[]>
+  asyncSearchSolutions?: (errorOrProblem: string, technology?: string, user?: string) => Promise<SearchResult[]>,
+  knowledgeStore?: IKnowledgeStore
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
 
@@ -53,7 +88,8 @@ export async function handleFindSolutions(
     ? await asyncSearchSolutions(args.error_or_problem, args.technology, args.user)
     : await engine.searchSolutions(args.error_or_problem, args.technology, args.user);
 
-  // Also search knowledge entries for stored solutions/error_fixes
+  // Also search knowledge entries for stored solutions/error_fixes.
+  // Prefer raw SQL (SQLite path) when db is available; fall back to IKnowledgeStore (D1 path).
   if (db) {
     const solutionTypes = ["solution", "error_fix"];
     const terms = args.error_or_problem.toLowerCase().split(/\s+/).filter(t => t.length > 1);
@@ -93,6 +129,13 @@ export async function handleFindSolutions(
             .slice(0, 20);
         }
       } catch { /* best-effort */ }
+    }
+  } else if (knowledgeStore) {
+    const knowledgeResults = await searchSolutionsViaStore(knowledgeStore, args.error_or_problem, args.user);
+    if (knowledgeResults.length > 0) {
+      results = [...results, ...knowledgeResults]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 20);
     }
   }
 

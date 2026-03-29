@@ -64,12 +64,20 @@
     "security:audit": "npm audit --omit=dev --audit-level=moderate",
     "benchmark": "tsx benchmarks/retrieval-benchmark.ts",
     "benchmark:full": "tsx benchmarks/retrieval-benchmark.ts && tsx benchmarks/mem0-benchmark.ts",
+    "benchmark:longmemeval:download": "tsx benchmarks/longmemeval/download-dataset.ts",
+    "benchmark:longmemeval": "tsx benchmarks/longmemeval/run-benchmark.ts",
+    "benchmark:longmemeval:retrieval": "tsx benchmarks/longmemeval/run-benchmark.ts --retrieval-only",
+    "benchmark:longmemeval:calibrate": "tsx benchmarks/longmemeval/run-calibration.ts",
+    "autoresearch:longmemeval": "tsx autoresearch/longmemeval/run-eval.ts",
     "prepare": "husky"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^11.0.0",
     "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^3.8.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240806.0",

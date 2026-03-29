@@ -27,7 +27,8 @@ export const getProjectContextTool = {
 
 export function handleGetProjectContext(
   engine: SqliteSearchEngine,
-  args: { project?: string; depth?: string }
+  args: { project?: string; depth?: string },
+  profileSummary?: string,
 ): string {
   const project = args.project || "";
   const depth = args.depth || "normal";
@@ -119,6 +120,12 @@ export function handleGetProjectContext(
     for (const [word, count] of topWords) {
       lines.push(`- "${word}" (${count} mentions)`);
     }
+  }
+
+  // Append compact user profile if available
+  if (profileSummary) {
+    lines.push("");
+    lines.push(profileSummary);
   }
 
   return lines.join("\n");

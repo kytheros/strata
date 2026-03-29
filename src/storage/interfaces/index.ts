@@ -10,6 +10,7 @@ export type { IDocumentStore } from "./document-store.js";
 export type { IEntityStore } from "./entity-store.js";
 export type { ISummaryStore } from "./summary-store.js";
 export type { IMetaStore } from "./meta-store.js";
+export type { IEventStore, SVOEvent } from "./event-store.js";
 
 // -- Types used by interfaces --
 export type { KnowledgeUpdatePatch, KnowledgeHistoryRow, KnowledgeListOptions } from "./knowledge-store.js";

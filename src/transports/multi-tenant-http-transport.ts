@@ -140,7 +140,7 @@ export async function startMultiTenantHttpTransport(
 
     // Close the database/IndexManager
     try {
-      entry.mcpServer.indexManager.close();
+      entry.mcpServer.indexManager?.close();
     } catch {
       // ignore cleanup errors
     }
@@ -308,6 +308,10 @@ export async function startMultiTenantHttpTransport(
           return;
         }
       }
+
+      // TODO: Extract X-Strata-Model header and inject into MCP tool args
+      // for model-aware retrieval routing. See http-transport.ts for details.
+      // const _modelHint = req.headers["x-strata-model"] as string | undefined;
 
       // ── New session request ───────────────────────────────────────
       const userId = req.headers["x-strata-user"] as string | undefined;

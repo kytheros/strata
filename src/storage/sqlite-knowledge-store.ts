@@ -23,8 +23,62 @@ function escapeLike(input: string): string {
   return input.replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
+/**
+ * Common English stop words that carry no semantic weight.
+ * Removing these from FTS5 queries improves precision —
+ * without removal, function words match virtually every row in OR mode.
+ */
+const STOP_WORDS = new Set([
+  "a", "an", "the", "is", "am", "are", "was", "were", "be", "been",
+  "being", "have", "has", "had", "do", "does", "did", "will", "would",
+  "shall", "should", "may", "might", "can", "could", "must",
+  "i", "me", "my", "mine", "myself", "we", "us", "our", "ours",
+  "you", "your", "yours", "he", "him", "his", "she", "her", "hers",
+  "it", "its", "they", "them", "their", "theirs",
+  "this", "that", "these", "those",
+  "to", "of", "in", "for", "on", "with", "at", "by", "from",
+  "as", "into", "through", "during", "before", "after", "above",
+  "below", "between", "out", "off", "up", "down", "over", "under",
+  "and", "but", "or", "nor", "not", "no", "so", "if", "then",
+  "than", "too", "very", "just", "about", "also",
+  "how", "what", "when", "where", "which", "who", "whom", "why",
+  "all", "each", "every", "both", "few", "more", "most", "other",
+  "some", "such", "any", "only", "own", "same",
+  "here", "there", "again", "once", "further",
+]);
+
+/**
+ * Sanitize a query string for FTS5 MATCH syntax.
+ * Strips special characters, removes stop words, and joins tokens
+ * with implicit AND for precise matching (OR fallback handled by caller).
+ */
+function sanitizeFtsQuery(query: string): string {
+  // Strip FTS5 operators and special chars, keep alphanumeric + spaces
+  const cleaned = query
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+
+  const tokens = cleaned
+    .split(" ")
+    .filter((t) => t.length > 0 && !STOP_WORDS.has(t.toLowerCase()));
+
+  // If all tokens were stop words, fall back to the original cleaned query
+  if (tokens.length === 0) {
+    return cleaned.split(" ").filter(Boolean).join(" ");
+  }
+
+  return tokens.join(" ");
+}
+
 export class SqliteKnowledgeStore implements IKnowledgeStore {
   private defaultUser: string;
+
+  /** Whether the knowledge_fts virtual table exists (for FTS5 search). */
+  private hasFts: boolean;
+
   private stmts: {
     insert: Database.Statement;
     upsert: Database.Statement;
@@ -35,10 +89,16 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
     getByTypeAndProject: Database.Statement;
     getByTypeAndUser: Database.Statement;
     getByTypeAndProjectAndUser: Database.Statement;
-    search: Database.Statement;
-    searchWithProject: Database.Statement;
-    searchWithUser: Database.Statement;
-    searchWithProjectAndUser: Database.Statement;
+    // LIKE-based fallback search (used when knowledge_fts is unavailable)
+    searchLike: Database.Statement;
+    searchLikeWithProject: Database.Statement;
+    searchLikeWithUser: Database.Statement;
+    searchLikeWithProjectAndUser: Database.Statement;
+    // FTS5-based search (used when knowledge_fts exists)
+    searchFts: Database.Statement | null;
+    searchFtsWithProject: Database.Statement | null;
+    searchFtsWithUser: Database.Statement | null;
+    searchFtsWithProjectAndUser: Database.Statement | null;
     getAll: Database.Statement;
     getAllWithUser: Database.Statement;
     count: Database.Statement;
@@ -66,6 +126,12 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
     this.upsertEmbedding = db.prepare(
       "INSERT OR REPLACE INTO embeddings (entry_id, embedding, model, created_at) VALUES (?, ?, ?, ?)"
     );
+
+    // Detect FTS5 availability
+    this.hasFts = !!db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_fts'"
+    ).get();
+
     this.stmts = {
       insert: db.prepare(`
         INSERT INTO knowledge (id, type, project, session_id, timestamp, summary, details, tags, related_files, occurrences, project_count, extracted_at, user)
@@ -88,30 +154,60 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
       getByTypeAndProjectAndUser: db.prepare(
         "SELECT * FROM knowledge WHERE type = ? AND LOWER(project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\' AND user = ? ORDER BY timestamp DESC"
       ),
-      search: db.prepare(`
+      // LIKE-based fallback search statements
+      searchLike: db.prepare(`
         SELECT * FROM knowledge
         WHERE LOWER(summary || ' ' || details || ' ' || COALESCE(tags, '')) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'
         ORDER BY timestamp DESC
       `),
-      searchWithProject: db.prepare(`
+      searchLikeWithProject: db.prepare(`
         SELECT * FROM knowledge
         WHERE LOWER(summary || ' ' || details || ' ' || COALESCE(tags, '')) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'
           AND LOWER(project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'
         ORDER BY timestamp DESC
       `),
-      searchWithUser: db.prepare(`
+      searchLikeWithUser: db.prepare(`
         SELECT * FROM knowledge
         WHERE LOWER(summary || ' ' || details || ' ' || COALESCE(tags, '')) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'
           AND user = ?
         ORDER BY timestamp DESC
       `),
-      searchWithProjectAndUser: db.prepare(`
+      searchLikeWithProjectAndUser: db.prepare(`
         SELECT * FROM knowledge
         WHERE LOWER(summary || ' ' || details || ' ' || COALESCE(tags, '')) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'
           AND LOWER(project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'
           AND user = ?
         ORDER BY timestamp DESC
       `),
+      // FTS5-based search statements (null if FTS table unavailable)
+      searchFts: this.hasFts ? db.prepare(`
+        SELECT k.* FROM knowledge k
+          JOIN knowledge_fts fts ON k.rowid = fts.rowid
+          WHERE knowledge_fts MATCH ?
+          ORDER BY rank
+          LIMIT 50
+      `) : null,
+      searchFtsWithProject: this.hasFts ? db.prepare(`
+        SELECT k.* FROM knowledge k
+          JOIN knowledge_fts fts ON k.rowid = fts.rowid
+          WHERE knowledge_fts MATCH ? AND LOWER(k.project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'
+          ORDER BY rank
+          LIMIT 50
+      `) : null,
+      searchFtsWithUser: this.hasFts ? db.prepare(`
+        SELECT k.* FROM knowledge k
+          JOIN knowledge_fts fts ON k.rowid = fts.rowid
+          WHERE knowledge_fts MATCH ? AND k.user = ?
+          ORDER BY rank
+          LIMIT 50
+      `) : null,
+      searchFtsWithProjectAndUser: this.hasFts ? db.prepare(`
+        SELECT k.* FROM knowledge k
+          JOIN knowledge_fts fts ON k.rowid = fts.rowid
+          WHERE knowledge_fts MATCH ? AND LOWER(k.project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\' AND k.user = ?
+          ORDER BY rank
+          LIMIT 50
+      `) : null,
       getAll: db.prepare("SELECT * FROM knowledge ORDER BY timestamp DESC"),
       getAllWithUser: db.prepare("SELECT * FROM knowledge WHERE user = ? ORDER BY timestamp DESC"),
       count: db.prepare("SELECT COUNT(*) as count FROM knowledge"),
@@ -159,14 +255,22 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
     const dup = this.stmts.hasDuplicate.get(entry.project, entry.type, entry.summary, user);
     if (dup) return;
 
+    const row = entryToRow(entry);
+    // Debug: check for undefined values that SQLite can't bind
+    for (const [k, v] of Object.entries(row)) {
+      if (v === undefined) {
+        console.warn(`[knowledge-store] entryToRow produced undefined for key "${k}", coercing to null`);
+        (row as Record<string, unknown>)[k] = null;
+      }
+    }
     const addTxn = this.db.transaction(() => {
-      this.stmts.insert.run(entryToRow(entry));
+      this.stmts.insert.run(row);
       this.stmts.insertHistory.run({
         entryId: entry.id,
         oldSummary: null,
-        newSummary: entry.summary,
+        newSummary: row.summary,
         oldDetails: null,
-        newDetails: entry.details,
+        newDetails: row.details,
         event: "add",
         createdAt: Date.now(),
       });
@@ -221,20 +325,84 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
 
   /**
    * Search entries by query text, optionally filtered by project and/or user.
+   * Uses FTS5 MATCH when available (with AND->OR fallback), falls back to LIKE.
    */
   async search(query: string, project?: string, user?: string): Promise<KnowledgeEntry[]> {
+    if (this.hasFts) {
+      const rows = this.searchFts(query, project, user);
+      if (rows !== null) return rows.map(rowToEntry);
+      // FTS query was empty after sanitization — fall through to LIKE
+    }
+
+    // LIKE fallback for databases without knowledge_fts or empty FTS query
     const safeQuery = escapeLike(query);
     let rows: SqliteKnowledgeRow[];
     if (project && user) {
-      rows = this.stmts.searchWithProjectAndUser.all(safeQuery, escapeLike(project), user) as SqliteKnowledgeRow[];
+      rows = this.stmts.searchLikeWithProjectAndUser.all(safeQuery, escapeLike(project), user) as SqliteKnowledgeRow[];
     } else if (project) {
-      rows = this.stmts.searchWithProject.all(safeQuery, escapeLike(project)) as SqliteKnowledgeRow[];
+      rows = this.stmts.searchLikeWithProject.all(safeQuery, escapeLike(project)) as SqliteKnowledgeRow[];
     } else if (user) {
-      rows = this.stmts.searchWithUser.all(safeQuery, user) as SqliteKnowledgeRow[];
+      rows = this.stmts.searchLikeWithUser.all(safeQuery, user) as SqliteKnowledgeRow[];
     } else {
-      rows = this.stmts.search.all(safeQuery) as SqliteKnowledgeRow[];
+      rows = this.stmts.searchLike.all(safeQuery) as SqliteKnowledgeRow[];
     }
     return rows.map(rowToEntry);
+  }
+
+  /**
+   * FTS5 search with AND->OR fallback (same pattern as SqliteDocumentStore).
+   * Returns null if the sanitized query is empty (caller should fall back to LIKE).
+   */
+  private searchFts(query: string, project?: string, user?: string): SqliteKnowledgeRow[] | null {
+    const sanitized = sanitizeFtsQuery(query);
+    if (!sanitized) return null;
+
+    const pickStmt = (fts: Database.Statement | null) => fts!;
+    let stmt: Database.Statement;
+    let args: unknown[];
+
+    if (project && user) {
+      stmt = pickStmt(this.stmts.searchFtsWithProjectAndUser);
+      args = [sanitized, escapeLike(project), user];
+    } else if (project) {
+      stmt = pickStmt(this.stmts.searchFtsWithProject);
+      args = [sanitized, escapeLike(project)];
+    } else if (user) {
+      stmt = pickStmt(this.stmts.searchFtsWithUser);
+      args = [sanitized, user];
+    } else {
+      stmt = pickStmt(this.stmts.searchFts);
+      args = [sanitized];
+    }
+
+    try {
+      const rows = stmt.all(...args) as SqliteKnowledgeRow[];
+
+      // AND->OR fallback: if implicit-AND returned nothing for a multi-word
+      // query, retry with OR so that entries matching any term are surfaced.
+      if (rows.length === 0) {
+        const tokens = sanitized.split(" ").filter(Boolean);
+        if (tokens.length > 1) {
+          const orQuery = tokens.join(" OR ");
+          const orArgs = [...args];
+          orArgs[0] = orQuery;
+          const orRows = stmt.all(...orArgs) as SqliteKnowledgeRow[];
+          return orRows;
+        }
+      }
+
+      return rows;
+    } catch {
+      // If FTS query syntax is invalid, try as a phrase
+      try {
+        const phraseQuery = `"${query.replace(/"/g, '""')}"`;
+        const phraseArgs = [...args];
+        phraseArgs[0] = phraseQuery;
+        return stmt.all(...phraseArgs) as SqliteKnowledgeRow[];
+      } catch {
+        return null; // Fall back to LIKE
+      }
+    }
   }
 
   /**
@@ -415,13 +583,14 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
 
       if (!existingRow) {
         // No existing entry — insert fresh
-        this.stmts.insert.run(entryToRow(entry));
+        const freshRow = entryToRow(entry);
+        this.stmts.insert.run(freshRow);
         this.stmts.insertHistory.run({
           entryId: entry.id,
           oldSummary: null,
-          newSummary: entry.summary,
+          newSummary: freshRow.summary,
           oldDetails: null,
-          newDetails: entry.details,
+          newDetails: freshRow.details,
           event: "add",
           createdAt: Date.now(),
         });
@@ -498,24 +667,48 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
 
   /**
    * Paginated listing with filters for the dashboard.
+   * Uses FTS5 MATCH for the search filter when available, with LIKE fallback.
    */
   async getEntries(options: KnowledgeListOptions): Promise<{ entries: KnowledgeEntry[]; total: number }> {
+    // Determine if we can use FTS5 for the search filter
+    const useFtsForSearch = this.hasFts && options.search;
+    let ftsQuery: string | null = null;
+    if (useFtsForSearch) {
+      ftsQuery = sanitizeFtsQuery(options.search!);
+      if (!ftsQuery) {
+        // Sanitized to empty — fall back to LIKE for search
+      }
+    }
+
+    const useJoin = useFtsForSearch && ftsQuery;
+
+    // Build FROM clause — join with FTS when searching via FTS5
+    const fromClause = useJoin
+      ? "knowledge k JOIN knowledge_fts fts ON k.rowid = fts.rowid"
+      : "knowledge k";
+
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
+    if (useJoin) {
+      conditions.push("knowledge_fts MATCH ?");
+      params.push(ftsQuery!);
+    }
+
     if (options.type) {
-      conditions.push("type = ?");
+      conditions.push("k.type = ?");
       params.push(options.type);
     }
 
     if (options.project) {
-      conditions.push("LOWER(project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'");
+      conditions.push("LOWER(k.project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'");
       params.push(escapeLike(options.project));
     }
 
-    if (options.search) {
+    if (options.search && !useJoin) {
+      // LIKE fallback when FTS is unavailable or query sanitized to empty
       conditions.push(
-        "LOWER(summary || ' ' || details || ' ' || COALESCE(tags, '')) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'"
+        "LOWER(k.summary || ' ' || k.details || ' ' || COALESCE(k.tags, '')) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'"
       );
       params.push(escapeLike(options.search));
     }
@@ -525,23 +718,23 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
     let orderBy: string;
     switch (options.sort) {
       case "oldest":
-        orderBy = "ORDER BY timestamp ASC";
+        orderBy = "ORDER BY k.timestamp ASC";
         break;
       case "importance":
-        orderBy = "ORDER BY COALESCE(importance, 0) DESC";
+        orderBy = "ORDER BY COALESCE(k.importance, 0) DESC";
         break;
       case "newest":
       default:
-        orderBy = "ORDER BY timestamp DESC";
+        orderBy = "ORDER BY k.timestamp DESC";
         break;
     }
 
     const countRow = this.db
-      .prepare(`SELECT COUNT(*) as count FROM knowledge ${where}`)
+      .prepare(`SELECT COUNT(*) as count FROM ${fromClause} ${where}`)
       .get(...params) as { count: number };
 
     const rows = this.db
-      .prepare(`SELECT * FROM knowledge ${where} ${orderBy} LIMIT ? OFFSET ?`)
+      .prepare(`SELECT k.* FROM ${fromClause} ${where} ${orderBy} LIMIT ? OFFSET ?`)
       .all(...params, options.limit, options.offset) as SqliteKnowledgeRow[];
 
     return { entries: rows.map(rowToEntry), total: countRow.count };
@@ -628,6 +821,14 @@ function mergeStringArrays(base: string[], incoming: string[]): string[] {
 }
 
 function entryToRow(entry: KnowledgeEntry): Record<string, unknown> {
+  // Coerce details to string — LLM extraction may return objects or undefined
+  const details =
+    entry.details === undefined || entry.details === null
+      ? ""
+      : typeof entry.details === "string"
+        ? entry.details
+        : JSON.stringify(entry.details);
+
   return {
     id: entry.id,
     type: entry.type,
@@ -635,10 +836,10 @@ function entryToRow(entry: KnowledgeEntry): Record<string, unknown> {
     user: entry.user || DEFAULT_USER,
     sessionId: entry.sessionId,
     timestamp: entry.timestamp,
-    summary: entry.summary,
-    details: entry.details,
-    tags: JSON.stringify(entry.tags),
-    relatedFiles: JSON.stringify(entry.relatedFiles),
+    summary: entry.summary || "",
+    details,
+    tags: JSON.stringify(entry.tags ?? []),
+    relatedFiles: JSON.stringify(entry.relatedFiles ?? []),
     occurrences: entry.occurrences ?? null,
     projectCount: entry.projectCount ?? null,
     extractedAt: entry.extractedAt ?? null,

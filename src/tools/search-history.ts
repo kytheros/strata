@@ -1,11 +1,13 @@
 import type Database from "better-sqlite3";
 import type { SqliteSearchEngine, SearchResult, SearchOptions } from "../search/sqlite-search-engine.js";
+import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 import { extractProjectName } from "../utils/path-encoder.js";
 import { ResponseFormat } from "../utils/response-format.js";
 import { CompactSerializer } from "../utils/compact-serializer.js";
 import { truncatePreview } from "../utils/response.js";
 import { CONFIG } from "../config.js";
 import { recordGap, getGapOccurrences } from "../search/evidence-gaps.js";
+import { parseDate } from "../search/query-processor.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -85,6 +87,10 @@ export interface SearchHistoryArgs {
   format?: string;
   user?: string;
   max_chars?: number;
+  after_date?: string;
+  before_date?: string;
+  /** Consuming model name for retrieval routing (e.g., 'gemini-2.0-flash', 'gpt-4o') */
+  model?: string;
 }
 
 /**
@@ -104,28 +110,127 @@ function toRecords(results: SearchResult[], maxChars: number): Record<string, un
   }));
 }
 
+/**
+ * Search knowledge entries via the IKnowledgeStore interface (D1-compatible).
+ * Converts KnowledgeEntry[] to SearchResult[] format.
+ */
+async function searchKnowledgeViaStore(
+  store: IKnowledgeStore,
+  query: string,
+  options: SearchOptions
+): Promise<SearchResult[]> {
+  try {
+    const entries = await store.search(query, options.project, options.user);
+    return entries.map(entry => {
+      const text = entry.details && entry.details !== entry.summary
+        ? `[${entry.type}] ${entry.summary}\n${entry.details}`
+        : `[${entry.type}] ${entry.summary}`;
+      const tags = entry.tags ?? [];
+      const baseScore = (entry.importance ?? 0.5) * 10;
+      return {
+        sessionId: entry.sessionId || "knowledge",
+        project: entry.project,
+        text,
+        score: baseScore,
+        confidence: Math.min(baseScore / 10, 1),
+        timestamp: entry.timestamp,
+        toolNames: tags.length > 0 ? [`tags:${tags.join(",")}`] : [],
+        role: "assistant" as const,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function handleSearchHistory(
   engine: SqliteSearchEngine,
   args: SearchHistoryArgs,
   db?: Database.Database,
-  asyncSearch?: (query: string, options: SearchOptions) => Promise<SearchResult[]>
+  asyncSearch?: (query: string, options: SearchOptions) => Promise<SearchResult[]>,
+  knowledgeStore?: IKnowledgeStore
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
+
+  // If explicit date params provided, inject them as inline filters
+  let query = args.query;
+  if (args.after_date && !query.includes("after:")) {
+    query += ` after:${args.after_date}`;
+  }
+  if (args.before_date && !query.includes("before:")) {
+    query += ` before:${args.before_date}`;
+  }
 
   const searchOptions: SearchOptions = {
     limit: args.limit,
     project: args.project,
     includeContext: args.include_context,
     user: args.user,
+    model: args.model,
   };
 
-  let results = asyncSearch
-    ? await asyncSearch(args.query, searchOptions)
-    : await engine.search(args.query, searchOptions);
+  // Check if there is an actual text query (stripping inline filter directives)
+  const hasTextQuery = query
+    .replace(/\b(project|before|after|tool|branch):\S+/gi, "")
+    .trim().length > 0;
 
-  // Also search the knowledge table for stored memories
+  // Date-only browsing: no text query, just date range
+  if (!hasTextQuery && (args.after_date || args.before_date)) {
+    const afterMs = args.after_date ? parseDate(args.after_date) : 0;
+    const beforeMs = args.before_date ? parseDate(args.before_date) : Date.now();
+
+    const dateResults = await engine.searchByDateRange(afterMs, beforeMs, searchOptions);
+
+    if (dateResults.length === 0) {
+      return `No sessions found in the specified date range.`;
+    }
+
+    const records = toRecords(dateResults, maxChars);
+    const format = (args.format as ResponseFormat) || ResponseFormat.STANDARD;
+
+    if (format === ResponseFormat.CONCISE) {
+      const serializer = new CompactSerializer("results");
+      return `Found ${dateResults.length} session(s) in date range:\n\n` +
+        serializer.serialize(records, { format });
+    }
+
+    if (format === ResponseFormat.DETAILED) {
+      const serializer = new CompactSerializer("results");
+      return serializer.serialize(records, { format });
+    }
+
+    // Standard format
+    const lines: string[] = [`Found ${dateResults.length} session(s) in date range:\n`];
+    for (const r of dateResults) {
+      const projectName = extractProjectName(r.project);
+      const date = r.timestamp
+        ? new Date(r.timestamp).toLocaleDateString()
+        : "unknown date";
+      const toolInfo =
+        r.toolNames.length > 0 ? ` [tools: ${r.toolNames.join(", ")}]` : "";
+      lines.push(`--- ${projectName} (${date})${toolInfo} ---`);
+      const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
+      lines.push(text);
+      lines.push("");
+    }
+    return lines.join("\n");
+  }
+
+  let results = asyncSearch
+    ? await asyncSearch(query, searchOptions)
+    : await engine.search(query, searchOptions);
+
+  // Also search the knowledge table for stored memories.
+  // Prefer raw SQL (faster, SQLite path) when db is available; fall back to IKnowledgeStore (D1 path).
   if (db) {
     const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
+    if (knowledgeResults.length > 0) {
+      results = [...results, ...knowledgeResults]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+    }
+  } else if (knowledgeStore) {
+    const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
     if (knowledgeResults.length > 0) {
       results = [...results, ...knowledgeResults]
         .sort((a, b) => b.score - a.score)

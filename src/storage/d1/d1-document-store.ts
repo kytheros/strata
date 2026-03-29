@@ -258,4 +258,24 @@ export class D1DocumentStore implements IDocumentStore {
       .all<{ project: string }>();
     return new Set(result.results.map((r) => r.project));
   }
+
+  /**
+   * Browse documents within a date range (no text query required).
+   * Returns chunks ordered by timestamp descending.
+   */
+  async searchByDateRange(
+    afterMs: number,
+    beforeMs: number,
+    limit: number = 30,
+    user?: string
+  ): Promise<DocumentChunk[]> {
+    const effectiveUser = user ?? this.userId;
+    const result = await this.db
+      .prepare(
+        `SELECT * FROM documents WHERE timestamp >= ? AND timestamp <= ? AND user = ? ORDER BY timestamp DESC LIMIT ?`
+      )
+      .bind(afterMs, beforeMs, effectiveUser, limit)
+      .all<D1DocumentRow>();
+    return result.results.map(rowToChunk);
+  }
 }

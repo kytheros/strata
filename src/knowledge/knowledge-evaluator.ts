@@ -80,8 +80,21 @@ export class KnowledgeEvaluator {
   /**
    * Evaluate a candidate knowledge entry.
    * Returns accepted/rejected with reason.
+   *
+   * @param content - The text to evaluate (summary + details)
+   * @param entryType - Optional knowledge type. Personal types (fact, preference, episodic)
+   *   bypass actionability/specificity checks since they have different quality signals.
    */
-  evaluate(content: string): EvaluationResult {
+  evaluate(content: string, entryType?: string): EvaluationResult {
+    // Personal knowledge types are accepted unconditionally —
+    // they have different quality signals than coding patterns
+    if (entryType === "fact" || entryType === "preference" || entryType === "episodic") {
+      return {
+        outcome: "accepted",
+        reason: "Personal knowledge type",
+      };
+    }
+
     if (!isActionable(content)) {
       return {
         outcome: "rejected",

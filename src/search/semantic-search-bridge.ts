@@ -8,7 +8,7 @@
  * to FTS5) when no embedding credentials are available.
  */
 
-import type { SqliteDocumentStore } from "../storage/sqlite-document-store.js";
+import type { IDocumentStore } from "../storage/interfaces/document-store.js";
 import type Database from "better-sqlite3";
 import type { SearchResult, SearchOptions } from "./sqlite-search-engine.js";
 
@@ -52,8 +52,8 @@ export class SemanticSearchBridge {
   private initError = false;
 
   constructor(
-    private documentStore: SqliteDocumentStore,
-    private db: Database.Database
+    private documentStore: IDocumentStore,
+    private db: Database.Database | null
   ) {}
 
   /**
@@ -65,6 +65,12 @@ export class SemanticSearchBridge {
     if (this.initAttempted) return !this.initError;
 
     this.initAttempted = true;
+
+    // VectorStore requires a better-sqlite3 Database — not available on D1
+    if (!this.db) {
+      this.initError = true;
+      return false;
+    }
 
     try {
       this.provider = createEmbeddingProvider();

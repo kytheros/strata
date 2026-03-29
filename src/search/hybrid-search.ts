@@ -4,7 +4,7 @@
  * Extends the existing result-ranker.ts infrastructure for score fusion.
  */
 
-import type { SqliteDocumentStore } from "../storage/sqlite-document-store.js";
+import type { IDocumentStore } from "../storage/interfaces/document-store.js";
 import type { VectorStore, VectorSearchResult } from "../extensions/vector-search/vector-store.js";
 import type { EmbeddingProvider } from "../extensions/vector-search/embedding-provider.js";
 import { reciprocalRankFusion, applyBoosts, applyFilters, type RankedResult } from "./result-ranker.js";
@@ -44,7 +44,7 @@ export interface HybridSearchResult {
  */
 export class HybridSearchEngine {
   constructor(
-    private documentStore: SqliteDocumentStore,
+    private documentStore: IDocumentStore,
     private vectorStore: VectorStore,
     private embeddingProvider: EmbeddingProvider
   ) {}

@@ -57,7 +57,7 @@ export function parseQuery(rawQuery: string): ParsedQuery {
   };
 }
 
-function parseDate(value: string): number {
+export function parseDate(value: string): number {
   // Support relative dates: 7d, 30d, 1w, 1m, 1y
   const relMatch = value.match(/^(\d+)([dwmy])$/);
   if (relMatch) {

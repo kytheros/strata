@@ -20,6 +20,10 @@ import { AiderParser } from "../parsers/aider-parser.js";
 import type { ConversationParser } from "../parsers/parser-interface.js";
 import type { ParsedSession, SessionFileInfo } from "../parsers/session-parser.js";
 import { hasFeature } from "../extensions/feature-gate.js";
+import { extractKnowledge } from "../knowledge/knowledge-extractor.js";
+import type { IEventStore } from "../storage/interfaces/event-store.js";
+import type { GeminiProvider } from "../extensions/llm-extraction/gemini-provider.js";
+import { extractSVOEvents } from "../knowledge/event-extractor-llm.js";
 
 export interface IndexMeta {
   lastIndexed: Record<string, number>;
@@ -34,6 +38,17 @@ export class SqliteIndexManager {
   summaries: SqliteSummaryStore;
   meta: SqliteMetaStore;
   readonly registry: ParserRegistry;
+
+  private eventStore: IEventStore | null = null;
+  private geminiProvider: GeminiProvider | null = null;
+
+  setEventStore(store: IEventStore): void {
+    this.eventStore = store;
+  }
+
+  setGeminiProvider(provider: GeminiProvider): void {
+    this.geminiProvider = provider;
+  }
 
   constructor(dbPath?: string) {
     this.db = openDatabase(dbPath);
@@ -166,6 +181,38 @@ export class SqliteIndexManager {
         toolNames: chunk.toolNames,
         messageIndex: chunk.messageIndex,
       }, tool);
+    }
+
+    // Heuristic knowledge extraction: fast (~5ms), always-on, no API key needed.
+    // Produces knowledge entries that serve as retrieval keys for session discovery.
+    try {
+      const entries = extractKnowledge(session);
+      for (const entry of entries) {
+        void this.knowledge.addEntry(entry);
+      }
+    } catch {
+      // Knowledge extraction errors must never block indexing
+    }
+
+    // SVO event extraction: async LLM call, requires Gemini API key.
+    // Fire-and-forget — extraction errors must never block indexing.
+    if (this.eventStore && this.geminiProvider && CONFIG.events.enabled) {
+      const sessionText = chunks.map((c) => c.text).join("\n\n");
+      void extractSVOEvents(
+        this.geminiProvider,
+        sessionText,
+        session.sessionId,
+        session.project,
+        session.startTime || Date.now()
+      )
+        .then((events) => {
+          if (events.length > 0) {
+            void this.eventStore!.addEvents(events);
+          }
+        })
+        .catch(() => {
+          // Event extraction errors must never block indexing
+        });
     }
   }
 

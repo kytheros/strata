@@ -129,6 +129,13 @@ async function handleMcpRequest(
     const body = await readBody(req);
     const parsed = JSON.parse(body);
 
+    // TODO: Extract X-Strata-Model header and inject into MCP tool args
+    // for model-aware retrieval routing. The MCP SDK does not expose a
+    // per-request context to tool handlers, so this requires either:
+    // (a) a session-level metadata store keyed by transport session ID, or
+    // (b) the client passing `model` as an explicit tool parameter (current approach).
+    // const _modelHint = req.headers["x-strata-model"] as string | undefined;
+
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     if (sessionId && transports.has(sessionId)) {

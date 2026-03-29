@@ -7,7 +7,7 @@
  */
 
 import type { KnowledgeEntry } from "./knowledge-store.js";
-import type { SqliteKnowledgeStore } from "../storage/sqlite-knowledge-store.js";
+import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 import type { LlmProvider } from "../extensions/llm-extraction/llm-provider.js";
 
 /** Action to apply to an existing entry. */
@@ -43,7 +43,7 @@ const FALLBACK_RESOLUTION: ConflictResolution = { shouldAdd: true, actions: [] }
  */
 export async function resolveConflicts(
   candidate: KnowledgeEntry,
-  store: SqliteKnowledgeStore,
+  store: IKnowledgeStore,
   provider?: LlmProvider | null
 ): Promise<ConflictResolution> {
   // Killswitch: STRATA_CONFLICT_RESOLUTION=0 disables conflict resolution
@@ -94,7 +94,7 @@ export async function resolveConflicts(
 export async function executeResolution(
   resolution: ConflictResolution,
   candidate: KnowledgeEntry,
-  store: SqliteKnowledgeStore
+  store: IKnowledgeStore
 ): Promise<void> {
   // Deletes first
   for (const action of resolution.actions) {

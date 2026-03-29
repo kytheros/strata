@@ -15,6 +15,7 @@ interface GeminiResponse {
     content?: {
       parts?: Array<{ text?: string }>;
     };
+    finishReason?: string;
   }>;
   error?: { message: string; code: number };
 }
@@ -44,7 +45,7 @@ export class GeminiProvider implements LlmProvider {
     prompt: string,
     options: CompletionOptions = {}
   ): Promise<string> {
-    const { maxTokens = 2048, temperature = 0.2, timeoutMs = 10000 } = options;
+    const { maxTokens = 2048, temperature = 0.2, timeoutMs = 10000, jsonMode = false } = options;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -63,6 +64,7 @@ export class GeminiProvider implements LlmProvider {
           generationConfig: {
             temperature,
             maxOutputTokens: maxTokens,
+            ...(jsonMode ? { responseMimeType: "application/json" } : {}),
           },
         }),
         signal: controller.signal,
@@ -87,9 +89,15 @@ export class GeminiProvider implements LlmProvider {
         );
       }
 
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const candidate = data.candidates?.[0];
+      const text = candidate?.content?.parts?.[0]?.text;
       if (!text) {
-        throw new LlmError("No text content in Gemini response", this.name);
+        const reason = candidate?.finishReason || "unknown";
+        throw new LlmError(
+          `No text content in Gemini response (finishReason: ${reason})`,
+          this.name,
+          reason === "SAFETY" ? 400 : undefined
+        );
       }
 
       return text;

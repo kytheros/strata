@@ -23,7 +23,7 @@ const sanitizer = new Sanitizer();
 /** Raw extraction output from LLM */
 interface LlmExtractionOutput {
   entries: Array<{
-    type: "decision" | "solution" | "error_fix" | "pattern" | "procedure";
+    type: "decision" | "solution" | "error_fix" | "pattern" | "procedure" | "fact" | "preference" | "episodic";
     summary: string;
     details?: string;
     tags?: string[];
@@ -31,13 +31,13 @@ interface LlmExtractionOutput {
   }>;
 }
 
-const EXTRACTION_PROMPT = `You are analyzing a coding assistant conversation to extract knowledge entries. Find decisions, solutions, error fixes, and patterns — especially implicit ones that simple regex would miss.
+const EXTRACTION_PROMPT = `You are analyzing a conversation to extract knowledge entries. Find facts, preferences, decisions, solutions, and patterns — especially implicit ones that simple regex would miss.
 
 Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 {
   "entries": [
     {
-      "type": "decision|solution|error_fix|pattern|procedure",
+      "type": "decision|solution|error_fix|pattern|procedure|fact|preference|episodic",
       "summary": "Concise description (under 120 chars)",
       "details": "Optional elaboration with context, or JSON for procedures",
       "tags": ["relevant", "technology", "tags"],
@@ -47,13 +47,17 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 }
 
 Extraction rules:
-- "decision": Choices between alternatives, even implicit ones like "After trying X, Y worked better"
+- "fact": Concrete personal information stated by the user — names, places, possessions, relationships, occupations, skills, hobbies, quantities. Example: "User has a Golden Retriever named Max", "User graduated with a Business Administration degree".
+- "preference": Opinions, likes, dislikes, habits, routines, or personal choices expressed by the user. Example: "User prefers Adobe Premiere Pro", "User practices yoga every morning".
+- "episodic": Events, activities, or experiences the user mentions with temporal context — things that happened, are happening, or will happen. Example: "User attended an open mic night on Saturday", "User is planning a trip to Japan in March".
+- "decision": Choices between alternatives, even implicit ones like "After trying X, Y worked better".
 - "solution": Problems solved, bugs fixed. Include WHAT was wrong and HOW it was fixed.
 - "error_fix": Error message paired with its resolution.
 - "pattern": Reusable approaches, anti-patterns, or best practices discovered.
 - "procedure": Sequential workflows, how-to guides, step-by-step processes. Extract steps as an ordered JSON array in the details field. Format: {"steps": ["step1", "step2", ...], "prerequisites": [...], "warnings": [...]}
 - Maximum 10 entries total.
 - Each summary under 120 characters.
+- Prioritize facts, preferences, and episodic entries — these are the most commonly recalled.
 - Focus on entries that regex pattern matching would MISS (implicit decisions, multi-turn context).
 - Do NOT extract trivial file edits or routine operations.
 
@@ -155,7 +159,7 @@ function parseExtractionResponse(raw: string): LlmExtractionOutput {
       (e) =>
         typeof e.type === "string" &&
         typeof e.summary === "string" &&
-        ["decision", "solution", "error_fix", "pattern", "procedure"].includes(e.type)
+        ["decision", "solution", "error_fix", "pattern", "procedure", "fact", "preference", "episodic"].includes(e.type)
     )
     .slice(0, 10);
 

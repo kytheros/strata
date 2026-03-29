@@ -6,7 +6,7 @@
 
 import { randomUUID } from "crypto";
 import type Database from "better-sqlite3";
-import type { SqliteKnowledgeStore } from "../storage/sqlite-knowledge-store.js";
+import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 import type { KnowledgeEntry } from "../knowledge/knowledge-store.js";
 import { getCachedGeminiProvider } from "../extensions/llm-extraction/gemini-provider.js";
 import { resolveConflicts, executeResolution } from "../knowledge/conflict-resolver.js";
@@ -30,7 +30,7 @@ export interface StoreMemoryArgs {
  * Returns a confirmation message.
  */
 export async function handleStoreMemory(
-  knowledgeStore: SqliteKnowledgeStore,
+  knowledgeStore: IKnowledgeStore,
   args: StoreMemoryArgs,
   db?: Database.Database
 ): Promise<string> {

@@ -7,7 +7,7 @@ This is the core memory engine for AI coding assistants. It indexes conversation
 All Strata repos live side-by-side under a shared parent directory and form a layered product:
 
 ```
-strata/          ← THIS REPO — Community edition, core engine (free, 8 MCP tools)
+strata/          ← THIS REPO — Community edition, core engine (free, 10 MCP tools)
 strata-pro/      ← Enterprise features: semantic search, cloud sync, procedures, analytics
 strata-team/     ← Team edition: shared knowledge, team sync, RBAC
 strata-web/      ← Marketing/auth frontend (React + Supabase)

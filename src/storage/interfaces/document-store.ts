@@ -21,6 +21,8 @@ export interface IDocumentStore {
   remove(id: string): Promise<void>;
   removeSession(sessionId: string): Promise<void>;
   search(query: string, limit?: number, user?: string): Promise<FtsSearchResult[]>;
+  /** Browse documents within a date range (no text query required). */
+  searchByDateRange(afterMs: number, beforeMs: number, limit?: number, user?: string): Promise<DocumentChunk[]>;
   getDocumentCount(): Promise<number>;
   getAverageTokenCount(): Promise<number>;
   getAllDocuments(): Promise<DocumentChunk[]>;

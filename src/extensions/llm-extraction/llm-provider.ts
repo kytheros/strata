@@ -11,6 +11,8 @@ export interface CompletionOptions {
   temperature?: number;
   /** Timeout in milliseconds (default: 10000) */
   timeoutMs?: number;
+  /** Request JSON output from the model (Gemini: responseMimeType, OpenAI: response_format) */
+  jsonMode?: boolean;
 }
 
 /** Result from a completion call, with optional metadata */
