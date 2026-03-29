@@ -195,6 +195,36 @@ function initSchema(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_knowledge_history_entry ON knowledge_history(entry_id, id DESC);
+
+    -- Stored documents (user-uploaded PDFs, text files, images)
+    CREATE TABLE IF NOT EXISTS stored_documents (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      project TEXT NOT NULL DEFAULT 'global',
+      user TEXT,
+      tags TEXT,
+      chunk_count INTEGER NOT NULL,
+      total_pages INTEGER,
+      file_size INTEGER,
+      created_at INTEGER NOT NULL
+    );
+
+    -- Document chunks with multimodal embeddings
+    CREATE TABLE IF NOT EXISTS document_chunks (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES stored_documents(id) ON DELETE CASCADE,
+      chunk_index INTEGER NOT NULL,
+      content TEXT,
+      embedding BLOB NOT NULL,
+      model TEXT NOT NULL DEFAULT 'gemini-embedding-2-preview',
+      page_start INTEGER,
+      page_end INTEGER,
+      token_count INTEGER,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_document_chunks_doc ON document_chunks(document_id);
   `);
 
   // ── Migrations for existing databases ──────────────────────────────
@@ -397,6 +427,145 @@ function initSchema(db: Database.Database): void {
         INSERT INTO documents_fts(documents_fts, rowid, text) VALUES('delete', old.rowid, old.text);
         INSERT INTO documents_fts(rowid, text) VALUES (new.rowid, new.text);
       END;
+    `);
+  }
+
+  // FTS5 virtual table for knowledge entries
+  const knowledgeFtsExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_fts'"
+  ).get();
+
+  if (!knowledgeFtsExists) {
+    db.exec(`
+      CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+        summary,
+        details,
+        tags,
+        content=knowledge,
+        content_rowid=rowid,
+        tokenize='porter unicode61'
+      );
+    `);
+  }
+
+  // Triggers to keep knowledge_fts in sync with knowledge table
+  const knowledgeTriggerExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='trigger' AND name='knowledge_ai'"
+  ).get();
+
+  if (!knowledgeTriggerExists) {
+    db.exec(`
+      -- After insert: add to knowledge FTS
+      CREATE TRIGGER knowledge_ai AFTER INSERT ON knowledge BEGIN
+        INSERT INTO knowledge_fts(rowid, summary, details, tags)
+          VALUES (new.rowid, new.summary, new.details, COALESCE(new.tags, ''));
+      END;
+
+      -- After delete: remove from knowledge FTS
+      CREATE TRIGGER knowledge_ad AFTER DELETE ON knowledge BEGIN
+        INSERT INTO knowledge_fts(knowledge_fts, rowid, summary, details, tags)
+          VALUES('delete', old.rowid, old.summary, old.details, COALESCE(old.tags, ''));
+      END;
+
+      -- After update: update knowledge FTS
+      CREATE TRIGGER knowledge_au AFTER UPDATE ON knowledge BEGIN
+        INSERT INTO knowledge_fts(knowledge_fts, rowid, summary, details, tags)
+          VALUES('delete', old.rowid, old.summary, old.details, COALESCE(old.tags, ''));
+        INSERT INTO knowledge_fts(rowid, summary, details, tags)
+          VALUES (new.rowid, new.summary, new.details, COALESCE(new.tags, ''));
+      END;
+    `);
+  }
+
+  // SVO Events table — structured Subject-Verb-Object event extraction
+  // Events bridge vocabulary gaps via lexical aliases indexed in FTS5
+  const eventsExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='events'"
+  ).get();
+  if (!eventsExists) {
+    db.exec(`
+      CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject TEXT NOT NULL,
+        verb TEXT NOT NULL,
+        object TEXT NOT NULL,
+        start_date TEXT,
+        end_date TEXT,
+        aliases TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT 'personal',
+        session_id TEXT NOT NULL,
+        project TEXT NOT NULL DEFAULT '',
+        timestamp INTEGER NOT NULL DEFAULT 0,
+        user TEXT
+      );
+
+      CREATE VIRTUAL TABLE events_fts USING fts5(
+        subject,
+        verb,
+        object,
+        aliases,
+        content=events,
+        content_rowid=id,
+        tokenize='porter unicode61'
+      );
+
+      CREATE TRIGGER events_ai AFTER INSERT ON events BEGIN
+        INSERT INTO events_fts(rowid, subject, verb, object, aliases)
+          VALUES (new.id, new.subject, new.verb, new.object, new.aliases);
+      END;
+
+      CREATE TRIGGER events_ad AFTER DELETE ON events BEGIN
+        INSERT INTO events_fts(events_fts, rowid, subject, verb, object, aliases)
+          VALUES ('delete', old.id, old.subject, old.verb, old.object, old.aliases);
+      END;
+    `);
+  }
+
+  // FTS5 virtual table for document chunk text search (contentless)
+  const docChunksFtsExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='document_chunks_fts'"
+  ).get();
+
+  if (!docChunksFtsExists) {
+    db.exec(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        content,
+        document_id UNINDEXED,
+        chunk_id UNINDEXED,
+        project UNINDEXED,
+        content='',
+        contentless_delete=1
+      );
+    `);
+  }
+
+  // Backfill knowledge_fts if it exists but is empty while knowledge has rows
+  backfillKnowledgeFts(db);
+}
+
+/**
+ * Backfill knowledge_fts from existing knowledge rows.
+ * Runs once on upgrade: if knowledge_fts exists but is empty and knowledge has rows,
+ * populates the FTS index. No-ops if already populated or if knowledge is empty.
+ */
+function backfillKnowledgeFts(db: Database.Database): void {
+  const ftsExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_fts'"
+  ).get();
+  if (!ftsExists) return;
+
+  const ftsCount = (db.prepare(
+    "SELECT COUNT(*) as c FROM knowledge_fts"
+  ).get() as { c: number }).c;
+
+  const knowledgeCount = (db.prepare(
+    "SELECT COUNT(*) as c FROM knowledge"
+  ).get() as { c: number }).c;
+
+  if (ftsCount === 0 && knowledgeCount > 0) {
+    db.exec(`
+      INSERT INTO knowledge_fts(rowid, summary, details, tags)
+        SELECT rowid, summary, details, COALESCE(tags, '') FROM knowledge
     `);
   }
 }

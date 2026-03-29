@@ -117,6 +117,60 @@ export const CONFIG = {
     boostMax: 1.0,
   },
 
+  // Session-level scoring (Phase 1: feature-flagged, not default)
+  session: {
+    /** Candidate pool multiplier for session-level search. Fetch this many chunks before aggregation. */
+    turnRetrievalK: 200,
+    /** Number of sessions to return from session-level search */
+    sessionTopK: 10,
+    /** Whether session-level scoring is the default search mode */
+    enableByDefault: false,
+    /** Knowledge boost: multiplier for existing sessions with knowledge matches (0 = disabled) */
+    knowledgeBoostExisting: 0.0,
+    /** Knowledge boost: baseline score for sessions found ONLY via knowledge (not in FTS).
+     *  Previously disabled (0.0) because LIKE search had near-zero precision.
+     *  Re-enabled after FTS5 on knowledge table provides precise matching. */
+    knowledgeBoostNew: 0.1,
+    /** Entity boost: multiplier for existing sessions with entity matches */
+    entityBoostExisting: 0.0,
+    /** Max recency boost for knowledge-update queries (0 = disabled, 0.5 = 1.0x oldest to 1.5x newest) */
+    recencyBoostMax: 0.5,
+  },
+
+  // Cross-encoder reranking (Phase 2b)
+  reranker: {
+    /** Enable/disable reranking entirely. */
+    enabled: true,
+    /** Number of sessions to send to the reranker (top-N from DCG scoring). */
+    candidateCount: 30,
+    /** Minimum relevance score from reranker to keep a result (0–1). */
+    minRelevanceScore: 0.01,
+    /** Timeout for reranker inference in ms. */
+    timeoutMs: 5000,
+    /** Weight blending: final = alpha * rerankScore + (1 - alpha) * dcgScore.
+     *  1.0 = pure reranker, 0.0 = pure DCG (reranker disabled). */
+    alpha: 0.7,
+    /** Log reranker latency and score distribution. */
+    debug: false,
+    /** Skip reranking for counting questions (benchmark: -6pp regression when enabled). */
+    skipForCounting: true,
+    /** Skip reranking for temporal reasoning questions (benchmark: -20pp regression when enabled). */
+    skipForTemporal: true,
+  },
+
+  // Profile synthesis (structural reasoning)
+  profile: {
+    expertiseMinMentions: 10,
+    expertiseMinTenureDays: 30,
+    expertiseMinProjects: 2,
+    preferenceMinEntries: 3,
+    preferenceMinRatio: 3,       // for/against ratio to qualify as a preference
+    stackMinCoOccurrence: 0.6,   // co-occurrence score threshold for stack claims
+    gapMinOccurrences: 3,
+    contradictionMinSimilarity: 0.7,
+    maxClaimsPerCategory: 10,
+  },
+
   // Evidence gap tracking
   gaps: {
     enabled: true,
@@ -126,5 +180,53 @@ export const CONFIG = {
     maxPerProject: 100,
     // Auto-prune unresolved gaps older than this (days)
     pruneAfterDays: 90,
+  },
+
+  // SVO event extraction
+  events: {
+    /** Enable SVO event extraction at ingest time. Requires GEMINI_API_KEY. */
+    enabled: true,
+    /** Number of lexical aliases per event (more = better vocabulary bridging, more tokens) */
+    aliasCount: 3,
+  },
+
+  // Model-aware retrieval routing
+  modelRouting: {
+    /** Enable model-aware retrieval parameter adjustment */
+    enabled: false,
+    /** Default profile when model is unknown */
+    defaultProfile: "medium" as "large" | "medium" | "small",
+    profiles: {
+      /** Large context models (>500K): Gemini Flash/Pro, Claude with extended context */
+      large: { sessionTopK: 20, useReranker: true },
+      /** Medium context models (32K-500K): GPT-4o, Claude Sonnet/Opus, Gemini Nano */
+      medium: { sessionTopK: 10, useReranker: true },
+      /** Small context models (<32K): Distilled local models, older GPT variants */
+      small: { sessionTopK: 5, useReranker: false },
+    },
+  },
+
+  // Embeddings model configuration
+  embeddings: {
+    /** Model for text embeddings (conversation chunks, knowledge entries) */
+    model: process.env.STRATA_EMBEDDING_MODEL || "gemini-embedding-001",
+    /** Model for document embeddings (PDFs, images via Gemini Embedding 2) */
+    documentModel: process.env.STRATA_DOCUMENT_EMBEDDING_MODEL || "gemini-embedding-2-preview",
+    /** Maximum document file size in bytes (default: 50MB) */
+    maxDocumentSize: 50 * 1024 * 1024,
+  },
+
+  // Reasoning layer (agent loop over retrieval)
+  reasoning: {
+    /** Enable the reason_over_query MCP tool (requires an LLM API key) */
+    enabled: true,
+    /** Maximum agent loop iterations per query */
+    maxIterations: 8,
+    /** Maximum total tokens (prompt + completion) across all iterations */
+    maxTokensPerQuery: 50000,
+    /** Provider to use: "auto", "openai", "anthropic", or "gemini" */
+    provider: process.env.STRATA_REASONING_PROVIDER || "auto",
+    /** Model name override (provider-specific, e.g. "gpt-4o", "gemini-2.5-flash") */
+    model: process.env.STRATA_REASONING_MODEL || "",
   },
 } as const;

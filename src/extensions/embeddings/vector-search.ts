@@ -47,6 +47,62 @@ export class VectorSearch {
       )
       .all(project) as EmbeddingRow[];
 
+    return this.rankByCosine(rows, queryVec, limit);
+  }
+
+  /**
+   * Search ALL embeddings without project filtering or knowledge table join.
+   * Useful when embeddings are stored for document chunks (not knowledge entries)
+   * or when the database is scoped per-query (e.g., benchmarks with isolated DBs).
+   */
+  searchAll(
+    queryVec: Float32Array,
+    limit: number
+  ): VectorSearchResult[] {
+    const rows = this.db
+      .prepare(`SELECT entry_id, embedding FROM embeddings`)
+      .all() as EmbeddingRow[];
+
+    return this.rankByCosine(rows, queryVec, limit);
+  }
+
+  /**
+   * Search document chunk embeddings by cosine similarity.
+   * Returns results from the document_chunks table, tagged with source: "document".
+   */
+  searchDocumentChunks(
+    queryVec: Float32Array,
+    limit: number,
+    project?: string
+  ): VectorSearchResult[] {
+    let rows: EmbeddingRow[];
+
+    if (project) {
+      rows = this.db
+        .prepare(
+          `SELECT dc.id as entry_id, dc.embedding
+           FROM document_chunks dc
+           JOIN stored_documents sd ON sd.id = dc.document_id
+           WHERE LOWER(sd.project) LIKE '%' || LOWER(?) || '%'`
+        )
+        .all(project) as EmbeddingRow[];
+    } else {
+      rows = this.db
+        .prepare(
+          `SELECT id as entry_id, embedding FROM document_chunks`
+        )
+        .all() as EmbeddingRow[];
+    }
+
+    return this.rankByCosine(rows, queryVec, limit);
+  }
+
+  /** Rank embedding rows by cosine similarity to the query vector */
+  private rankByCosine(
+    rows: EmbeddingRow[],
+    queryVec: Float32Array,
+    limit: number
+  ): VectorSearchResult[] {
     if (rows.length === 0) return [];
 
     const results: VectorSearchResult[] = [];

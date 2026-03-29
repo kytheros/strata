@@ -109,6 +109,30 @@ describe("openDatabase", () => {
     }).toThrow();
   });
 
+  it("should create stored_documents table", () => {
+    db = openDatabase(":memory:");
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='stored_documents'")
+      .get();
+    expect(table).toBeDefined();
+  });
+
+  it("should create document_chunks table", () => {
+    db = openDatabase(":memory:");
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='document_chunks'")
+      .get();
+    expect(table).toBeDefined();
+  });
+
+  it("should create document_chunks_fts virtual table", () => {
+    db = openDatabase(":memory:");
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='document_chunks_fts'")
+      .get();
+    expect(table).toBeDefined();
+  });
+
   it("should be idempotent (can open twice without error)", () => {
     db = openDatabase(":memory:");
     // Opening schema init again should not throw
