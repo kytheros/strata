@@ -8,6 +8,7 @@
  */
 
 import type { D1Database } from "./d1-types.js";
+import { blobToFloat32 } from "../../extensions/quantization/turbo-quant.js";
 
 /** A single vector search result. */
 export interface D1VectorSearchResult {
@@ -62,13 +63,21 @@ export class D1VectorSearch {
     const results: D1VectorSearchResult[] = [];
 
     for (const row of rows) {
-      // D1 returns ArrayBuffer for BLOB columns. Some D1 implementations (e.g.
-      // miniflare) may return a plain byte Array instead — convert to ArrayBuffer
-      // before constructing Float32Array.
-      const buf = row.embedding instanceof ArrayBuffer
-        ? row.embedding
-        : new Uint8Array(row.embedding as unknown as number[]).buffer;
-      const vec = new Float32Array(buf);
+      // Convert D1 response to Buffer for blobToFloat32 (handles both Float32 and quantized formats)
+      const raw = row.embedding instanceof ArrayBuffer
+        ? Buffer.from(row.embedding)
+        : Buffer.from(new Uint8Array(row.embedding as unknown as number[]));
+
+      // blobToFloat32 uses blob size to discriminate Float32 (12,288 bytes for 3072 dims)
+      // from quantized formats. For non-standard-dimension vectors (e.g. test fixtures),
+      // fall back to raw Float32 deserialization when the size is a multiple of 4.
+      let vec: Float32Array;
+      try {
+        vec = blobToFloat32(raw);
+      } catch {
+        // Fallback: treat as raw Float32 (e.g. test vectors with fewer dimensions)
+        vec = new Float32Array(raw.buffer, raw.byteOffset, raw.byteLength / 4);
+      }
 
       const score = cosineSimilarity(queryVec, vec);
 

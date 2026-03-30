@@ -116,8 +116,9 @@ CREATE TABLE IF NOT EXISTS index_meta (
 CREATE TABLE IF NOT EXISTS embeddings (
   id TEXT PRIMARY KEY,
   embedding BLOB NOT NULL,
-  model TEXT NOT NULL DEFAULT 'text-embedding-004',
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  model TEXT NOT NULL DEFAULT 'gemini-embedding-001',
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  format TEXT NOT NULL DEFAULT 'float32'
 );
 
 -- Entity tracking
@@ -184,7 +185,19 @@ CREATE TABLE IF NOT EXISTS analytics (
 );
 CREATE INDEX IF NOT EXISTS idx_analytics_type ON analytics(event_type);
 CREATE INDEX IF NOT EXISTS idx_analytics_timestamp ON analytics(timestamp);
+
+-- Quantization migration state
+CREATE TABLE IF NOT EXISTS migration_state (
+  id TEXT PRIMARY KEY DEFAULT 'quantization',
+  current_bit_width INTEGER,
+  target_bit_width INTEGER,
+  total_vectors INTEGER DEFAULT 0,
+  migrated_vectors INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'idle',
+  started_at INTEGER,
+  completed_at INTEGER
+);
 `;
 
 /** Schema version for tracking migrations. */
-export const D1_SCHEMA_VERSION = "1";
+export const D1_SCHEMA_VERSION = "2";

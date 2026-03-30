@@ -21,6 +21,8 @@ import type {
 } from "../interfaces/index.js";
 import { parseProcedureDetails } from "../../knowledge/procedure-extractor.js";
 import type { ProcedureDetails } from "../../knowledge/procedure-extractor.js";
+import { quantize } from "../../extensions/quantization/turbo-quant.js";
+import { CONFIG } from "../../config.js";
 
 /** Row shape returned from D1 queries against the knowledge table. */
 interface D1KnowledgeRow {
@@ -155,6 +157,7 @@ export class D1KnowledgeStore implements IKnowledgeStore {
 
   /**
    * Asynchronously generate and store an embedding for a knowledge entry.
+   * When quantization is enabled, embeddings are compressed at 4-bit (6x savings).
    * Failures are caught and logged — never propagated to the caller.
    */
   private embedEntryAsync(entry: KnowledgeEntry): void {
@@ -164,13 +167,30 @@ export class D1KnowledgeStore implements IKnowledgeStore {
     this.embedder
       .embed(text, "RETRIEVAL_DOCUMENT")
       .then(async (vec) => {
-        // Serialize Float32Array to ArrayBuffer for BLOB storage
-        const buf = vec.buffer.slice(vec.byteOffset, vec.byteOffset + vec.byteLength);
+        let embeddingData: ArrayBuffer;
+        let format: string;
+
+        if (CONFIG.quantization.enabled) {
+          const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
+          const quantized = quantize(vec, bitWidth);
+          embeddingData = quantized.buffer.slice(
+            quantized.byteOffset,
+            quantized.byteOffset + quantized.byteLength
+          ) as ArrayBuffer;
+          format = `tq${bitWidth}`;
+        } else {
+          embeddingData = vec.buffer.slice(
+            vec.byteOffset,
+            vec.byteOffset + vec.byteLength
+          ) as ArrayBuffer;
+          format = "float32";
+        }
+
         await this.db
           .prepare(
-            "INSERT OR REPLACE INTO embeddings (id, embedding, model, created_at) VALUES (?, ?, ?, ?)"
+            "INSERT OR REPLACE INTO embeddings (id, embedding, model, created_at, format) VALUES (?, ?, ?, ?, ?)"
           )
-          .bind(entry.id, buf, "gemini-embedding-001", Date.now())
+          .bind(entry.id, embeddingData, "gemini-embedding-001", Date.now(), format)
           .run();
       })
       .catch((err) => {

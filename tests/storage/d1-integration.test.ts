@@ -183,7 +183,7 @@ describe("D1 Storage Integration", () => {
         .prepare("SELECT value FROM index_meta WHERE key = 'schema_version'")
         .first();
       expect(row).not.toBeNull();
-      expect(row.value).toBe("1");
+      expect(row.value).toBe("2");
     });
 
     it("should be idempotent (calling createD1Storage twice is safe)", async () => {
@@ -943,7 +943,7 @@ describe("D1 Storage Integration", () => {
       expect(all["key1"]).toBe("val1");
       expect(all["key2"]).toBe("val2");
       // Also includes schema_version from init
-      expect(all["schema_version"]).toBe("1");
+      expect(all["schema_version"]).toBe("2");
     });
 
     it("should overwrite existing key on set", async () => {
