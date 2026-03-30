@@ -66,6 +66,11 @@ export const CONFIG = {
     confidenceHighThreshold: 0.6,
     confidenceMediumThreshold: 0.3,
     lowConfidenceThreshold: 1.5,
+    // Quantized-domain search
+    /** Candidate count for SDC pre-filter (0 = skip SDC, use ADC-only) */
+    quantizedCandidateCount: 100,
+    /** Auto-disable SDC pre-filter below this vector count (ADC is fast enough) */
+    quantizedSdcThreshold: 500,
   },
 
   // Indexing

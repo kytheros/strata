@@ -6,7 +6,9 @@
  */
 
 import type Database from "better-sqlite3";
-import { blobToFloat32 } from "../quantization/turbo-quant.js";
+import { blobToFloat32, isQuantizedBlob } from "../quantization/turbo-quant.js";
+import { quantizedSearch, type QuantizedSearchInput } from "../quantization/quantized-search.js";
+import { CONFIG } from "../../config.js";
 
 /** A single vector search result */
 export interface VectorSearchResult {
@@ -98,7 +100,7 @@ export class VectorSearch {
     return this.rankByCosine(rows, queryVec, limit);
   }
 
-  /** Rank embedding rows by cosine similarity to the query vector */
+  /** Rank embedding rows — dispatches quantized blobs to fast path */
   private rankByCosine(
     rows: EmbeddingRow[],
     queryVec: Float32Array,
@@ -106,24 +108,46 @@ export class VectorSearch {
   ): VectorSearchResult[] {
     if (rows.length === 0) return [];
 
-    const results: VectorSearchResult[] = [];
+    // Partition by format
+    const quantizedInputs: QuantizedSearchInput[] = [];
+    const float32Rows: EmbeddingRow[] = [];
 
     for (const row of rows) {
-      // Deserialize BLOB to Float32Array, handling both raw and quantized formats
-      const buf = row.embedding;
-      const vec = blobToFloat32(buf);
-
-      const score = cosineSimilarity(queryVec, vec);
-
-      // Exclude anti-correlated and zero-similarity results
-      if (score > 0.0) {
-        results.push({ entryId: row.entry_id, score });
+      if (isQuantizedBlob(row.embedding)) {
+        quantizedInputs.push({ entryId: row.entry_id, blob: row.embedding });
+      } else {
+        float32Rows.push(row);
       }
     }
 
-    // Sort descending by score
-    results.sort((a, b) => b.score - a.score);
+    const results: VectorSearchResult[] = [];
 
+    // Fast path: quantized-domain search (ADC/SDC)
+    if (quantizedInputs.length > 0 && CONFIG.quantization.enabled) {
+      const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
+      const qResults = quantizedSearch(queryVec, quantizedInputs, limit, bitWidth);
+      for (const r of qResults) {
+        results.push({ entryId: r.entryId, score: r.score });
+      }
+    } else if (quantizedInputs.length > 0) {
+      // Quantization disabled — dequantize and use cosine
+      for (const item of quantizedInputs) {
+        const vec = blobToFloat32(item.blob as Buffer);
+        const score = cosineSimilarity(queryVec, vec);
+        if (score > 0.0) results.push({ entryId: item.entryId, score });
+      }
+    }
+
+    // Fallback path: Float32 cosine similarity
+    for (const row of float32Rows) {
+      const buf = row.embedding;
+      const vec = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+      const score = cosineSimilarity(queryVec, vec);
+      if (score > 0.0) results.push({ entryId: row.entry_id, score });
+    }
+
+    // Merge and sort
+    results.sort((a, b) => b.score - a.score);
     return results.slice(0, limit);
   }
 }
