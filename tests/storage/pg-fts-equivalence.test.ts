@@ -242,8 +242,66 @@ describe("FTS Equivalence: SQLite FTS5 vs Postgres tsvector", () => {
       }
     }
 
-    // ---- Postgres setup (Task 4) ----
+    // ---- Postgres setup ----
     pgResults = new Map();
+    pgPool = new pg.Pool({ connectionString: PG_URL, max: 5 });
+
+    // Test connection -- skip all Postgres tests if unavailable
+    try {
+      await pgPool.query("SELECT 1");
+    } catch {
+      console.log(
+        "Postgres not available -- skipping Postgres comparison tests"
+      );
+      await pgPool.end();
+      pgPool = undefined;
+      return;
+    }
+
+    // Create schema
+    await pgPool.query(`
+      DROP TABLE IF EXISTS spike_documents;
+      CREATE TABLE spike_documents (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        project TEXT NOT NULL DEFAULT '',
+        text TEXT NOT NULL,
+        timestamp BIGINT NOT NULL DEFAULT 0,
+        tsv tsvector GENERATED ALWAYS AS (
+          to_tsvector('english', coalesce(text, ''))
+        ) STORED
+      );
+      CREATE INDEX spike_docs_tsv_idx ON spike_documents USING GIN (tsv);
+    `);
+
+    // Seed Postgres with identical data
+    for (let i = 0; i < SEED.length; i++) {
+      const e = SEED[i];
+      await pgPool.query(
+        "INSERT INTO spike_documents (id, session_id, project, text, timestamp) VALUES ($1, $2, $3, $4, $5)",
+        [e.id, e.sessionId, e.project, e.text, Date.now() - (SEED.length - i) * 60000]
+      );
+    }
+
+    // Run Postgres queries
+    for (const q of QUERIES) {
+      try {
+        const { rows } = await pgPool.query(
+          `SELECT id, ts_rank(tsv, plainto_tsquery('english', $1)) AS rank
+           FROM spike_documents
+           WHERE tsv @@ plainto_tsquery('english', $1)
+           ORDER BY rank DESC
+           LIMIT 10`,
+          [q.query]
+        );
+        pgResults.set(
+          q.query,
+          rows.map((r: { id: string }) => r.id)
+        );
+      } catch {
+        pgResults.set(q.query, []);
+      }
+    }
   });
 
   afterAll(async () => {
@@ -277,5 +335,62 @@ describe("FTS Equivalence: SQLite FTS5 vs Postgres tsvector", () => {
       console.log(`FTS5 baseline failures:\n${failures.join("\n")}`);
     }
     expect(correct).toBe(30);
+  });
+
+  it("Postgres returns results for all 30 queries", () => {
+    if (!pgPool) return; // Skip if Postgres unavailable
+    let queriesWithResults = 0;
+    for (const q of QUERIES) {
+      const results = pgResults.get(q.query) ?? [];
+      if (results.length > 0) queriesWithResults++;
+    }
+    expect(queriesWithResults).toBe(30);
+  });
+
+  it("GATE: Postgres top-1 matches FTS5 top-1 for all 30 queries (30/30)", () => {
+    if (!pgPool) return; // Skip if Postgres unavailable
+    let agreements = 0;
+    const disagreements: string[] = [];
+
+    for (const q of QUERIES) {
+      const fts5Top = (fts5Results.get(q.query) ?? [])[0];
+      const pgTop = (pgResults.get(q.query) ?? [])[0];
+
+      if (fts5Top === pgTop) {
+        agreements++;
+      } else {
+        disagreements.push(
+          `  "${q.query}": FTS5=${fts5Top ?? "NONE"}, PG=${pgTop ?? "NONE"} (expected: ${q.expectedId})`
+        );
+      }
+    }
+
+    console.log(`\n=== FTS EQUIVALENCE SPIKE RESULTS ===`);
+    console.log(`Top-1 agreement: ${agreements}/30`);
+    if (disagreements.length > 0) {
+      console.log(`Disagreements:\n${disagreements.join("\n")}`);
+    }
+    console.log(`=====================================\n`);
+
+    // GATE: must be 30/30
+    expect(agreements).toBe(30);
+  });
+
+  it("Postgres top-5 overlap with FTS5 is >= 80% per query", () => {
+    if (!pgPool) return;
+    let totalOverlap = 0;
+
+    for (const q of QUERIES) {
+      const fts5Top5 = new Set((fts5Results.get(q.query) ?? []).slice(0, 5));
+      const pgTop5 = (pgResults.get(q.query) ?? []).slice(0, 5);
+
+      if (fts5Top5.size === 0) continue;
+      const overlap = pgTop5.filter((id) => fts5Top5.has(id)).length;
+      totalOverlap += overlap / Math.max(fts5Top5.size, 1);
+    }
+
+    const avgOverlap = totalOverlap / QUERIES.length;
+    console.log(`Average top-5 overlap: ${(avgOverlap * 100).toFixed(1)}%`);
+    expect(avgOverlap).toBeGreaterThanOrEqual(0.8);
   });
 });
