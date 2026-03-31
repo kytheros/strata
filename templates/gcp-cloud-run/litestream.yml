@@ -1,0 +1,6 @@
+dbs:
+  - path: /tmp/strata/strata.db
+    replicas:
+      - type: gcs
+        bucket: {{GCS_BUCKET}}
+        path: strata.db
