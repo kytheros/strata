@@ -503,6 +503,7 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
       }
 
       params.push(id);
+      // nosemgrep: sql-injection-template-literal — setClauses contains only hardcoded column-name literals from a typed KnowledgeUpdatePatch interface; user values are parameterized via ?
       this.db.prepare(`UPDATE knowledge SET ${setClauses.join(", ")} WHERE id = ?`).run(...params);
 
       this.stmts.insertHistory.run({

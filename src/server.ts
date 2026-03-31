@@ -252,9 +252,10 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
 
   // ── search_history ─────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "search_history",
-    `🔍 SEARCH: Full-text search across past conversations.
+    {
+      description: `🔍 SEARCH: Full-text search across past conversations.
 
 FTS5 full-text search with BM25 ranking, automatically enhanced with semantic vector search when GEMINI_API_KEY is set. Use to locate past discussions about any topic — including finding where you talked about bugs, errors, or specific subjects. Supports inline filter syntax and explicit date-range parameters for project, date range, and tool filtering. Can browse sessions by date range alone (no text query required). Supports model-aware retrieval routing: pass the 'model' parameter to optimize result count and ranking for your model's context window.
 
@@ -278,17 +279,18 @@ Filter syntax (include in query string):
 Example: Search for Docker configuration discussions in a specific project
 Example: Find where we talked about login issues
 Example: Browse all sessions from the last 7 days — query: "", after_date: "7d"`,
-    {
-      query: z.string().describe("Search query with optional inline filters (e.g., 'docker compose project:myapp after:7d'). Can be empty string for date-only browsing when after_date or before_date is set."),
-      project: z.string().optional().describe("Filter to a specific project name or path"),
-      limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
-      include_context: z.boolean().optional().describe("Include surrounding message context (default: false)"),
-      format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
-      user: z.string().optional().describe("Filter results to a specific user scope (omit to search all users)"),
-      max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
-      after_date: z.string().optional().describe("Filter results after this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
-      before_date: z.string().optional().describe("Filter results before this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
-      model: z.string().optional().describe("Consuming model name for retrieval optimization (e.g., 'gemini-2.0-flash', 'gpt-4o')"),
+      inputSchema: z.object({
+        query: z.string().describe("Search query with optional inline filters (e.g., 'docker compose project:myapp after:7d'). Can be empty string for date-only browsing when after_date or before_date is set."),
+        project: z.string().optional().describe("Filter to a specific project name or path"),
+        limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
+        include_context: z.boolean().optional().describe("Include surrounding message context (default: false)"),
+        format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
+        user: z.string().optional().describe("Filter results to a specific user scope (omit to search all users)"),
+        max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
+        after_date: z.string().optional().describe("Filter results after this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
+        before_date: z.string().optional().describe("Filter results before this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
+        model: z.string().optional().describe("Consuming model name for retrieval optimization (e.g., 'gemini-2.0-flash', 'gpt-4o')"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -314,9 +316,10 @@ Example: Browse all sessions from the last 7 days — query: "", after_date: "7d
 
   // ── list_projects ──────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "list_projects",
-    `🔍 DISCOVERY: List all projects with conversation history.
+    {
+      description: `🔍 DISCOVERY: List all projects with conversation history.
 
 Shows project names, session counts, message counts, and date ranges. Use this to discover what projects have searchable history before running targeted searches.
 
@@ -326,10 +329,11 @@ Parameters:
 
 Example: List projects sorted by most recent activity
 Example: Find which project has the most conversation sessions`,
-    {
-      sort_by: z.enum(["recent", "sessions", "messages", "name"]).optional().describe("Sort order (default: recent)"),
-      format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
-      user: z.string().optional().describe("Filter to a specific user scope (omit to list all)"),
+      inputSchema: z.object({
+        sort_by: z.enum(["recent", "sessions", "messages", "name"]).optional().describe("Sort order (default: recent)"),
+        format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
+        user: z.string().optional().describe("Filter to a specific user scope (omit to list all)"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -349,9 +353,10 @@ Example: Find which project has the most conversation sessions`,
 
   // ── find_solutions ─────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "find_solutions",
-    `🔍 SEARCH: Find how you solved a specific error or problem in a past session.
+    {
+      description: `🔍 SEARCH: Find how you solved a specific error or problem in a past session.
 
 Use when you have an ACTIVE problem and need past fixes — solution-biased ranking surfaces fix/resolution language. NOT for general topic searches; use search_history to find past discussions about any subject. Automatically enhanced with semantic search when GEMINI_API_KEY is set.
 
@@ -363,12 +368,13 @@ Parameters:
 
 Example: Find how a "ECONNREFUSED" error was fixed in past Docker work
 Example: Search for solutions to TypeScript type inference issues`,
-    {
-      error_or_problem: z.string().describe("The error message, problem description, or issue to find solutions for"),
-      technology: z.string().optional().describe("Technology context (e.g., 'docker', 'typescript', 'react')"),
-      format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
-      user: z.string().optional().describe("Filter results to a specific user scope (omit to search all users)"),
-      max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
+      inputSchema: z.object({
+        error_or_problem: z.string().describe("The error message, problem description, or issue to find solutions for"),
+        technology: z.string().optional().describe("Technology context (e.g., 'docker', 'typescript', 'react')"),
+        format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
+        user: z.string().optional().describe("Filter results to a specific user scope (omit to search all users)"),
+        max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -394,9 +400,10 @@ Example: Search for solutions to TypeScript type inference issues`,
 
   // ── semantic_search ────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "semantic_search",
-    `🔍 SEARCH: Semantic search using vector embeddings — finds results that keyword search misses.
+    {
+      description: `🔍 SEARCH: Semantic search using vector embeddings — finds results that keyword search misses.
 
 Combines FTS5 BM25 keyword search with vector cosine similarity via Reciprocal Rank Fusion.
 Finds semantically similar content (e.g., "authentication" finds "login flow", "OAuth setup").
@@ -411,13 +418,14 @@ Parameters:
 
 Example: Find discussions about authentication patterns
 Example: Search for database optimization approaches in a specific project`,
-    {
-      query: z.string().describe("Search query — supports semantic matching beyond keywords"),
-      project: z.string().optional().describe("Filter to a specific project name or path"),
-      limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
-      threshold: z.number().optional().describe("Minimum cosine similarity threshold (0.0-1.0)"),
-      user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
-      max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
+      inputSchema: z.object({
+        query: z.string().describe("Search query — supports semantic matching beyond keywords"),
+        project: z.string().optional().describe("Filter to a specific project name or path"),
+        limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
+        threshold: z.number().optional().describe("Minimum cosine similarity threshold (0.0-1.0)"),
+        user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
+        max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -495,9 +503,10 @@ Example: Search for database optimization approaches in a specific project`,
 
   // ── get_session_summary ────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "get_session_summary",
-    `📖 READ: Get a summary of a single conversation session — what happened today, in your last session, or in a specific session by ID.
+    {
+      description: `📖 READ: Get a summary of a single conversation session — what happened today, in your last session, or in a specific session by ID.
 
 Returns session metadata, initial topic, tools used, key topics, and conversation flow. Provide either a session ID or project name (returns most recent session). NOT for multi-session overviews — use list_projects for "what have I been working on lately" or find_patterns for recurring trends.
 
@@ -508,10 +517,11 @@ Parameters:
 
 Example: Get summary of the most recent session for the Kytheros project
 Example: What did I work on today?`,
-    {
-      session_id: z.string().optional().describe("Specific session UUID"),
-      project: z.string().optional().describe("Project name or path — returns most recent session"),
-      user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
+      inputSchema: z.object({
+        session_id: z.string().optional().describe("Specific session UUID"),
+        project: z.string().optional().describe("Project name or path — returns most recent session"),
+        user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -535,9 +545,10 @@ Example: What did I work on today?`,
 
   // ── get_project_context ────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "get_project_context",
-    `📖 READ: Get comprehensive context for a specific project — recent sessions, key topics, and patterns.
+    {
+      description: `📖 READ: Get comprehensive context for a specific project — recent sessions, key topics, and patterns.
 
 Deep dive into one named project. Use when the user asks "what do you know about [project]?" or wants project-level context before starting work. Returns recent sessions with topics, message counts, and optionally common topics analysis.
 
@@ -547,10 +558,11 @@ Parameters:
 
 Example: Get brief context for the current project before starting work
 Example: What do you know about my React project?`,
-    {
-      project: z.string().optional().describe("Project name or path"),
-      depth: z.enum(["brief", "normal", "detailed"]).optional().describe("Detail level (default: normal)"),
-      user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
+      inputSchema: z.object({
+        project: z.string().optional().describe("Project name or path"),
+        depth: z.enum(["brief", "normal", "detailed"]).optional().describe("Detail level (default: normal)"),
+        user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -590,9 +602,10 @@ Example: What do you know about my React project?`,
 
   // ── get_user_profile ────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "get_user_profile",
-    `🔍 PROFILE: Synthesized user expertise, preferences, workflow patterns, technology stack, and knowledge gaps.
+    {
+      description: `🔍 PROFILE: Synthesized user expertise, preferences, workflow patterns, technology stack, and knowledge gaps.
 
 Structural reasoning over your accumulated knowledge — computes claims from entity mentions, knowledge entry types, session patterns, and evidence gaps. Every claim includes evidence (mention counts, entry IDs, dates). Zero LLM cost.
 
@@ -602,9 +615,10 @@ Parameters:
 
 Example: What does Strata know about me?
 Example: Show my expertise profile for this project`,
-    {
-      project: z.string().optional().describe("Project name or path (omit for cross-project profile)"),
-      user: z.string().optional().describe("Filter to a specific user scope"),
+      inputSchema: z.object({
+        project: z.string().optional().describe("Project name or path (omit for cross-project profile)"),
+        user: z.string().optional().describe("Filter to a specific user scope"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -629,9 +643,10 @@ Example: Show my expertise profile for this project`,
 
   // ── find_patterns ──────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "find_patterns",
-    `📊 ANALYSIS: Discover recurring patterns in conversation history.
+    {
+      description: `📊 ANALYSIS: Discover recurring patterns in conversation history.
 
 Analyzes common topics, activity patterns (busiest day/hour, session lengths), and repeated issues. Helps identify workflow trends and recurring problems.
 
@@ -641,10 +656,11 @@ Parameters:
 
 Example: Find recurring issues in the Kytheros project
 Example: Analyze workflow patterns across all projects`,
-    {
-      project: z.string().optional().describe("Limit to a specific project"),
-      type: z.enum(["topics", "workflows", "issues", "all"]).optional().describe("Type of patterns to find (default: all)"),
-      user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
+      inputSchema: z.object({
+        project: z.string().optional().describe("Limit to a specific project"),
+        type: z.enum(["topics", "workflows", "issues", "all"]).optional().describe("Type of patterns to find (default: all)"),
+        user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -664,9 +680,10 @@ Example: Analyze workflow patterns across all projects`,
 
   // ── store_memory ────────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "store_memory",
-    `💾 MEMORY: Explicitly store a memory for future recall.
+    {
+      description: `💾 MEMORY: Explicitly store a memory for future recall.
 
 Store knowledge that should be remembered across sessions. Stored memories are immediately searchable via search_history and find_solutions.
 
@@ -680,12 +697,13 @@ Parameters:
 Example: Remember that "always run migrations before seeding" as a decision
 Example: Store a user preference like "prefers dark mode"
 Example: Store a fact like "API rate limit is 100/min"`,
-    {
-      memory: z.string().describe("The text to remember"),
-      type: z.enum(["decision", "solution", "error_fix", "pattern", "learning", "procedure", "fact", "preference", "episodic"]).describe("Category: decision, solution, error_fix, pattern, learning, procedure, fact, preference, or episodic"),
-      tags: z.array(z.string()).optional().describe("Optional tags for categorization"),
-      project: z.string().optional().describe("Project context (default: global)"),
-      user: z.string().optional().describe("User scope (default: STRATA_DEFAULT_USER env var or 'default')"),
+      inputSchema: z.object({
+        memory: z.string().describe("The text to remember"),
+        type: z.enum(["decision", "solution", "error_fix", "pattern", "learning", "procedure", "fact", "preference", "episodic"]).describe("Category: decision, solution, error_fix, pattern, learning, procedure, fact, preference, or episodic"),
+        tags: z.array(z.string()).optional().describe("Optional tags for categorization"),
+        project: z.string().optional().describe("Project context (default: global)"),
+        user: z.string().optional().describe("User scope (default: STRATA_DEFAULT_USER env var or 'default')"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -697,9 +715,10 @@ Example: Store a fact like "API rate limit is 100/min"`,
 
   // ── delete_memory ───────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "delete_memory",
-    `🗑️ MEMORY: Remove or permanently delete a stored memory entry.
+    {
+      description: `🗑️ MEMORY: Remove or permanently delete a stored memory entry.
 
 Use this directly — NOT search_history — when the user wants to delete, remove, erase, retract, or discard an incorrect/stale/wrong memory. The deletion is recorded in the audit history.
 
@@ -707,12 +726,13 @@ Parameters:
 - id: The entry ID to delete (required)
 
 Example: Delete a stale entry — delete_memory({ id: "abc-123" })`,
-    {
-      id: z.string().describe("The entry ID to delete"),
-    },
-    {
-      destructiveHint: true,
-      idempotentHint: false,
+      inputSchema: z.object({
+        id: z.string().describe("The entry ID to delete"),
+      }).strict(),
+      annotations: {
+        destructiveHint: true,
+        idempotentHint: false,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -724,9 +744,10 @@ Example: Delete a stale entry — delete_memory({ id: "abc-123" })`,
 
   // ── ingest_document ──────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "ingest_document",
-    `📄 MEMORY: Extract and store structured insights from an uploaded document.
+    {
+      description: `📄 MEMORY: Extract and store structured insights from an uploaded document.
 
 Called by the model AFTER reading a document the user has uploaded. Extracts key findings, metrics, and a summary, then stores them as searchable knowledge entries for future recall.
 
@@ -742,15 +763,16 @@ Parameters:
 
 Example: Extract key findings from an uploaded financial spreadsheet
 Example: Store insights from a company AI readiness assessment PDF`,
-    {
-      source: z.string().describe("Document filename or identifier"),
-      document_type: z.enum(["report", "spreadsheet", "policy", "assessment", "presentation", "other"]).describe("Document category"),
-      summary: z.string().describe("1-3 sentence executive summary of the document"),
-      key_findings: z.array(z.string()).describe("Key findings/insights extracted from the document"),
-      metrics: z.record(z.string(), z.string()).optional().describe("Key metrics as key-value pairs"),
-      tags: z.array(z.string()).optional().describe("Additional tags for categorization"),
-      project: z.string().optional().describe("Project context (default: global)"),
-      user: z.string().optional().describe("User scope"),
+      inputSchema: z.object({
+        source: z.string().describe("Document filename or identifier"),
+        document_type: z.enum(["report", "spreadsheet", "policy", "assessment", "presentation", "other"]).describe("Document category"),
+        summary: z.string().describe("1-3 sentence executive summary of the document"),
+        key_findings: z.array(z.string()).describe("Key findings/insights extracted from the document"),
+        metrics: z.record(z.string(), z.string()).optional().describe("Key metrics as key-value pairs"),
+        tags: z.array(z.string()).optional().describe("Additional tags for categorization"),
+        project: z.string().optional().describe("Project context (default: global)"),
+        user: z.string().optional().describe("User scope"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -762,9 +784,10 @@ Example: Store insights from a company AI readiness assessment PDF`,
 
   // ── search_events ─────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "search_events",
-    `🔍 SEARCH: Search structured events extracted from conversation history.
+    {
+      description: `🔍 SEARCH: Search structured events extracted from conversation history.
 
 Returns Subject-Verb-Object event tuples with dates and categories. Events bridge vocabulary gaps — searching for "fitness tracker" finds events where the user "bought Fitbit" via lexical aliases.
 
@@ -774,10 +797,11 @@ Parameters:
 
 Example: Find all purchase events
 Example: Search for events related to cooking or restaurants`,
-    {
-      query: z.string().describe("Search query for events"),
-      limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
-      user: z.string().optional().describe("Filter to a specific user scope"),
+      inputSchema: z.object({
+        query: z.string().describe("Search query for events"),
+        limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
+        user: z.string().optional().describe("Filter to a specific user scope"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
@@ -810,9 +834,10 @@ Example: Search for events related to cooking or restaurants`,
 
   // ── reason_over_query ──────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "reason_over_query",
-    `🧠 REASONING: Run a multi-step agent loop that iteratively searches your conversation history to answer complex questions.
+    {
+      description: `🧠 REASONING: Run a multi-step agent loop that iteratively searches your conversation history to answer complex questions.
 
 Uses an LLM to plan searches, reflect on results, and synthesize answers — handling counting, temporal, comparison, and factual questions that require multiple retrieval steps. Requires an LLM API key (OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY).
 
@@ -825,14 +850,15 @@ Parameters:
 Example: How many model kits have I purchased?
 Example: What restaurant did I visit most recently?
 Example: Which programming language do I use most often?`,
-    {
-      query: z.string().describe("The question to answer by searching conversation history"),
-      max_iterations: z.number().optional().describe("Maximum agent loop iterations (default: 8, max: 15)"),
-      model: z.string().optional().describe("Override LLM model (e.g., 'gpt-4o', 'gemini-2.5-flash')"),
-      user: z.string().optional().describe("User scope for multi-tenant isolation"),
-    },
-    {
-      readOnlyHint: true,
+      inputSchema: z.object({
+        query: z.string().describe("The question to answer by searching conversation history"),
+        max_iterations: z.number().optional().describe("Maximum agent loop iterations (default: 8, max: 15)"),
+        model: z.string().optional().describe("Override LLM model (e.g., 'gpt-4o', 'gemini-2.5-flash')"),
+        user: z.string().optional().describe("User scope for multi-tenant isolation"),
+      }).strict(),
+      annotations: {
+        readOnlyHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -889,9 +915,10 @@ Example: Which programming language do I use most often?`,
 
   // ── get_search_procedure ──────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "get_search_procedure",
-    `📋 REASONING: Classify a question and return the recommended search procedure without making any LLM calls.
+    {
+      description: `📋 REASONING: Classify a question and return the recommended search procedure without making any LLM calls.
 
 Analyzes the question type (counting, temporal, comparison, duration, factual) and returns step-by-step search instructions and the recommended tool subset. Use this for client-side reasoning or to preview what reason_over_query would do.
 
@@ -900,11 +927,12 @@ Parameters:
 
 Example: Classify "How many books have I read?" → counting procedure
 Example: Get the search strategy for "When did I last visit Tokyo?"`,
-    {
-      query: z.string().describe("The question to classify and get a procedure for"),
-    },
-    {
-      readOnlyHint: true,
+      inputSchema: z.object({
+        query: z.string().describe("The question to classify and get a procedure for"),
+      }).strict(),
+      annotations: {
+        readOnlyHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -928,9 +956,10 @@ Example: Get the search strategy for "When did I last visit Tokyo?"`,
 
   // ── store_document ──────────────────────────────────────────────────
 
-  server.tool(
+  server.registerTool(
     "store_document",
-    `📄 STORAGE: Store a document (PDF, text, image) with multimodal embeddings for semantic search.
+    {
+      description: `📄 STORAGE: Store a document (PDF, text, image) with multimodal embeddings for semantic search.
 
 Accepts raw document content and generates vector embeddings using Gemini Embedding 2. The document is chunked, embedded, and stored for retrieval via semantic_search and search_history. Requires GEMINI_API_KEY.
 
@@ -947,14 +976,15 @@ One of file_path or content is required.
 
 Example: Store a PDF report for future search
 Example: Store a screenshot for visual reference`,
-    {
-      file_path: z.string().optional().describe("Path to a local file"),
-      content: z.string().optional().describe("Base64-encoded document content"),
-      mime_type: z.string().describe("MIME type: application/pdf, text/plain, image/png, image/jpeg"),
-      title: z.string().describe("Human-readable document name"),
-      tags: z.array(z.string()).optional().describe("Tags for categorization"),
-      project: z.string().optional().describe("Project scope (default: global)"),
-      user: z.string().optional().describe("User scope for multi-tenant isolation"),
+      inputSchema: z.object({
+        file_path: z.string().optional().describe("Path to a local file"),
+        content: z.string().optional().describe("Base64-encoded document content"),
+        mime_type: z.string().describe("MIME type: application/pdf, text/plain, image/png, image/jpeg"),
+        title: z.string().describe("Human-readable document name"),
+        tags: z.array(z.string()).optional().describe("Tags for categorization"),
+        project: z.string().optional().describe("Project scope (default: global)"),
+        user: z.string().optional().describe("User scope for multi-tenant isolation"),
+      }).strict(),
     },
     async (args) => {
       const start = Date.now();
