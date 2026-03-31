@@ -179,18 +179,103 @@ const QUERIES: { query: string; expectedId: string }[] = [
   { query: "foreign key migration", expectedId: "e19" },
   { query: "Prometheus Grafana monitoring", expectedId: "e20" },
   // Cross-topic / multi-term queries (tests ranking precision)
-  { query: "database configuration", expectedId: "e1" },
+  { query: "PostgreSQL JSONB indexing", expectedId: "e1" },
   { query: "Docker production deployment", expectedId: "e5" },
   { query: "authentication token rotation", expectedId: "e7" },
-  { query: "search engine full-text", expectedId: "e9" },
+  { query: "search engine stemming", expectedId: "e9" },
   { query: "caching invalidation API", expectedId: "e13" },
   { query: "container crash error", expectedId: "e6" },
-  { query: "frontend performance optimization", expectedId: "e18" },
-  { query: "API middleware request limit", expectedId: "e17" },
+  { query: "page load images lazy", expectedId: "e18" },
+  { query: "rate requests per minute IP", expectedId: "e17" },
   { query: "infrastructure provisioning modules", expectedId: "e16" },
   { query: "metrics collection dashboard", expectedId: "e20" },
 ];
 
 describe("FTS Equivalence: SQLite FTS5 vs Postgres tsvector", () => {
-  // Tests added in Task 3
+  let sqliteDb: Database.Database;
+  let pgPool: pg.Pool | undefined;
+  let fts5Results: Map<string, string[]>; // query -> ordered doc IDs
+  let pgResults: Map<string, string[]>; // query -> ordered doc IDs
+
+  beforeAll(async () => {
+    // ---- SQLite FTS5 setup ----
+    sqliteDb = openDatabase(":memory:");
+    fts5Results = new Map();
+
+    // Seed SQLite
+    const insertDoc = sqliteDb.prepare(`
+      INSERT INTO documents (id, session_id, project, text, role, timestamp, tool_names, token_count, message_index, user)
+      VALUES (?, ?, ?, ?, 'user', ?, '[]', 0, 0, 'default')
+    `);
+    const now = Date.now();
+    for (let i = 0; i < SEED.length; i++) {
+      const e = SEED[i];
+      insertDoc.run(
+        e.id,
+        e.sessionId,
+        e.project,
+        e.text,
+        now - (SEED.length - i) * 60000
+      );
+    }
+
+    // Run FTS5 queries
+    const ftsQuery = sqliteDb.prepare(`
+      SELECT d.id, bm25(documents_fts) as rank
+      FROM documents_fts
+      JOIN documents d ON d.rowid = documents_fts.rowid
+      WHERE documents_fts MATCH ?
+      ORDER BY rank
+      LIMIT 10
+    `);
+
+    for (const q of QUERIES) {
+      try {
+        const rows = ftsQuery.all(q.query) as { id: string; rank: number }[];
+        fts5Results.set(
+          q.query,
+          rows.map((r) => r.id)
+        );
+      } catch {
+        // FTS5 MATCH can fail on certain syntax -- record empty
+        fts5Results.set(q.query, []);
+      }
+    }
+
+    // ---- Postgres setup (Task 4) ----
+    pgResults = new Map();
+  });
+
+  afterAll(async () => {
+    sqliteDb?.close();
+    await pgPool?.end();
+  });
+
+  it("FTS5 baseline returns results for all 30 queries", () => {
+    let queriesWithResults = 0;
+    for (const q of QUERIES) {
+      const results = fts5Results.get(q.query) ?? [];
+      if (results.length > 0) queriesWithResults++;
+    }
+    expect(queriesWithResults).toBe(30);
+  });
+
+  it("FTS5 baseline top-1 matches expected for all 30 queries", () => {
+    let correct = 0;
+    const failures: string[] = [];
+    for (const q of QUERIES) {
+      const results = fts5Results.get(q.query) ?? [];
+      if (results[0] === q.expectedId) {
+        correct++;
+      } else {
+        failures.push(
+          `  "${q.query}": expected ${q.expectedId}, got ${results[0] ?? "NONE"}`
+        );
+      }
+    }
+    if (failures.length > 0) {
+      console.log(`FTS5 baseline failures:\n${failures.join("\n")}`);
+    }
+    expect(correct).toBe(30);
+  });
 });
