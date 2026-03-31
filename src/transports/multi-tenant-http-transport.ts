@@ -241,6 +241,30 @@ export async function startMultiTenantHttpTransport(
 
     // ── Admin pool endpoint ──────────────────────────────────────────
     if (url.pathname === "/admin/pool") {
+      const adminToken = process.env.STRATA_ADMIN_TOKEN;
+
+      // If no admin token is configured, disable the endpoint entirely
+      if (!adminToken) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Not found" }));
+        return;
+      }
+
+      // Require Authorization: Bearer <token>
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+
+      const [scheme, token] = authHeader.split(" ", 2);
+      if (scheme !== "Bearer" || token !== adminToken) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Forbidden" }));
+        return;
+      }
+
       const entries = getPoolEntries();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ entries }));
