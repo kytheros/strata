@@ -56,6 +56,8 @@ Usage:
   strata distill activate                 Enable local model distillation mode
   strata distill deactivate              Disable local model distillation mode
   strata deploy cloudflare                Deploy Strata to Cloudflare Workers + D1
+  strata deploy gcp                       Deploy Strata to GCP Cloud Run
+  strata deploy gcp --multi-tenant        Deploy multi-tenant Strata on Cloud Run + Cloud SQL
   strata init                             Auto-detect CLIs and set up all found
   strata init --claude                   Set up Claude Code integration only
   strata init --gemini                   Set up Gemini CLI integration only
@@ -823,15 +825,24 @@ async function main(): Promise<void> {
     }
     case "deploy": {
       const target = args[0];
-      if (target !== "cloudflare") {
-        console.log("Usage: strata deploy cloudflare [--account-id ID] [--db-name NAME] [--worker-name NAME]");
+      if (target === "cloudflare") {
+        const { runDeployCloudflare } = await import("./cli/deploy.js");
+        await runDeployCloudflare(flags);
+      } else if (target === "gcp") {
+        const { deployGcp } = await import("./cli/deploy-gcp.js");
+        await deployGcp(args.slice(1), flags);
+      } else {
+        console.log("Usage: strata deploy <target> [options]");
         console.log("");
         console.log("Supported targets:");
         console.log("  cloudflare    Deploy to Cloudflare Workers + D1");
+        console.log("  gcp           Deploy to Google Cloud Platform (Cloud Run)");
+        console.log("");
+        console.log("Examples:");
+        console.log("  strata deploy cloudflare [--account-id ID] [--db-name NAME]");
+        console.log("  strata deploy gcp [--multi-tenant] [--project ID] [--region REGION]");
         process.exit(target ? 1 : 0);
       }
-      const { runDeployCloudflare } = await import("./cli/deploy.js");
-      await runDeployCloudflare(flags);
       break;
     }
     case "serve":

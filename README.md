@@ -4,7 +4,7 @@ Local memory layer for AI coding assistants. Strata indexes your conversations f
 
 **Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid FTS5 + vector search with 3072-dimensional embeddings, LLM-powered knowledge extraction, and training data accumulation for local model distillation. Falls back to keyword search without it.
 
-No cloud required. No memory caps. Everything stays on your machine. Or [deploy on Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) for a serverless multi-tenant setup.
+No cloud required. No memory caps. Everything stays on your machine. Or deploy to [Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) or [Google Cloud Run](#deploy-on-gcp-cloud-run) for a cloud-hosted setup.
 
 **Cross-tool memory.** Store a decision in Claude Code, recall it from Gemini CLI. One shared knowledge base across all your AI coding assistants.
 
@@ -159,12 +159,47 @@ See the full deployment guide at [kytheros.dev/docs/cloudflare-workers-d1](https
 
 ### Storage Backends
 
-| Backend | Use Case | Install |
-|---------|----------|---------|
+| Backend | Use Case | Deploy Command |
+|---------|----------|----------------|
 | **SQLite** (default) | Local CLI, single user | `npm install -g strata-mcp` |
-| **D1** | Cloudflare Workers, multi-tenant | `import { createD1Storage } from "strata-mcp/d1"` |
+| **D1** | Cloudflare Workers, multi-tenant | `strata deploy cloudflare` |
+| **SQLite + Litestream** | GCP Cloud Run, single-user | `strata deploy gcp` |
+| **Postgres** | GCP Cloud Run + Cloud SQL, multi-tenant | `strata deploy gcp --multi-tenant` |
 
-Both backends support the same 9 MCP tools, FTS5 search, and semantic search. The storage layer is pluggable via the `StorageContext` interface — pass it to `createServer({ storage })`.
+All backends support the same MCP tools, full-text search, and semantic search. The storage layer is pluggable via the `StorageContext` interface -- pass it to `createServer({ storage })`.
+
+---
+
+## Deploy on GCP Cloud Run
+
+Deploy Strata to Google Cloud Platform with a single command. Two tiers available:
+
+- **Single-user** -- Cloud Run + Litestream (SQLite backed up to GCS). ~$40-65/mo.
+- **Multi-tenant** -- Cloud Run + Cloud SQL (Postgres). ~$90+/mo, scales horizontally.
+
+### Prerequisites
+
+- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud` CLI)
+- A GCP project with billing enabled
+- Authenticated: `gcloud auth login`
+
+### Single-user deployment
+
+```bash
+strata deploy gcp
+```
+
+Deploys a Cloud Run service with Litestream continuously replicating your SQLite database to a GCS bucket. Automatic restore on cold start. CPU always-on for background workers.
+
+### Multi-tenant deployment
+
+```bash
+strata deploy gcp --multi-tenant
+```
+
+Deploys Cloud Run with a managed Cloud SQL (Postgres 17) instance. Row-level tenant isolation, auto-scaling from 1 to 10+ instances, Cloud SQL Auth Proxy for secure connections.
+
+Both modes use the same search pipeline (BM25 full-text + vector cosine similarity via RRF). Add a `GEMINI_API_KEY` secret for semantic search.
 
 ---
 
@@ -272,6 +307,8 @@ You can also set the Gemini key in `~/.strata/config.json` instead of an environ
 | `strata search <query>` | Search from the terminal |
 | `strata store-memory <text> --type <t>` | Store a memory |
 | `strata status` | Print index statistics |
+| `strata deploy cloudflare` | Deploy to Cloudflare Workers + D1 |
+| `strata deploy gcp` | Deploy to GCP Cloud Run (+ Litestream or Cloud SQL) |
 | `strata activate <key>` | Activate a Pro license |
 | `strata --help` | Full usage |
 
