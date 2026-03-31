@@ -1,0 +1,14 @@
+name = "{{WORKER_NAME}}"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "STRATA_DB"
+database_name = "{{DB_NAME}}"
+database_id = "{{DB_ID}}"
+
+# Secrets (set via `wrangler secret put`):
+# MCP_GATEWAY_TOKEN  -- Auth token for MCP endpoint
+# GEMINI_API_KEY     -- Optional, for semantic search embeddings
+{{TIER_SECRETS_COMMENT}}

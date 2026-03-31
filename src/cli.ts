@@ -55,6 +55,7 @@ Usage:
   strata distill export-data              Export training data to JSONL
   strata distill activate                 Enable local model distillation mode
   strata distill deactivate              Disable local model distillation mode
+  strata deploy cloudflare                Deploy Strata to Cloudflare Workers + D1
   strata init                             Auto-detect CLIs and set up all found
   strata init --claude                   Set up Claude Code integration only
   strata init --gemini                   Set up Gemini CLI integration only
@@ -104,6 +105,14 @@ Init flags:
   --all             Set up all supported CLIs (even if not detected)
   --global          Install skills and commands to ~ instead of project dir
   --force           Overwrite existing skills, hooks, and context files
+
+Deploy cloudflare flags:
+  --account-id <id>   Cloudflare account ID (prompted if omitted)
+  --db-name <name>    D1 database name (default: strata-db)
+  --worker-name <n>   Worker name (default: strata-mcp)
+  --token <token>     Gateway auth token (auto-generated if omitted)
+  --gemini-key <key>  Gemini API key for semantic search
+  --out-dir <path>    Output directory (default: ./strata-cloudflare)
 
 Distill export-data flags:
   --task <type>     Task type: extraction or summarization (required)
@@ -612,11 +621,9 @@ async function runServe(
     process.on("SIGTERM", shutdown);
     process.on("SIGINT", shutdown);
   } else {
-    const { createServer } = await import("./server.js");
     const { startHttpTransport } = await import("./transports/http-transport.js");
 
-    const { server } = createServer();
-    const handle = await startHttpTransport(server, { port });
+    const handle = await startHttpTransport({ port });
 
     // Graceful shutdown
     const shutdown = async () => {
@@ -812,6 +819,19 @@ async function main(): Promise<void> {
         process.exit(1);
       }
       await import(hookModule);
+      break;
+    }
+    case "deploy": {
+      const target = args[0];
+      if (target !== "cloudflare") {
+        console.log("Usage: strata deploy cloudflare [--account-id ID] [--db-name NAME] [--worker-name NAME]");
+        console.log("");
+        console.log("Supported targets:");
+        console.log("  cloudflare    Deploy to Cloudflare Workers + D1");
+        process.exit(target ? 1 : 0);
+      }
+      const { runDeployCloudflare } = await import("./cli/deploy.js");
+      await runDeployCloudflare(flags);
       break;
     }
     case "serve":
