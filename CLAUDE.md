@@ -74,7 +74,7 @@ Key files:
 Shared security scanning pipeline across all Strata repos.
 
 ### Tools
-- **Semgrep** — Custom SAST rules in `.semgrep/custom-rules.yml` (16 rules covering secrets, MCP security, injection, prototype pollution, Node.js security)
+- **Semgrep** — Custom SAST rules in `.semgrep/custom-rules.yml` (26 rules covering secrets, MCP security, injection, prototype pollution, Node.js security, supply chain)
 - **Gitleaks** — Pre-commit hook prevents committing secrets. Config in `.gitleaks.toml`
 - **npm audit** — Dependency vulnerability scanning in CI
 

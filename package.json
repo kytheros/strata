@@ -44,7 +44,8 @@
     "./extensions/*": "./dist/extensions/*.js",
     "./extensions/embeddings/*": "./dist/extensions/embeddings/*.js",
     "./extensions/vector-search/*": "./dist/extensions/vector-search/*.js",
-    "./ee/*": "./dist/ee/*.js"
+    "./ee/*": "./dist/ee/*.js",
+    "./transports/*": "./dist/transports/*.js"
   },
   "bin": {
     "strata": "dist/cli.js",
@@ -69,6 +70,7 @@
     "benchmark:longmemeval:retrieval": "tsx benchmarks/longmemeval/run-benchmark.ts --retrieval-only",
     "benchmark:longmemeval:calibrate": "tsx benchmarks/longmemeval/run-calibration.ts",
     "autoresearch:longmemeval": "tsx autoresearch/longmemeval/run-eval.ts",
+    "rebuild:native": "npm rebuild --ignore-scripts=false better-sqlite3 esbuild sharp onnxruntime-node protobufjs workerd",
     "prepare": "husky"
   },
   "dependencies": {
@@ -86,8 +88,10 @@
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "@types/pdf-parse": "^1.1.5",
+    "@types/pg": "^8.20.0",
     "husky": "^9.1.0",
     "miniflare": "^4.20260317.1",
+    "pg": "^8.20.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
