@@ -5,7 +5,7 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - 2026-04-01
 
 ### Added
 
@@ -21,11 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Search retrieval quality (30/30)** — AutoResearch-optimized keyword search ranking parameters. `rrfK` tuned to 40, `rrfDualListBonus` to 0.3, `vectorSimBonus` to 0.005. Recency boosts, project match boost, and memory decay penalties empirically validated.
 - **Chunking strategy (25/25)** — Increased `chunkSize` from 500 to 1600 tokens. Larger chunks preserve more conversational context, improving recall accuracy without sacrificing precision.
 - **RRF fusion weights (58/58)** — Optimized Reciprocal Rank Fusion parameters that combine FTS5 BM25 keyword results with vector cosine similarity. BM25 `k1=1.2`, `b=0.75`. Importance signal weights balanced across type (0.35), frequency (0.35), language (0.20), and explicit (0.10).
-- **MCP tool descriptions (25/25)** — AutoResearch-optimized all 9 MCP tool descriptions for clarity and discoverability by AI coding assistants.
+- **MCP tool descriptions (25/25)** — AutoResearch-optimized all 15 MCP tool descriptions for clarity and discoverability by AI coding assistants.
 
 ### Fixed
 
-- Semgrep propagation list now includes `ai-readiness-toolkit/` alongside strata-pro, strata-team, and strata-web.
+- Semgrep SAST rule propagation across all repo copies.
 
 ## [1.2.1] - 2026-03-08
 
@@ -51,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial release — SQLite/FTS5 memory engine with 8 MCP tools.
+- Initial release — SQLite/FTS5 memory engine with MCP tools.
 - stdio and HTTP transport modes (single-tenant and multi-tenant).
 - Conversation indexing for Claude Code, Codex CLI, Aider, Cline, Gemini CLI.
 - Security scanning pipeline (Semgrep, Gitleaks, npm audit).
