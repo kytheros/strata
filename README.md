@@ -355,7 +355,7 @@ Full documentation at [kytheros.dev/docs](https://kytheros.dev/docs).
 
 ## Why I Built This
 
-I'm a senior systems analyst by day, but I've been a builder for as long as I can remember. It started with character design and animation in high school, chasing the dream of making games. The early 2000s didn't have much of an indie game scene, so I pivoted -- television broadcast engineering, then IT contracting, then a permanent role automating user lifecycle management at a national company. The dream of building things never went away, it just changed shape.
+I'm a senior systems analyst by day, but I've been a builder for as long as I can remember. It started with character design and animation in high school, chasing the dream of making games. The early 2000s didn't have much of an indie game scene, so I pivoted -- television broadcast engineering, then IT contracting, and eventually a senior systems analyst role where I spend most of my time helping business units bring their SOPs into Jira. The dream of building things never went away, it just changed shape.
 
 When AI coding tools started getting serious, I leaned in hard. GPT-3.5 felt fundamentally different from anything before it. I started building with every model I could get my hands on -- chat, code, image, video. In August 2025, I decided to go deep on the MCP protocol. To learn it properly, I built an Atlassian MCP server covering every product and endpoint you'd need to manage projects across the entire ecosystem. Four to six weeks later I had 275 working tools. Part of me kept thinking *this shouldn't be possible* -- and yet there it was.
 
