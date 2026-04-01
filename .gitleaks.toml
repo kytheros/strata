@@ -1,4 +1,4 @@
-title = "Gitleaks config for claude-code-spec-template"
+title = "Gitleaks config for strata-mcp"
 
 [allowlist]
   description = "Global allowlist — consolidates strata and strata-pro configs"

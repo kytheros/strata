@@ -2,34 +2,34 @@
 
 This is the core memory engine for AI coding assistants. It indexes conversation history from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a local SQLite/FTS5 database and exposes MCP tools for search and recall.
 
-## Strata Family — Mono Repo Relationship
+## Strata Family
 
-All Strata repos live side-by-side under a shared parent directory and form a layered product:
+Strata ships as a layered product family (separate packages, not included in this repo):
 
 ```
-strata/          ← THIS REPO — Community edition, core engine (free, 10 MCP tools)
-strata-pro/      ← Enterprise features: semantic search, cloud sync, procedures, analytics
-strata-team/     ← Team edition: shared knowledge, team sync, RBAC
-strata-web/      ← Marketing/auth frontend (React + Supabase)
-strata-worker/   ← Cloudflare Worker: licensed release distribution via R2/KV + Polar
+strata/          ← THIS REPO — Community edition, core engine (free, 15 MCP tools)
+strata-pro       ← Enterprise features: semantic search, cloud sync, procedures, analytics (separate npm package)
+strata-team      ← Team edition: shared knowledge, team sync, RBAC (separate npm package)
+strata-web       ← Marketing/auth frontend (separate repo)
+strata-worker    ← Cloudflare Worker: licensed release distribution (separate repo)
 ```
 
 ### Dependency Chain
 
 ```
-strata (this repo)
-  ↑ imported by strata-pro (via "strata-mcp": "file:../strata")
-      ↑ imported by strata-team (via "@kytheros/strata-pro": "file:../strata-pro")
+strata (this repo, published as "strata-mcp" on npm)
+  ↑ imported by strata-pro (via "strata-mcp" from npm)
+      ↑ imported by strata-team (via "@kytheros/strata-pro" from npm)
 ```
 
-- **strata-pro** wraps this repo's server and adds license-gated Pro tools
-- **strata-team** wraps strata-pro's server and adds team collaboration features
-- **strata-web** is independent (React SPA) — showcases and monetizes all tiers
-- **strata-worker** is independent (Cloudflare Worker) — serves licensed release tarballs
+- **strata-pro** wraps this repo's server and adds license-gated Pro tools (separate npm package)
+- **strata-team** wraps strata-pro's server and adds team collaboration features (separate npm package)
+- **strata-web** is independent (React SPA) — showcases and monetizes all tiers (separate repo)
+- **strata-worker** is independent (Cloudflare Worker) — serves licensed release tarballs (separate repo)
 
-### Key Exports Consumed by Downstream Repos
+### Key Exports Consumed by Downstream Packages
 
-Other repos import from this package (`strata-mcp`). Changes to exported types, the MCP server factory (`src/server.ts`), or core stores (KnowledgeStore, SqliteEntityStore, IndexManager) can break strata-pro and strata-team. Test downstream after modifying exports.
+Other packages import from this package (`strata-mcp`). Changes to exported types, the MCP server factory (`src/server.ts`), or core stores (KnowledgeStore, SqliteEntityStore, IndexManager) can break strata-pro and strata-team. Test downstream after modifying exports.
 
 ## Transport Modes
 
@@ -87,41 +87,11 @@ Shared security scanning pipeline across all Strata repos.
 Security checks run automatically on PRs via `.github/workflows/ci.yml`. PRs are blocked if ERROR-severity findings are detected.
 
 ### Shared Rules
-The Semgrep rules are shared across all Strata repos. When updating rules, propagate changes to strata-pro/, strata-team/, strata-web/, and ai-readiness-toolkit/.
+The Semgrep rules are shared across all Strata packages. When updating rules, propagate changes to strata-pro, strata-team, strata-web, and ai-readiness-toolkit.
 
 ## AutoResearch — Optimized Parameters
 
-The core engine's search, indexing, and ranking parameters in `src/config.ts` were systematically optimized using Karpathy's AutoResearch pattern — an autonomous experiment loop that measures baseline, changes one variable, evaluates against a frozen test suite, and keeps or discards. All three optimization targets reached their scoring ceilings.
-
-### Search Retrieval (30/30)
-Optimized keyword search ranking. Key tuned values:
-- `search.rrfK`: 40 (RRF fusion constant — lower = more weight to top ranks)
-- `search.rrfDualListBonus`: 0.3 (bonus for docs appearing in both keyword + vector lists)
-- `search.vectorSimBonus`: 0.005 (cosine similarity tiebreaker restoring magnitude info)
-- `search.recencyBoost7d`: 1.1, `recencyBoost30d`: 1.05
-- `search.projectMatchBoost`: 1.3
-- `search.decayPenalty90d`: 0.85, `decayPenalty180d`: 0.7
-
-### Chunking Strategy (25/25)
-Optimized how conversation history is split into searchable chunks:
-- `indexing.chunkSize`: 1600 tokens (up from 500 — larger chunks preserve more context)
-- `indexing.chunkOverlap`: 50 tokens
-- `indexing.maxChunksPerSession`: 500
-
-### RRF Fusion Weights (58/58)
-Optimized the Reciprocal Rank Fusion parameters that combine FTS5 BM25 keyword results with vector cosine similarity:
-- `bm25.k1`: 1.2 (term frequency saturation)
-- `bm25.b`: 0.75 (document length normalization)
-- `learning.similarityThreshold`: 0.6 (Jaccard similarity for clustering)
-- `importance.typeWeight`: 0.35, `languageWeight`: 0.20, `frequencyWeight`: 0.35, `explicitWeight`: 0.10
-
-### Regression Checks
-Scheduled tasks monitor for regressions:
-- `autoresearch-search-retrieval` — Manual (at ceiling 30/30)
-- `autoresearch-chunking-strategy` — Manual (at ceiling 25/25)
-- `autoresearch-rrf-fusion` — Manual (at ceiling 58/58)
-
-**Important:** These values were empirically validated. Do not change them without re-running the AutoResearch eval suites. The eval scripts are the source of truth — they are never modified during optimization.
+Search parameters in `src/config.ts` are empirically optimized via automated eval suites. Do not change them without re-running evals.
 
 ## Local Model Distillation
 

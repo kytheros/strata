@@ -4,6 +4,15 @@
   "description": "Mine your AI coding assistant conversation history for searchable knowledge",
   "type": "module",
   "license": "MIT",
+  "author": "Kytheros LLC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kytheros/strata.git"
+  },
+  "homepage": "https://strata.kytheros.dev",
+  "bugs": {
+    "url": "https://github.com/kytheros/strata/issues"
+  },
   "keywords": [
     "mcp",
     "strata",
