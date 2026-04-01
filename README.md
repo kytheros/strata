@@ -1,14 +1,16 @@
 # strata-mcp
 
-Local memory layer for AI coding assistants. Strata indexes your conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a local SQLite database, then exposes MCP tools so your assistant can recall past decisions, solutions, and patterns across sessions.
+The open-source memory layer for AI agents. Strata gives any MCP-compatible agent persistent memory that survives across sessions -- decisions, solutions, patterns, and knowledge that accumulate over time instead of disappearing when the context window rolls.
 
-**Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid FTS5 + vector search with 3072-dimensional embeddings, LLM-powered knowledge extraction, and training data accumulation for local model distillation. Falls back to keyword search without it.
+**For AI coding assistants:** Strata auto-indexes your conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a shared knowledge base. Store a decision in Claude Code, recall it from Gemini CLI.
 
-No cloud required. No memory caps. Everything stays on your machine. Or deploy to [Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) or [Google Cloud Run](#deploy-on-gcp-cloud-run) for a cloud-hosted setup.
+**For agents you build:** Deploy Strata as memory infrastructure via HTTP or multi-tenant transport. Ingest conversations from any source, search with BM25 + vector hybrid ranking, and give your agents the ability to learn from their own history. Deploy on [Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) or [Google Cloud Run](#deploy-on-gcp-cloud-run).
 
-**Cross-tool memory.** Store a decision in Claude Code, recall it from Gemini CLI. One shared knowledge base across all your AI coding assistants.
+**Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid BM25 + vector search with 3072-dimensional embeddings, LLM-powered knowledge extraction, and training data accumulation for local model distillation. Falls back to keyword search without it.
 
 **What makes Strata different:** Every knowledge entry passes through a [quality-gated evaluator pipeline](docs/evaluator-pipeline.md) before storage. Actionability, specificity, and relevance are checked deterministically. The result is a knowledge base that stays clean and auditable -- not a growing pile of everything.
+
+No cloud required. No memory caps. Everything stays on your machine -- or deploy anywhere.
 
 ---
 
