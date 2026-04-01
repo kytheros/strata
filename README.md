@@ -138,6 +138,26 @@ Entries that fail any gate are rejected. This keeps the knowledge base clean and
 
 ---
 
+## Automatic Memory via Hooks
+
+When you run `strata init`, Strata registers hooks into your AI assistant's lifecycle. These run automatically -- no manual MCP tool calls needed:
+
+| Hook | When | What It Does |
+|------|------|-------------|
+| **Error recovery** | Tool fails | Searches past sessions for the same error and feeds the fix back to your assistant |
+| **Prompt context** | You type a message | Detects error patterns, recall language, and debugging questions -- injects relevant past context |
+| **Compaction survival** | Context compacts | Re-injects key decisions and active work so they survive context window compression |
+| **Knowledge extraction** | Session ends | Parses the transcript, extracts decisions/solutions/patterns, stores for future recall |
+| **Change tracking** | File edited/created | Logs which files were changed as searchable events |
+| **Agent awareness** | Sub-agent spawns | Injects Strata tool awareness so agents proactively use memory |
+| **Agent idle save** | Teammate goes idle | Saves agent work context so it's findable in future sessions |
+
+All hooks are silent when they have nothing to contribute. Zero latency on the happy path.
+
+See [Hooks and Skills](docs/HOOKS-AND-SKILLS.md) for the full configuration reference.
+
+---
+
 ## Deploy on Cloudflare Workers + D1
 
 Strata ships a pluggable storage layer with a Cloudflare D1 adapter. Deploy Strata as a serverless MCP server on Cloudflare's global edge — zero ops, infinite scale, $0 idle cost.
