@@ -377,4 +377,4 @@ The roadmap: deeper reasoning over accumulated knowledge, richer entity graphs, 
 
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](LICENSE) for details.
