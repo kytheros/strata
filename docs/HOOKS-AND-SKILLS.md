@@ -44,46 +44,66 @@ Verify with: `claude mcp list`
 
 ### 2. Hooks
 
-Hooks run automatically at key Claude Code lifecycle events. Add them to `~/.claude/settings.json`:
+Hooks run automatically at key Claude Code lifecycle events. When you run `strata init`, all hooks are registered automatically in `~/.claude/settings.json`. You can also configure them manually.
+
+#### Exit Code Protocol
+
+Hooks communicate with Claude Code via exit codes:
+
+| Exit Code | Meaning | Channel |
+|-----------|---------|---------|
+| **0** | Proceed normally. Anything on stdout is added to the conversation context. | stdout |
+| **2** | Feedback to Claude. Content on stderr is fed back to the assistant as guidance. | stderr |
+
+Exit 0 with empty stdout means the hook had nothing to contribute — this is the silent path for zero-latency operation.
+
+#### Hook Inventory
+
+Strata registers 7 hooks covering the full Claude Code lifecycle:
+
+| Hook | Event | Matcher | What It Does |
+|------|-------|---------|-------------|
+| Session context | `SessionStart` | `startup\|resume` | Injects project context, recent sessions, knowledge gaps |
+| Compaction survival | `SessionStart` | `compact` | Re-injects key decisions and active work after compaction |
+| Error recovery | `PostToolUseFailure` | `Bash\|Write\|Edit` | Auto-searches past solutions when tools fail, feeds fix to Claude |
+| Prompt context | `UserPromptSubmit` | `*` | Detects error/recall/debug patterns, injects relevant past context |
+| Knowledge extraction | `Stop` | `*` | Parses transcript, extracts knowledge, caches summary. Enhanced with LLM extraction when `GEMINI_API_KEY` is set |
+| Sub-agent awareness | `SubagentStart` | `*` | Injects Strata tool awareness into spawned agents |
+| Agent idle save | `TeammateIdle` | `*` | Stores agent work context as episodic memory before going idle |
+| Change tracking | `PostToolUse` | `Edit\|Write` | Logs file changes as searchable SVO events |
+
+#### Full settings.json Example
 
 ```json
 {
   "hooks": {
     "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/path/to/strata-mcp/dist/hooks/session-start-hook.js\""
-          }
-        ]
-      }
+      { "matcher": "startup|resume", "hooks": [{ "type": "command", "command": "node .../session-start-hook.js" }] },
+      { "matcher": "compact", "hooks": [{ "type": "command", "command": "node .../session-start-hook.js" }] }
     ],
     "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/path/to/strata-mcp/dist/hooks/session-stop-hook.js\""
-          }
-        ]
-      }
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node .../session-stop-hook.js" }] }
     ],
     "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"/path/to/strata-mcp/dist/hooks/subagent-start-hook.js\""
-          }
-        ]
-      }
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node .../subagent-start-hook.js" }] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "Bash|Write|Edit", "hooks": [{ "type": "command", "command": "node .../post-tool-failure-hook.js" }] }
+    ],
+    "UserPromptSubmit": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node .../user-prompt-hook.js" }] }
+    ],
+    "TeammateIdle": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node .../teammate-idle-hook.js" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "node .../post-tool-use-hook.js" }] }
     ]
   }
 }
 ```
 
-Replace `/path/to/strata-mcp/` with the actual installed path. To find it:
+Replace `...` with the actual installed path. To find it:
 
 ```bash
 npm list -g strata-mcp --parseable
@@ -91,22 +111,55 @@ npm list -g strata-mcp --parseable
 
 #### What Each Hook Does
 
-**SessionStart** — Injects context when a new Claude Code session begins:
+**Session context** (`SessionStart`, matcher: `startup|resume`) — Injects context when a new Claude Code session begins:
 - Last 3 session summaries for the current project
 - Key decisions and solutions from the knowledge store
 - Recurring issues and synthesized learnings
 - Tool guidance (reminds the model to use Strata tools)
 - Knowledge gaps (topics searched 2+ times with no results)
 
-**Stop** — Triggers when a session ends:
+**Compaction survival** (`SessionStart`, matcher: `compact`) — Re-injects critical context after context window compaction:
+- Key decisions and active work items from the knowledge store
+- Prevents loss of important context when Claude Code compresses the conversation
+
+**Error recovery** (`PostToolUseFailure`, matcher: `Bash|Write|Edit`) — Automatically searches for past solutions when a tool fails:
+- Reads the error from the tool failure payload
+- Searches past sessions for matching error fixes (local SQLite, <50ms)
+- If a high-confidence match is found, feeds the solution back to Claude via stderr (exit 2)
+- If no match, exits silently (exit 0)
+- Errors shorter than 10 characters are skipped; errors longer than 2000 characters are truncated
+
+**Prompt context** (`UserPromptSubmit`, matcher: `*`) — Detects trigger patterns in user prompts and injects relevant context:
+- Error patterns: stack traces, error codes, `Error:`, `TypeError`, etc.
+- Recall language: "how did we", "what did we decide", "last time", "remember when"
+- Debugging language: "why is", "what's wrong with", "broken again", "still failing"
+- Decision language: "should we use", "which approach", "what's our pattern for"
+- Only injects when a trigger matches; silent on ordinary prompts
+
+**Knowledge extraction** (`Stop`, matcher: `*`) — Triggers when a session ends:
 - Saves session summary to the database
 - Synthesizes learnings from the conversation
 - Updates the knowledge store with new entries
+- When `GEMINI_API_KEY` is set, uses LLM-powered extraction for higher-quality knowledge entries and training data capture for local model distillation
 
-**SubagentStart** — Injects context when a subagent (teammate) is spawned:
+**Sub-agent awareness** (`SubagentStart`, matcher: `*`) — Injects context when a subagent (teammate) is spawned:
 - Compact version of session context
 - List of available Strata tools
 - Proactive usage rules (search before solving, store after fixing)
+
+**Agent idle save** (`TeammateIdle`, matcher: `*`) — Saves agent work context before a teammate goes idle:
+- Stores the agent's current work state as episodic memory
+- Ensures work-in-progress is findable in future sessions even if the agent never completes
+
+**Change tracking** (`PostToolUse`, matcher: `Edit|Write`) — Logs file changes as structured events:
+- Records which files were created or modified as Subject-Verb-Object event tuples
+- Makes file change history searchable via `search_events`
+
+#### Gemini CLI Hooks
+
+Gemini CLI gets a subset of hooks registered via `strata init --gemini` in `~/.gemini/settings.json`:
+- `SessionStart` (startup, resume) — same context injection as Claude Code
+- `SessionEnd` — knowledge extraction (equivalent to Claude Code's Stop hook)
 
 ### 3. Skills
 
