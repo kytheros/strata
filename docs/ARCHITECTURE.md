@@ -9,13 +9,13 @@ Strata is a local memory layer for AI coding assistants. It indexes conversation
 Strata ships as a layered product family. Each tier extends the one below it:
 
 ```
-strata (community, free)         8 MCP tools
+strata (community, free)         15 MCP tools
   ^
-  |  imported via "strata-mcp": "file:../strata"
+  |  imported via "strata-mcp" (npm)
   |
 strata-pro (enterprise)         +11 MCP tools, license-gated
   ^
-  |  imported via "@kytheros/strata-pro": "file:../strata-pro"
+  |  imported via "@kytheros/strata-pro" (npm)
   |
 strata-team (team)              + team sync, shared knowledge, RBAC
 ```
