@@ -20,11 +20,11 @@ strata-pro (enterprise)         +11 MCP tools, license-gated
 strata-team (team)              + team sync, shared knowledge, RBAC
 ```
 
-### Community (free, 8 tools)
+### Community (free, 15 tools)
 
-The core engine. Indexes conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI. Provides full-text search via FTS5 with BM25 ranking, explicit memory storage, pattern discovery, and project context.
+The core engine. Indexes conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI. Provides full-text search via FTS5 with BM25 ranking, semantic vector search, explicit memory storage, pattern discovery, document ingestion, event search, and multi-step reasoning.
 
-**Tools:** `search_history`, `find_solutions`, `list_projects`, `get_session_summary`, `get_project_context`, `find_patterns`, `store_memory`, `delete_memory`
+**Tools:** `search_history`, `find_solutions`, `semantic_search`, `search_events`, `list_projects`, `get_session_summary`, `get_project_context`, `get_user_profile`, `find_patterns`, `store_memory`, `delete_memory`, `ingest_document`, `store_document`, `reason_over_query`, `get_search_procedure`
 
 ### Pro (licensed, +11 tools)
 
@@ -224,7 +224,7 @@ Conversation History Files
          |
          v
   +-------------------+
-  | 8 MCP Tools       |  search_history, find_solutions, store_memory, ...
+  | 15 MCP Tools      |  search_history, find_solutions, store_memory, ...
   | (stdio or HTTP)   |
   +-------------------+
          |

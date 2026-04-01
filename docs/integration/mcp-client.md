@@ -153,7 +153,7 @@ main().catch(console.error);
 
 ## Tool Reference
 
-### Community Tools (8, always available)
+### Community Tools (15, always available)
 
 #### search_history
 

@@ -1,7 +1,7 @@
 /**
  * MCP server: tool registration and request handling using McpServer API.
  *
- * Community edition — 9 free tools for search, memory, semantic search, and pattern discovery.
+ * Community edition — 15 free tools for search, memory, semantic search, reasoning, and pattern discovery.
  *
  * Follows production MCP patterns:
  * - Category prefixes in descriptions

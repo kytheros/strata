@@ -353,7 +353,7 @@ The modes are not mutually exclusive. You can run Strata as a personal dev tool 
 
 ## Related Documentation
 
-- [TOOLS.md](./TOOLS.md) -- Full reference for all 8 MCP tools
+- [TOOLS.md](./TOOLS.md) -- Full reference for all 15 MCP tools
 - [MULTI-TOOL.md](./MULTI-TOOL.md) -- Supported AI coding tools and auto-detection
 - [DEPLOYMENT.md](./DEPLOYMENT.md) -- Running Strata as stdio, HTTP, Docker, or Cloud Run
 - [HOOKS-AND-SKILLS.md](./HOOKS-AND-SKILLS.md) -- Detailed hook and skill reference

@@ -4,7 +4,7 @@
 
 Strata uses an open-core licensing model:
 
-- **Community edition** (free) -- No license key required. Provides 8 MCP tools, 3 AI tool parsers, and the full SQLite/FTS5 search engine. Install from npm and use immediately.
+- **Community edition** (free) -- No license key required. Provides 15 MCP tools, 3 AI tool parsers, and the full SQLite/FTS5 search engine. Install from npm and use immediately.
 - **Pro edition** ($9/mo or $90/yr) -- Requires a license key (JWT). Adds semantic search, entity graph, procedures, cloud sync, analytics, LLM extraction, and 2 additional parsers.
 - **Team edition** ($19/user/mo) -- Requires a license key (JWT). Adds shared knowledge, team sync, and role-based access control on top of all Pro features.
 
@@ -208,7 +208,7 @@ In the community edition, `hasFeature()` always returns `false` and `requireFeat
 
 - `hasFeature()` returns `false` for all features.
 - `requireFeature()` throws an error: "Your Strata Pro license expired on YYYY-MM-DD. Free tools remain available."
-- Community edition tools (8 MCP tools) continue working normally.
+- Community edition tools (15 MCP tools) continue working normally.
 - The `strata license` CLI command shows the expired status with the expiration date.
 
 ### Renewal

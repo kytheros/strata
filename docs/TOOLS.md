@@ -1,6 +1,6 @@
 # Strata MCP Tools Reference
 
-Strata exposes 8 MCP tools in the community edition. All tools are registered in `src/server.ts` and handled by dedicated modules in `src/tools/`.
+Strata exposes 15 MCP tools in the community edition. All tools are registered in `src/server.ts` and handled by dedicated modules in `src/tools/`.
 
 ---
 
