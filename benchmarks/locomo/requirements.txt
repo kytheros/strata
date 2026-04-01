@@ -1,3 +1,3 @@
 agents-memory @ git+https://github.com/ProsusAI/MemEval.git
 strata-memory>=0.1.0
-google-generativeai>=0.8.0
+google-genai>=1.0.0
