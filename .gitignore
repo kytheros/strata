@@ -5,5 +5,8 @@ dist/
 .env
 .claude/
 *.db
-benchmarks/
+benchmarks/*
+!benchmarks/locomo/
+benchmarks/locomo/.venv/
+benchmarks/locomo/__pycache__/
 autoresearch/
