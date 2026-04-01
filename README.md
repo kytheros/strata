@@ -236,7 +236,7 @@ strata distill activate      # Switch to hybrid provider (local model first, Gem
 strata distill deactivate    # Revert to frontier-only
 ```
 
-The training pipeline lives in `strata-py`. Install with `pip install strata-memory[distill]` and run `strata-distill start` to fine-tune via QLoRA. See the [distillation spec](specs/strata-local-model-distillation.md) for the full architecture.
+The training pipeline lives in `strata-py`. Install with `pip install strata-memory[distill]` and run `strata-distill start` to fine-tune via QLoRA. The distillation architecture uses parameter-efficient fine-tuning (QLoRA) to produce a local model that handles knowledge extraction and summarization without any API calls.
 
 ---
 
