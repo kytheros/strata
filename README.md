@@ -353,6 +353,28 @@ Full documentation at [kytheros.dev/docs](https://kytheros.dev/docs).
 
 ---
 
+## Why I Built This
+
+I'm a senior systems analyst by day, but I've been a builder for as long as I can remember. It started with character design and animation in high school, chasing the dream of making games. The early 2000s didn't have much of an indie game scene, so I pivoted -- television broadcast engineering, then IT contracting, then a permanent role automating user lifecycle management at a national company. The dream of building things never went away, it just changed shape.
+
+When AI coding tools started getting serious, I leaned in hard. GPT-3.5 felt fundamentally different from anything before it. I started building with every model I could get my hands on -- chat, code, image, video. In August 2025, I decided to go deep on the MCP protocol. To learn it properly, I built an Atlassian MCP server covering every product and endpoint you'd need to manage projects across the entire ecosystem. Four to six weeks later I had 275 working tools. Part of me kept thinking *this shouldn't be possible* -- and yet there it was.
+
+That changed how I thought about what a single builder could do. I started working on a model harness -- managing context, tool calls, memory -- the full agent orchestration stack. And that's where the frustration hit. Even with great sub-agents, skills, and hooks, my agents kept forgetting things. They didn't know we'd already fixed this bug, already made this decision, already built something similar in another project. The context window would roll and everything was gone.
+
+The memory system I'd built for the harness was already working. So I asked: what if we used this to track our own development process -- the decisions, the fixes, the gaps, the knowledge? That became Strata. And pretty quickly I realized it wasn't just for my workflow. Any AI agent that runs across sessions has the same problem. Strata grew from a personal tool into memory infrastructure for any agent that needs to remember.
+
+---
+
+## Where Strata Is Going
+
+Today, Strata is the best memory layer for AI coding assistants. You install it, your assistant remembers everything across sessions, projects, and tools. That's the product.
+
+But the architecture was always designed for more than that. The HTTP transport, multi-tenant isolation, and pluggable storage backends (SQLite, D1, Postgres) exist because Strata is also memory infrastructure for the agents you build. If you're building an agent that needs to accumulate knowledge over time -- not just within a single conversation, but across hundreds of sessions -- that's what Strata does.
+
+The roadmap: deeper reasoning over accumulated knowledge, richer entity graphs, team-scale shared memory with conflict resolution, and deployment options that meet you wherever your agents run. The community edition is free and open source, forever.
+
+---
+
 ## License
 
 MIT
