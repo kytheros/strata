@@ -225,6 +225,42 @@ function registerHooks(force: boolean): boolean {
     console.log(`  Registered SessionStart (${matcher}) hook.`);
   }
 
+  // Register SessionEnd hook for post-session knowledge extraction
+  const sessionEndHooks = (hooks.SessionEnd || []) as Array<{
+    matcher?: string;
+    hooks?: Array<{ name?: string; type?: string; command?: string }>;
+  }>;
+
+  const stopHookFile = "session-stop-hook.js";
+  const endAlreadyInstalled = sessionEndHooks.some((entry) =>
+    entry.hooks?.some((h) => h.command?.includes(stopHookFile))
+  );
+
+  if (!endAlreadyInstalled || force) {
+    if (endAlreadyInstalled && force) {
+      const filtered = sessionEndHooks.filter(
+        (entry) => !entry.hooks?.some((h) => h.command?.includes(stopHookFile))
+      );
+      hooks.SessionEnd = filtered;
+    }
+
+    const stopHookPath = resolveHookPath(stopHookFile);
+    const existingEnd = (hooks.SessionEnd || []) as Array<unknown>;
+    existingEnd.push({
+      matcher: "*",
+      hooks: [{
+        name: "strata-session-end",
+        type: "command",
+        command: `node ${JSON.stringify(stopHookPath)}`,
+      }],
+    });
+    hooks.SessionEnd = existingEnd;
+    modified = true;
+    console.log("  Registered SessionEnd hook (knowledge extraction).");
+  } else {
+    console.log("  SessionEnd hook already registered.");
+  }
+
   if (modified) {
     hooks.SessionStart = sessionStartHooks;
     settings.hooks = hooks;

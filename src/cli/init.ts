@@ -85,13 +85,17 @@ function registerHooks(force: boolean): boolean {
   const hooks = (settings.hooks || {}) as Record<string, unknown[]>;
   let modified = false;
 
-  const hookDefs: Array<{ event: string; hookFile: string }> = [
+  const hookDefs: Array<{ event: string; hookFile: string; matcher?: string }> = [
     { event: "SessionStart", hookFile: "session-start-hook.js" },
     { event: "Stop", hookFile: "session-stop-hook.js" },
     { event: "SubagentStart", hookFile: "subagent-start-hook.js" },
+    { event: "PostToolUseFailure", hookFile: "post-tool-failure-hook.js", matcher: "Bash|Write|Edit" },
+    { event: "UserPromptSubmit", hookFile: "user-prompt-hook.js" },
+    { event: "TeammateIdle", hookFile: "teammate-idle-hook.js" },
+    { event: "PostToolUse", hookFile: "post-tool-use-hook.js", matcher: "Edit|Write" },
   ];
 
-  for (const { event, hookFile } of hookDefs) {
+  for (const { event, hookFile, matcher } of hookDefs) {
     const eventHooks = (hooks[event] || []) as Array<{
       hooks?: Array<{ type?: string; command?: string }>;
     }>;
@@ -116,10 +120,15 @@ function registerHooks(force: boolean): boolean {
     // Find the installed strata-mcp path for hook commands
     const hookCommand = `node "${resolveHookPath(hookFile)}"`;
 
-    const existingHooks = (hooks[event] || []) as Array<unknown>;
-    existingHooks.push({
+    const hookEntry: Record<string, unknown> = {
       hooks: [{ type: "command", command: hookCommand }],
-    });
+    };
+    if (matcher) {
+      hookEntry.matcher = matcher;
+    }
+
+    const existingHooks = (hooks[event] || []) as Array<unknown>;
+    existingHooks.push(hookEntry);
     hooks[event] = existingHooks;
     modified = true;
     console.log(`  Registered ${event} hook.`);

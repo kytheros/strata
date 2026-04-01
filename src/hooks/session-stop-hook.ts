@@ -77,6 +77,26 @@ async function main(): Promise<void> {
       }
     }
 
+    // 3b. LLM-powered extraction (when Gemini is available)
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const { enhancedExtract } = await import("../extensions/llm-extraction/enhanced-extractor.js");
+        const { GeminiProvider } = await import("../extensions/llm-extraction/gemini-provider.js");
+        const provider = new GeminiProvider({ apiKey: process.env.GEMINI_API_KEY });
+        const enhanced = await Promise.race([
+          enhancedExtract(session, provider, indexManager.db),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000)),
+        ]);
+        if (enhanced && enhanced.length > 0) {
+          for (const entry of enhanced) {
+            await indexManager.knowledge.upsertEntry(entry);
+          }
+        }
+      } catch {
+        // LLM extraction failed or timed out — heuristic results already stored
+      }
+    }
+
     // 4. Incremental index update
     indexManager.incrementalUpdate();
 

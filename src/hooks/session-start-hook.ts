@@ -99,6 +99,53 @@ function emitOutput(lines: string[]): void {
   }
 }
 
+/**
+ * Handle compaction trigger — re-inject condensed context that would
+ * otherwise be lost when Claude compacts the conversation.
+ * Focuses on session-specific decisions and active work, not full project history.
+ */
+async function handleCompact(): Promise<void> {
+  const lines: string[] = ["[Strata] Context preserved through compaction:"];
+
+  try {
+    const indexManager = new SqliteIndexManager();
+
+    // Get recent decisions and solutions
+    const recentKnowledge = await indexManager.knowledge.search("");
+    const sessionKnowledge = recentKnowledge
+      .filter((k) => k.type === "decision" || k.type === "solution" || k.type === "error_fix")
+      .slice(0, 5);
+
+    if (sessionKnowledge.length > 0) {
+      lines.push("");
+      lines.push("Recent decisions and fixes:");
+      for (const k of sessionKnowledge) {
+        lines.push(`- [${k.type}] ${k.summary}`);
+      }
+    }
+
+    // Get active evidence gaps (things searched but not found)
+    try {
+      const gaps = listGaps(indexManager.db, { limit: 3, minOccurrences: 2 });
+      if (gaps.length > 0) {
+        lines.push("");
+        lines.push("Knowledge gaps (searched but unanswered):");
+        for (const g of gaps) {
+          lines.push(`- "${g.query}" (searched ${g.occurrenceCount}x)`);
+        }
+      }
+    } catch {
+      // Gap injection is best-effort
+    }
+
+    indexManager.close();
+  } catch {
+    // Database unavailable — emit what we have
+  }
+
+  emitOutput(lines);
+}
+
 async function main(): Promise<void> {
   // Drain stdin: Gemini CLI sends a JSON payload, Claude Code sends nothing.
   // Must consume stdin to prevent Gemini CLI from blocking on pipe write.
@@ -110,6 +157,11 @@ async function main(): Promise<void> {
       const payload = JSON.parse(stdinData);
       if (payload.source === "clear") {
         // User invoked /clear — don't inject context
+        process.exit(0);
+      }
+      // Compact trigger — inject condensed session context instead of full project context
+      if (payload.trigger === "compact" || payload.source === "compact") {
+        await handleCompact();
         process.exit(0);
       }
     } catch {

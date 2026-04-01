@@ -806,18 +806,22 @@ async function main(): Promise<void> {
     case "hook": {
       const hookName = args[0];
       if (!hookName) {
-        console.log("Usage: strata hook <session-start|session-stop|subagent-start>");
+        console.log("Usage: strata hook <session-start|session-stop|subagent-start|post-tool-failure|user-prompt|teammate-idle|post-tool-use>");
         process.exit(1);
       }
       const hookMap: Record<string, string> = {
         "session-start": "./hooks/session-start-hook.js",
         "session-stop": "./hooks/session-stop-hook.js",
         "subagent-start": "./hooks/subagent-start-hook.js",
+        "post-tool-failure": "./hooks/post-tool-failure-hook.js",
+        "user-prompt": "./hooks/user-prompt-hook.js",
+        "teammate-idle": "./hooks/teammate-idle-hook.js",
+        "post-tool-use": "./hooks/post-tool-use-hook.js",
       };
       const hookModule = hookMap[hookName];
       if (!hookModule) {
         console.log(`Unknown hook: ${hookName}`);
-        console.log("Available hooks: session-start, session-stop, subagent-start");
+        console.log("Available hooks: session-start, session-stop, subagent-start, post-tool-failure, user-prompt, teammate-idle, post-tool-use");
         process.exit(1);
       }
       await import(hookModule);
