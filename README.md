@@ -327,7 +327,7 @@ You can also set the Gemini key in `~/.strata/config.json` instead of an environ
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20
 
 No other system dependencies. SQLite is bundled via better-sqlite3. For Cloudflare Workers deployment, the D1 adapter has no native dependencies.
 

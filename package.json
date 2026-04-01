@@ -25,7 +25,7 @@
     "model-context-protocol"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "files": [
     "dist/",
@@ -38,6 +38,8 @@
     ".": "./dist/index.js",
     "./server": "./dist/server.js",
     "./d1": "./dist/storage/d1/index.js",
+    "./pg": "./dist/storage/pg/index.js",
+    "./storage/pg": "./dist/storage/pg/index.js",
     "./storage/interfaces": "./dist/storage/interfaces/index.js",
     "./storage/sqlite": "./dist/storage/sqlite/index.js",
     "./storage/factory": "./dist/storage/factory.js",
