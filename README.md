@@ -77,7 +77,7 @@ Sessions: 142 | Documents: 3847 | Projects: 12
 
 ---
 
-## Community Tools (9, free)
+## Community Tools (15, free)
 
 ### Search and Discovery
 
@@ -86,9 +86,11 @@ Sessions: 142 | Documents: 3847 | Projects: 12
 | `search_history` | FTS5 full-text search with BM25 ranking, auto-enhanced with vector search when Gemini is configured. Inline filters: `project:name`, `before:7d`, `after:30d`, `tool:Bash`. |
 | `find_solutions` | Solution-biased search -- fix/resolve language scores 1.5x higher. Auto-enhanced with semantic search. |
 | `semantic_search` | Hybrid FTS5 + vector cosine similarity via Reciprocal Rank Fusion. Finds results that keyword search misses. Requires `GEMINI_API_KEY`. |
+| `search_events` | Search structured Subject-Verb-Object event tuples extracted from conversations. Bridges vocabulary gaps via lexical aliases. |
 | `list_projects` | All indexed projects with session counts, message counts, and date ranges. |
 | `get_session_summary` | Structured session summary: metadata, topic, tools used, conversation flow. |
 | `get_project_context` | Comprehensive project context with recent sessions, decisions, and patterns. |
+| `get_user_profile` | Synthesized user expertise, preferences, workflow patterns, and technology stack from accumulated knowledge. |
 | `find_patterns` | Recurring topics, workflow patterns, and repeated issues across sessions. |
 
 ### Memory Management
@@ -97,6 +99,15 @@ Sessions: 142 | Documents: 3847 | Projects: 12
 |------|-------------|
 | `store_memory` | Store memories with 9 types: decision, solution, error_fix, pattern, learning, procedure, fact, preference, episodic. |
 | `delete_memory` | Hard-delete with audit history preservation. |
+| `ingest_document` | Extract and store structured insights (findings, metrics, summary) from uploaded documents. |
+| `store_document` | Store documents (PDF, text, image) with multimodal embeddings for semantic search. Requires `GEMINI_API_KEY`. |
+
+### Reasoning
+
+| Tool | Description |
+|------|-------------|
+| `reason_over_query` | Multi-step agent loop that iteratively searches history to answer complex questions (counting, temporal, comparison). Requires an LLM API key. |
+| `get_search_procedure` | Classify a question type and return the recommended search procedure without LLM calls. |
 
 ---
 
@@ -110,7 +121,7 @@ Conversation files  -->  Parsers  -->  SQLite + FTS5 index
                                              |
                               Decisions / Solutions / Fixes / Patterns
                                              |
-                                       9 MCP Tools
+                                      15 MCP Tools
                                              |
                                      Your AI Assistant
 ```
