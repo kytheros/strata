@@ -1,8 +1,12 @@
 """Strata adapter for MemEval LOCOMO benchmark.
 
 Implements the MemEval system adapter interface using the strata-memory
-Python SDK. Each LOCOMO conversation gets its own Strata database to
+Python SDK. Each LOCOMO conversation gets its own Strata Pro database to
 simulate real per-user deployment.
+
+Requires strata-pro (spawns `npx strata-pro` subprocess) for the full
+extraction pipeline via ingest_conversation. Community edition's
+store_memory does not chunk or index for FTS5 search — see README.
 
 Usage:
     python run_benchmark.py --num-samples 1 --skip-judge
@@ -25,7 +29,7 @@ from agents_memory.systems._helpers import _qa_results
 
 from strata.async_client import AsyncStrataClient
 from strata.transport.stdio import StdioTransport
-from strata.types import SearchResult
+from strata.types import IngestResult, SearchResult
 
 
 # ---------------------------------------------------------------------------
@@ -110,11 +114,11 @@ class _PersistentStrataClient:
         self._thread.join(timeout=5)
         self._loop.close()
 
-    def add(self, text: str, *, type: str = "episodic",
-            tags: list[str] | None = None, project: str | None = None):
-        """Store a memory via the SDK's add() method."""
+    def ingest(self, messages: list[dict[str, str]], *,
+               agent: str = "locomo", project: str | None = None) -> IngestResult:
+        """Ingest a conversation via the Pro extraction pipeline."""
         return self._run(
-            self._client.add(text, type=type, tags=tags, project=project)
+            self._client.ingest(messages, agent=agent, project=project)
         )
 
     def search(self, query: str, *, project: str | None = None,
@@ -189,47 +193,44 @@ def _group_dialogues_by_session(dialogues: list[dict]) -> list[list[dict]]:
 
 
 def _ingest_conversation(client: _PersistentStrataClient, conv: dict) -> None:
-    """Ingest a LOCOMO conversation into Strata.
+    """Ingest a LOCOMO conversation into Strata Pro.
 
-    Stores each dialogue session as individual episodic memories via
-    store_memory. Each session becomes a searchable knowledge entry
-    indexed via FTS5 (BM25 keyword search) and optionally vector
-    embeddings (if GEMINI_API_KEY is set for the Strata subprocess).
+    Uses ingest_conversation (Pro-only) which runs the full extraction
+    pipeline: chunking, FTS5 indexing, knowledge extraction, entity
+    extraction, and optional vector embeddings. Community edition's
+    store_memory does not provide this — see README.
     """
     dialogues = extract_dialogues(conv)
     sample_id = conv.get("sample_id", "unknown")
     sessions = _group_dialogues_by_session(dialogues)
     total_turns = 0
+    total_entries = 0
 
     for session in sessions:
-        # Format session as a single text block
-        lines = []
-        session_date = session[0].get("timestamp", "") if session else ""
+        # Format messages for Strata's ingest() method
+        messages = []
+        speaker_a = conv.get("conversation", {}).get("speaker_a", "")
         for turn in session:
             speaker = turn.get("speaker", "")
+            role = "user" if speaker == speaker_a else "assistant"
             text = turn.get("text", "")
-            lines.append(f"[{speaker}]: {text}")
+            messages.append({"role": role, "text": text})
 
-        session_text = "\n".join(lines)
-        if not session_text.strip():
+        if not messages:
             continue
 
-        # Prefix with date for temporal context
-        if session_date:
-            session_text = f"Date: {session_date}\n\n{session_text}"
-
         try:
-            client.add(
-                session_text,
-                type="episodic",
-                tags=["locomo", "conversation", f"session-{session_date}"],
+            result = client.ingest(
+                messages,
+                agent="locomo",
                 project=sample_id,
             )
             total_turns += len(session)
+            total_entries += result.entries_extracted if result else 0
         except Exception as e:
-            print(f"    Error storing session: {e}")
+            print(f"    Error ingesting session: {e}")
 
-    print(f"    Ingested: {total_turns} turns across {len(sessions)} sessions")
+    print(f"    Ingested: {total_turns} turns across {len(sessions)} sessions ({total_entries} entries extracted)")
 
 
 def _make_answer_fn(
@@ -325,9 +326,17 @@ def run(
 
         # Use a persistent event loop wrapper to keep the MCP transport
         # streams alive across multiple operations.
+        # strata-pro is a local package (not published to npm), so we
+        # run the built CLI directly via node.
+        strata_pro_cli = Path(__file__).resolve().parents[3] / "strata-pro" / "dist" / "cli.js"
+        if not strata_pro_cli.exists():
+            raise FileNotFoundError(
+                f"strata-pro CLI not found at {strata_pro_cli}. "
+                "Run 'cd strata-pro && npm run build' first."
+            )
         transport = StdioTransport(
-            command="npx",
-            args=["strata-mcp"],
+            command="node",
+            args=[str(strata_pro_cli)],
             env=strata_env,
         )
         client = _PersistentStrataClient(transport=transport)

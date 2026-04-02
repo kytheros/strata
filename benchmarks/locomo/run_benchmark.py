@@ -23,6 +23,7 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,6 +49,10 @@ def main() -> None:
         "--judge-fn", type=str, default=None,
         choices=["default", "longmemeval"],
         help="Judge function to use",
+    )
+    parser.add_argument(
+        "--parallel", type=int, default=2,
+        help="Max conversations to process in parallel (default: 2)",
     )
     parser.add_argument(
         "--output", type=str, default=None,
@@ -88,36 +93,46 @@ def main() -> None:
     conversations = download(num_samples=args.num_samples)
     print(f"Loaded {len(conversations)} conversations\n")
 
-    # Run adapter for each conversation
+    # Run adapter for each conversation (2 in parallel)
     all_results: list[dict] = []
     run_judge = not args.skip_judge
     judge_fn = args.judge_fn if args.judge_fn != "default" else None
+    max_parallel = args.parallel
     start_time = time.time()
 
-    for i, conv in enumerate(conversations, 1):
+    def _process_conv(i: int, conv: dict) -> tuple[str, list[dict], float]:
         sample_id = conv.get("sample_id", f"conv-{i}")
         qa_count = len(conv.get("qa", []))
-        print(f"\n--- Conversation {i}/{len(conversations)}: {sample_id} ({qa_count} QA pairs) ---")
+        print(f"\n--- Conversation {i}/{len(conversations)}: {sample_id} ({qa_count} QA pairs) ---", flush=True)
 
         conv_start = time.time()
-        try:
-            results = strata_adapter.run(
-                conv=conv,
-                llm_model="gemini-2.5-flash",  # Not used by our adapter
-                run_judge=run_judge,
-                category_names=CATEGORY_NAMES,
-                judge_fn=judge_fn,
-            )
-            all_results.extend(results)
-        except Exception as e:
-            print(f"  ERROR processing {sample_id}: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-
+        results = strata_adapter.run(
+            conv=conv,
+            llm_model="gemini-2.5-flash",
+            run_judge=run_judge,
+            category_names=CATEGORY_NAMES,
+            judge_fn=judge_fn,
+        )
         conv_time = time.time() - conv_start
         conv_f1 = sum(r["f1"] for r in results) / len(results) if results else 0
-        print(f"  Completed in {conv_time:.1f}s - Avg F1: {conv_f1:.3f}")
+        print(f"  [{sample_id}] Completed in {conv_time:.1f}s - Avg F1: {conv_f1:.3f}", flush=True)
+        return sample_id, results, conv_time
+
+    with ThreadPoolExecutor(max_workers=max_parallel) as pool:
+        futures = {
+            pool.submit(_process_conv, i, conv): conv
+            for i, conv in enumerate(conversations, 1)
+        }
+        for future in as_completed(futures):
+            try:
+                sample_id, results, conv_time = future.result()
+                all_results.extend(results)
+            except Exception as e:
+                conv = futures[future]
+                sample_id = conv.get("sample_id", "?")
+                print(f"  ERROR processing {sample_id}: {e}")
+                import traceback
+                traceback.print_exc()
 
     total_time = time.time() - start_time
 

@@ -38,13 +38,19 @@ Two scores reported per run:
 - **Full** (all 1,986 QA pairs) -- MemEval leaderboard comparable
 - **Non-adversarial** (~1,540 QA pairs) -- Honcho comparable
 
+## Requires Strata Pro
+
+This benchmark uses `strata-pro` (not the free community edition) because it needs `ingest_conversation` — the Pro tool that runs the full extraction pipeline (chunking, FTS5 indexing, knowledge extraction, entity extraction, embeddings). The community `store_memory` tool stores raw text but does not chunk or index it for search, resulting in 0% retrieval accuracy on LOCOMO.
+
+This is a meaningful feature gap: **community users cannot run memory benchmarks** against standardized datasets. The full extraction pipeline is a Pro-only capability.
+
 ## Architecture
 
 ```
 MemEval Harness (Python)
   +-- strata_adapter.py       <-- Strata adapter
   |     +-- StrataClient (stdio transport)
-  |           +-- npx strata-mcp (subprocess)
+  |           +-- npx strata-pro (subprocess)
   +-- _qa_results (MemEval)   <-- handles scoring
   +-- Judge (gpt-5.2)         <-- 3-dimensional scoring
 ```
