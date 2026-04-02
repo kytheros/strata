@@ -89,8 +89,16 @@ export async function handleFindSolutions(
     : await engine.searchSolutions(args.error_or_problem, args.technology, args.user);
 
   // Also search knowledge entries for stored solutions/error_fixes.
-  // Prefer raw SQL (SQLite path) when db is available; fall back to IKnowledgeStore (D1 path).
-  if (db) {
+  // Prefer IKnowledgeStore (FTS5 with stop-word removal) when available;
+  // fall back to raw SQL LIKE (slower, no stop-word handling) when only db is available.
+  if (knowledgeStore) {
+    const knowledgeResults = await searchSolutionsViaStore(knowledgeStore, args.error_or_problem, args.user);
+    if (knowledgeResults.length > 0) {
+      results = [...results, ...knowledgeResults]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 20);
+    }
+  } else if (db) {
     const solutionTypes = ["solution", "error_fix"];
     const terms = args.error_or_problem.toLowerCase().split(/\s+/).filter(t => t.length > 1);
     if (terms.length > 0) {
@@ -129,13 +137,6 @@ export async function handleFindSolutions(
             .slice(0, 20);
         }
       } catch { /* best-effort */ }
-    }
-  } else if (knowledgeStore) {
-    const knowledgeResults = await searchSolutionsViaStore(knowledgeStore, args.error_or_problem, args.user);
-    if (knowledgeResults.length > 0) {
-      results = [...results, ...knowledgeResults]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 20);
     }
   }
 

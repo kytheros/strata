@@ -221,16 +221,17 @@ export async function handleSearchHistory(
     : await engine.search(query, searchOptions);
 
   // Also search the knowledge table for stored memories.
-  // Prefer raw SQL (faster, SQLite path) when db is available; fall back to IKnowledgeStore (D1 path).
-  if (db) {
-    const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
+  // Prefer IKnowledgeStore (FTS5 with stop-word removal) when available;
+  // fall back to raw SQL LIKE (slower, no stop-word handling) when only db is available.
+  if (knowledgeStore) {
+    const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
     if (knowledgeResults.length > 0) {
       results = [...results, ...knowledgeResults]
         .sort((a, b) => b.score - a.score)
         .slice(0, Math.min(searchOptions.limit ?? 20, 100));
     }
-  } else if (knowledgeStore) {
-    const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
+  } else if (db) {
+    const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
     if (knowledgeResults.length > 0) {
       results = [...results, ...knowledgeResults]
         .sort((a, b) => b.score - a.score)
