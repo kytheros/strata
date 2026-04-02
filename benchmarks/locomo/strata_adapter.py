@@ -5,28 +5,27 @@ Python SDK. Each LOCOMO conversation gets its own Strata database to
 simulate real per-user deployment.
 
 Usage:
-    Copy this file to MemEval's src/agents_memory/systems/strata.py,
-    or use run.sh which does this automatically.
-
-    GEMINI_API_KEY=xxx python -m agents_memory.scripts.run_full_benchmark \
-        --systems strata --num-samples 1 --skip-judge
+    python run_benchmark.py --num-samples 1 --skip-judge
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 from typing import Callable
 
 from google import genai
 
-from agents_memory.evaluation import compute_f1, evaluate_with_judge, evaluate_longmemeval
-from agents_memory.locomo import CATEGORY_NAMES as DEFAULT_CATEGORIES
 from agents_memory.locomo import extract_dialogues
+from agents_memory.systems._helpers import _qa_results
 
-from strata import StrataClient
+from strata.async_client import AsyncStrataClient
+from strata.transport.stdio import StdioTransport
+from strata.types import SearchResult
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +70,62 @@ _ANSWER_PROMPT_NATURAL = (
 
 
 # ---------------------------------------------------------------------------
+# Persistent event loop wrapper for AsyncStrataClient
+# ---------------------------------------------------------------------------
+
+class _PersistentStrataClient:
+    """Wraps AsyncStrataClient with a persistent background event loop.
+
+    The MCP stdio transport uses anyio streams that are bound to the event
+    loop where they were created. Using asyncio.run() for each operation
+    (as the sync StrataClient does) creates and destroys loops, breaking
+    the stream bindings. This wrapper keeps a single event loop alive for
+    the entire session.
+    """
+
+    def __init__(self, transport: StdioTransport) -> None:
+        self._client = AsyncStrataClient(transport=transport)
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(
+            target=self._loop.run_forever,
+            daemon=True,
+            name="strata-locomo-loop",
+        )
+        self._thread.start()
+
+    def _run(self, coro):
+        """Run a coroutine on the persistent event loop."""
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result(timeout=300)
+
+    def connect(self) -> None:
+        self._run(self._client.connect())
+
+    def close(self) -> None:
+        try:
+            self._run(self._client.close())
+        except Exception:
+            pass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join(timeout=5)
+        self._loop.close()
+
+    def add(self, text: str, *, type: str = "episodic",
+            tags: list[str] | None = None, project: str | None = None):
+        """Store a memory via the SDK's add() method."""
+        return self._run(
+            self._client.add(text, type=type, tags=tags, project=project)
+        )
+
+    def search(self, query: str, *, project: str | None = None,
+               limit: int = 20) -> list[SearchResult]:
+        """Search via the SDK's search() method."""
+        return self._run(
+            self._client.search(query, project=project, limit=limit)
+        )
+
+
+# ---------------------------------------------------------------------------
 # Answer generation via Gemini
 # ---------------------------------------------------------------------------
 
@@ -103,25 +158,28 @@ def _generate_answer(question: str, context: str, use_natural: bool = False) -> 
 # ---------------------------------------------------------------------------
 
 def _group_dialogues_by_session(dialogues: list[dict]) -> list[list[dict]]:
-    """Group flat dialogue turns into sessions based on timestamp.
+    """Group flat dialogue turns into sessions based on dia_id prefix.
 
     extract_dialogues() returns a flat list of turns, each with a
-    'timestamp' field (the session date). We group consecutive turns
-    with the same timestamp into sessions for batch ingestion.
+    'dia_id' field like 'D1:1', 'D1:2', 'D2:1'. We group turns by
+    their dialogue ID prefix (e.g., 'D1', 'D2') into sessions for
+    batch ingestion.
     """
     if not dialogues:
         return []
 
     sessions: list[list[dict]] = []
     current_session: list[dict] = []
-    current_timestamp = None
+    current_dia_prefix = None
 
     for turn in dialogues:
-        ts = turn.get("timestamp", "")
-        if ts != current_timestamp and current_session:
+        dia_id = turn.get("dia_id", "")
+        # Extract prefix before the colon: "D1:3" -> "D1"
+        prefix = dia_id.split(":")[0] if ":" in dia_id else dia_id
+        if prefix != current_dia_prefix and current_session:
             sessions.append(current_session)
             current_session = []
-        current_timestamp = ts
+        current_dia_prefix = prefix
         current_session.append(turn)
 
     if current_session:
@@ -130,55 +188,52 @@ def _group_dialogues_by_session(dialogues: list[dict]) -> list[list[dict]]:
     return sessions
 
 
-def _ingest_conversation(client: StrataClient, conv: dict) -> None:
-    """Ingest a LOCOMO conversation into Strata via the SDK.
+def _ingest_conversation(client: _PersistentStrataClient, conv: dict) -> None:
+    """Ingest a LOCOMO conversation into Strata.
 
-    Extracts dialogue turns, groups them by session, and calls
-    client.ingest() for each session. This runs Strata's full
-    extraction pipeline (chunking, knowledge extraction, entity
-    extraction, embedding).
+    Stores each dialogue session as individual episodic memories via
+    store_memory. Each session becomes a searchable knowledge entry
+    indexed via FTS5 (BM25 keyword search) and optionally vector
+    embeddings (if GEMINI_API_KEY is set for the Strata subprocess).
     """
     dialogues = extract_dialogues(conv)
-    sessions = _group_dialogues_by_session(dialogues)
     sample_id = conv.get("sample_id", "unknown")
-    conv_data = conv.get("conversation", {})
-    speaker_a = conv_data.get("speaker_a", "")
-
+    sessions = _group_dialogues_by_session(dialogues)
     total_turns = 0
+
     for session in sessions:
-        # Format messages for Strata's ingest() method
-        # Map speaker_a -> "user", speaker_b -> "assistant"
-        messages = []
+        # Format session as a single text block
+        lines = []
+        session_date = session[0].get("timestamp", "") if session else ""
         for turn in session:
             speaker = turn.get("speaker", "")
-            role = "user" if speaker == speaker_a else "assistant"
-            timestamp = turn.get("timestamp", "")
             text = turn.get("text", "")
+            lines.append(f"[{speaker}]: {text}")
 
-            # Include speaker name and timestamp in the text for context
-            # This helps Strata's extraction pipeline preserve speaker identity
-            content = f"[{speaker}] ({timestamp}): {text}" if timestamp else f"[{speaker}]: {text}"
-            messages.append({
-                "role": role,
-                "content": content,
-            })
+        session_text = "\n".join(lines)
+        if not session_text.strip():
+            continue
 
-        if messages:
-            try:
-                client.ingest(
-                    messages,
-                    agent="locomo",
-                    project=sample_id,
-                )
-                total_turns += len(messages)
-            except Exception as e:
-                print(f"    Error ingesting session: {e}")
+        # Prefix with date for temporal context
+        if session_date:
+            session_text = f"Date: {session_date}\n\n{session_text}"
+
+        try:
+            client.add(
+                session_text,
+                type="episodic",
+                tags=["locomo", "conversation", f"session-{session_date}"],
+                project=sample_id,
+            )
+            total_turns += len(session)
+        except Exception as e:
+            print(f"    Error storing session: {e}")
 
     print(f"    Ingested: {total_turns} turns across {len(sessions)} sessions")
 
 
 def _make_answer_fn(
-    client: StrataClient,
+    client: _PersistentStrataClient,
     conv: dict,
     use_natural: bool = False,
 ) -> Callable[[str], str]:
@@ -260,77 +315,36 @@ def run(
     print(f"  [{sample_id}] Data dir: {data_dir}")
 
     try:
-        # Build env for the Strata subprocess with isolated data dir
-        strata_env = {**os.environ, "STRATA_DATA_DIR": str(data_dir)}
+        # Build env for the Strata subprocess with isolated data dir.
+        # Increase Node.js heap to prevent OOM on large conversations.
+        strata_env = {
+            **os.environ,
+            "STRATA_DATA_DIR": str(data_dir),
+            "NODE_OPTIONS": os.environ.get("NODE_OPTIONS", "") + " --max-old-space-size=8192",
+        }
 
-        # Connect to Strata via stdio transport (spawns npx strata-mcp)
-        # Pass env to the transport so the subprocess uses the right data dir
-        from strata.transport.stdio import StdioTransport
-
+        # Use a persistent event loop wrapper to keep the MCP transport
+        # streams alive across multiple operations.
         transport = StdioTransport(
             command="npx",
             args=["strata-mcp"],
             env=strata_env,
         )
-        client = StrataClient(transport=transport)
+        client = _PersistentStrataClient(transport=transport)
         client.connect()
 
         try:
             # Phase 1: Ingest conversation
             _ingest_conversation(client, conv)
 
-            # Phase 2: Answer questions
-            # We implement the QA loop directly instead of using _qa_results
-            # to avoid nested asyncio.run() issues (StrataClient uses asyncio
-            # internally, and _qa_results wraps its async version with asyncio.run).
+            # Phase 2: Answer questions via MemEval's standard QA evaluator
             use_natural = judge_fn == "longmemeval"
             answer_fn = _make_answer_fn(client, conv, use_natural=use_natural)
-            cats = category_names or DEFAULT_CATEGORIES
-            qa_pairs = conv.get("qa", [])
-            results = []
 
-            for i, qa in enumerate(qa_pairs, 1):
-                question = qa.get("question", "")
-                ground_truth = qa.get("answer", "")
-                category = qa.get("category", 0)
-                question_id = qa.get("question_id", "")
-
-                try:
-                    predicted = answer_fn(question)
-                except Exception as err:
-                    print(f"    Error on Q{i}: {err}")
-                    predicted = ""
-
-                f1 = compute_f1(predicted, ground_truth)
-
-                row = {
-                    "sample_id": sample_id,
-                    "question": question,
-                    "ground_truth": ground_truth,
-                    "predicted": predicted,
-                    "category": category,
-                    "category_name": cats.get(category, str(category)),
-                    "f1": f1,
-                }
-
-                if run_judge:
-                    if judge_fn == "longmemeval":
-                        row.update(evaluate_longmemeval(
-                            question, ground_truth, predicted,
-                            category=str(category),
-                            question_id=question_id,
-                        ))
-                    else:
-                        row.update(evaluate_with_judge(
-                            question, ground_truth, predicted,
-                        ))
-
-                results.append(row)
-
-                if i % 20 == 0:
-                    print(f"    QA {i}/{len(qa_pairs)} - F1={f1:.3f}")
-
-            return results
+            return _qa_results(
+                conv, answer_fn, run_judge,
+                category_names=category_names, judge_fn=judge_fn,
+            )
         finally:
             client.close()
     finally:
