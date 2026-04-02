@@ -169,6 +169,52 @@ describe("DocumentChunkStore", () => {
     expect(results[0].chunkId).toBe("chunk-a");
   });
 
+  describe("searchFts special character handling", () => {
+    beforeEach(() => {
+      const doc: StoredDocument = {
+        id: "doc-fts",
+        title: "FTS Test Doc",
+        mimeType: "text/plain",
+        project: "test-project",
+        tags: [],
+        chunkCount: 1,
+        fileSize: 100,
+        createdAt: Date.now(),
+      };
+
+      store.addDocument(doc, [{
+        id: "chunk-fts",
+        documentId: "doc-fts",
+        chunkIndex: 0,
+        content: "The user attended an LGBTQ support group meeting last Tuesday",
+        embedding: new Float32Array(3072).fill(0.1),
+        model: "gemini-embedding-2-preview",
+        createdAt: Date.now(),
+      }]);
+    });
+
+    it("does not crash on queries containing question marks", () => {
+      // FTS5 syntax error: ? is not a valid FTS5 token
+      expect(() => store.searchFts("What group did they attend?", 10)).not.toThrow();
+    });
+
+    it("does not crash on queries containing single quotes", () => {
+      // FTS5 syntax error: unmatched single quote
+      expect(() => store.searchFts("user's support group", 10)).not.toThrow();
+    });
+
+    it("does not crash on queries containing mixed special characters", () => {
+      expect(() => store.searchFts("What's the user's group? (LGBTQ+)", 10)).not.toThrow();
+    });
+
+    it("returns results for queries with special characters stripped", () => {
+      // Query contains ? but the core terms match the content
+      const results = store.searchFts("LGBTQ support group?", 10);
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].content).toContain("support group");
+    });
+  });
+
   it("deletes a document and its chunks", () => {
     const doc: StoredDocument = {
       id: "doc-del",

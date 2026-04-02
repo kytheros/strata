@@ -9,6 +9,7 @@
 
 import type Database from "better-sqlite3";
 import type { IEventStore, SVOEvent } from "./interfaces/event-store.js";
+import { sanitizeFtsQuery } from "../utils/fts-sanitizer.js";
 
 export class SqliteEventStore implements IEventStore {
   constructor(private db: Database.Database) {}
@@ -49,12 +50,11 @@ export class SqliteEventStore implements IEventStore {
   async search(query: string, limit = 30): Promise<SVOEvent[]> {
     if (!this.tableExists()) return [];
 
-    // Sanitize query into individual words for FTS5
-    const words = query
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((w) => w.length > 1);
+    // Sanitize query for FTS5 using shared utility (Unicode-aware, stop-word removal)
+    const sanitized = sanitizeFtsQuery(query);
+    if (!sanitized) return [];
+
+    const words = sanitized.toLowerCase().split(/\s+/).filter((w) => w.length > 1);
     if (words.length === 0) return [];
 
     const andQuery = words.join(" AND ");

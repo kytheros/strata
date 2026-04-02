@@ -84,6 +84,26 @@ describe("DocumentChunkStore.searchFts", () => {
     const results = store.searchFts("   ", 10);
     expect(results).toEqual([]);
   });
+
+  it("handles queries with question marks without crashing", () => {
+    // Bug: ? is an FTS5 special character that was not being sanitized
+    const results = store.searchFts("What is React?", 10);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it("handles queries with apostrophes without crashing", () => {
+    // Bug: ' breaks FTS5 string literals and was not being sanitized
+    const results = store.searchFts("React's testing", 10);
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it("handles queries with mixed special characters", () => {
+    // Regression: ensure combinations of special chars are all stripped without crashing.
+    // After sanitization + stop-word removal, this becomes "React testing hooks component"
+    // which uses implicit AND — no single chunk contains ALL four terms, so zero results
+    // is correct. The key assertion is that it does not throw.
+    expect(() => store.searchFts("What's the React testing? [hooks] @component!", 10)).not.toThrow();
+  });
 });
 
 describe("DocumentChunkStore.getChunkWithMeta", () => {

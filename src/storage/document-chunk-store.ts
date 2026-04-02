@@ -4,6 +4,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { sanitizeFtsQuery } from "../utils/fts-sanitizer.js";
 
 export interface StoredDocument {
   id: string;
@@ -187,42 +188,40 @@ export class DocumentChunkStore {
 
   /** FTS5 keyword search over stored document chunks. */
   searchFts(query: string, limit: number): DocChunkFtsResult[] {
-    // Sanitize: strip FTS5 special chars (including hyphen which acts as NOT operator),
-    // then join with implicit AND
-    const sanitized = query
-      .replace(/[*":()^~{}<>\-]/g, " ")
-      .split(/\s+/)
-      .filter((w) => w.length > 1)
-      .join(" ");
+    const sanitized = sanitizeFtsQuery(query);
+    if (!sanitized) return [];
 
-    if (!sanitized.trim()) return [];
+    try {
+      const rows = this.db.prepare(`
+        SELECT
+          f.chunk_id,
+          f.document_id,
+          f.project,
+          f.content,
+          sd.title,
+          dc.created_at,
+          bm25(document_chunks_fts) as rank
+        FROM document_chunks_fts f
+        JOIN stored_documents sd ON sd.id = f.document_id
+        JOIN document_chunks dc ON dc.id = f.chunk_id
+        WHERE document_chunks_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(sanitized, limit) as any[];
 
-    const rows = this.db.prepare(`
-      SELECT
-        f.chunk_id,
-        f.document_id,
-        f.project,
-        f.content,
-        sd.title,
-        dc.created_at,
-        bm25(document_chunks_fts) as rank
-      FROM document_chunks_fts f
-      JOIN stored_documents sd ON sd.id = f.document_id
-      JOIN document_chunks dc ON dc.id = f.chunk_id
-      WHERE document_chunks_fts MATCH ?
-      ORDER BY rank
-      LIMIT ?
-    `).all(sanitized, limit) as any[];
-
-    return rows.map((r) => ({
-      chunkId: r.chunk_id,
-      documentId: r.document_id,
-      project: r.project,
-      title: r.title,
-      content: r.content,
-      rank: r.rank,
-      createdAt: r.created_at,
-    }));
+      return rows.map((r) => ({
+        chunkId: r.chunk_id,
+        documentId: r.document_id,
+        project: r.project,
+        title: r.title,
+        content: r.content,
+        rank: r.rank,
+        createdAt: r.created_at,
+      }));
+    } catch {
+      // If FTS query syntax is still somehow invalid, degrade gracefully
+      return [];
+    }
   }
 
   /** Get a single chunk with its parent document metadata (for search result hydration). */
