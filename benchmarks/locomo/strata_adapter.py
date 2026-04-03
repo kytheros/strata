@@ -434,12 +434,15 @@ def _get_genai_client() -> genai.Client:
 
 
 def _generate_answer(question: str, context: str, prompt_template: str) -> str:
-    """Generate an answer using Gemini 2.5 Flash given retrieved context."""
-    prompt = prompt_template.format(
-        context=context,
-        question=question,
-        events_section="",  # default empty, overridden by caller
-    )
+    """Generate an answer using Gemini 2.5 Flash given retrieved context.
+
+    Uses manual string replacement instead of str.format() because the
+    context and events text may contain { } characters that break format().
+    """
+    prompt = prompt_template
+    prompt = prompt.replace("{context}", context)
+    prompt = prompt.replace("{question}", question)
+    prompt = prompt.replace("{events_section}", "")
 
     client = _get_genai_client()
     response = client.models.generate_content(
