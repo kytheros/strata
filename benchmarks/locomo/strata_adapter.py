@@ -636,6 +636,14 @@ def _make_answer_fn(
         # Merge and deduplicate
         results = _merge_results(bm25_results, semantic_results, top_k=20)
 
+        # Filter out low-quality results to reduce context noise.
+        # Keep results with score > 0 (actual FTS5/vector matches).
+        # "No results found" placeholder text has score 0.0.
+        if results:
+            quality_results = [r for r in results if r.score > 0.01]
+            if quality_results:
+                results = quality_results
+
         # Step 4: Strategy-specific search_events for temporal + enumerate
         events_context = ""
         if strategy in ("date-lookup", "enumerate"):

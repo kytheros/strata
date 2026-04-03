@@ -73,8 +73,29 @@ export async function extractSVOEvents(
       cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
     }
 
-    const parsed = JSON.parse(cleaned);
-    return (Array.isArray(parsed) ? parsed : [])
+    // Try parsing, with repair for truncated JSON arrays
+    let parsed: unknown[];
+    try {
+      const raw = JSON.parse(cleaned);
+      parsed = Array.isArray(raw) ? raw : [];
+    } catch {
+      // Attempt to salvage truncated JSON array — find all complete objects
+      const objects: string[] = [];
+      let depth = 0;
+      let objStart = -1;
+      for (let i = 0; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+        if (ch === "{" && depth === 0) { objStart = i; depth = 1; }
+        else if (ch === "{") { depth++; }
+        else if (ch === "}" && depth > 1) { depth--; }
+        else if (ch === "}" && depth === 1) { depth = 0; objects.push(cleaned.slice(objStart, i + 1)); }
+        else if (ch === '"') { i++; while (i < cleaned.length && cleaned[i] !== '"') { if (cleaned[i] === "\\") i++; i++; } }
+      }
+      if (objects.length === 0) throw new Error("No complete SVO objects in response");
+      parsed = objects.map((o) => JSON.parse(o));
+    }
+
+    return (parsed as Record<string, unknown>[])
       .filter(
         (e: Record<string, unknown>) => e.subject && e.verb && e.object
       )
