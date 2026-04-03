@@ -624,9 +624,17 @@ def run(
     try:
         # Build env for the Strata subprocess with isolated data dir.
         # Increase Node.js heap to prevent OOM on large conversations.
+        # Isolate the Strata subprocess completely:
+        # - STRATA_DATA_DIR: per-conversation database
+        # - CLAUDE_DIR: empty dir so it doesn't index real user history
+        # - STRATA_DISABLE_WATCHER: prevent real-time file watching
+        empty_claude_dir = data_dir / "_claude"
+        empty_claude_dir.mkdir(exist_ok=True)
         strata_env = {
             **os.environ,
             "STRATA_DATA_DIR": str(data_dir),
+            "CLAUDE_DIR": str(empty_claude_dir),
+            "STRATA_DISABLE_WATCHER": "1",
             "NODE_OPTIONS": os.environ.get("NODE_OPTIONS", "") + " --max-old-space-size=8192",
         }
 
