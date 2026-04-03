@@ -568,4 +568,11 @@ export class D1KnowledgeStore implements IKnowledgeStore {
     }
     return out;
   }
+
+  /**
+   * No-op: D1 store handles embeddings internally (no fire-and-forget promises).
+   */
+  async flushPendingEmbeddings(): Promise<number> {
+    return 0;
+  }
 }

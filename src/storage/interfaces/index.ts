@@ -11,6 +11,9 @@ export type { IEntityStore } from "./entity-store.js";
 export type { ISummaryStore } from "./summary-store.js";
 export type { IMetaStore } from "./meta-store.js";
 export type { IEventStore, SVOEvent } from "./event-store.js";
+export type { ITrainingStore } from "./training-store.js";
+export type { IEvidenceGapStore } from "./evidence-gap-store.js";
+export type { IQuantizationStore, QuantizationMigrationState, EmbeddingRowForMigration } from "./quantization-store.js";
 
 // -- Types used by interfaces --
 export type { KnowledgeUpdatePatch, KnowledgeHistoryRow, KnowledgeListOptions } from "./knowledge-store.js";
@@ -41,14 +44,18 @@ export interface StorageContext {
 
 /** Options for the storage factory. */
 export interface StorageOptions {
-  adapter: "sqlite" | "d1";
+  adapter: "sqlite" | "d1" | "pg";
 
   // SQLite-specific
   dbPath?: string;
 
   // D1-specific
   d1Binding?: unknown; // D1Database type from @cloudflare/workers-types
-  userId?: string; // Row-scoping key for multi-tenant D1
+  userId?: string; // Row-scoping key for multi-tenant D1 and Postgres
+
+  // Postgres-specific
+  pgConnectionString?: string;
+  pgMaxConnections?: number;
 
   // Shared
   embedder?: GeminiEmbedder | null;

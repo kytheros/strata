@@ -119,6 +119,9 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
   /** Optional embedder for generating vector embeddings on write */
   private embedder: GeminiEmbedder | null;
 
+  /** In-flight embedding promises (tracked for flushPendingEmbeddings) */
+  private pendingEmbeddings: Set<Promise<void>> = new Set();
+
   /** Prepared statement for upserting embeddings */
   private upsertEmbedding: Database.Statement;
 
@@ -293,12 +296,13 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
   /**
    * Asynchronously generate and store an embedding for a knowledge entry.
    * Failures are caught and logged — never propagated to the caller.
+   * The promise is tracked in pendingEmbeddings for flushPendingEmbeddings().
    */
   private embedEntryAsync(entry: KnowledgeEntry): void {
     if (!this.embedder) return;
 
     const text = entry.summary + " " + entry.details;
-    this.embedder
+    const promise = this.embedder
       .embed(text, "RETRIEVAL_DOCUMENT")
       .then((vec) => {
         let buf: Buffer;
@@ -318,7 +322,28 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
       })
       .catch((err) => {
         console.error(`[strata] Failed to embed entry ${entry.id}:`, err);
+      })
+      .finally(() => {
+        this.pendingEmbeddings.delete(promise);
       });
+
+    this.pendingEmbeddings.add(promise);
+  }
+
+  /**
+   * Wait for all pending embedding operations to complete.
+   *
+   * Embedding generation is fire-and-forget during addEntry/upsertEntry/updateEntry.
+   * Callers that need embeddings to be persisted before returning (e.g., ingest_conversation)
+   * should await this method after all entries have been added.
+   *
+   * @returns The number of embedding operations that were awaited.
+   */
+  async flushPendingEmbeddings(): Promise<number> {
+    const count = this.pendingEmbeddings.size;
+    if (count === 0) return 0;
+    await Promise.all([...this.pendingEmbeddings]);
+    return count;
   }
 
   /**
@@ -518,6 +543,15 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
       this.pruneHistoryForEntry(id);
     });
     updateTxn();
+
+    // Re-embed when text content changed (summary or details)
+    if (patch.summary !== undefined || patch.details !== undefined) {
+      const updatedRow = this.stmts.getById.get(id) as SqliteKnowledgeRow | undefined;
+      if (updatedRow) {
+        this.embedEntryAsync(rowToEntry(updatedRow));
+      }
+    }
+
     return true;
   }
 

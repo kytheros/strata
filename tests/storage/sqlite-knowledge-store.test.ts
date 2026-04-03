@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import { openDatabase } from "../../src/storage/database.js";
 import { SqliteKnowledgeStore } from "../../src/storage/sqlite-knowledge-store.js";
 import type { KnowledgeEntry } from "../../src/knowledge/knowledge-store.js";
+import type { GeminiEmbedder } from "../../src/extensions/embeddings/gemini-embedder.js";
 
 function makeEntry(overrides: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
   return {
@@ -192,6 +193,116 @@ describe("SqliteKnowledgeStore", () => {
       expect(result!.occurrences).toBeUndefined();
       expect(result!.projectCount).toBeUndefined();
       expect(result!.extractedAt).toBeUndefined();
+    });
+  });
+
+  describe("flushPendingEmbeddings", () => {
+    it("should return 0 when no embedder is configured", async () => {
+      await store.addEntry(makeEntry({ id: "e1" }));
+      const count = await store.flushPendingEmbeddings();
+      expect(count).toBe(0);
+    });
+
+    it("should wait for pending embeddings and write them to the database", async () => {
+      // Create a mock embedder that resolves after a delay
+      const fakeVector = new Float32Array(3072);
+      fakeVector[0] = 1.0; // Non-zero so we can verify it was written
+      const mockEmbedder = {
+        embed: vi.fn().mockResolvedValue(fakeVector),
+        embedBatch: vi.fn(),
+        dimensions: 3072,
+      } as unknown as GeminiEmbedder;
+
+      // Create store with embedder
+      const storeWithEmbedder = new SqliteKnowledgeStore(db, mockEmbedder);
+
+      const entry = makeEntry({ id: "embed-test-1" });
+      await storeWithEmbedder.addEntry(entry);
+
+      // Before flush: embedding may or may not be written yet (async)
+      // After flush: embedding must be written
+      const flushed = await storeWithEmbedder.flushPendingEmbeddings();
+      expect(flushed).toBe(1);
+
+      // Verify embedding was persisted
+      const row = db
+        .prepare("SELECT entry_id, embedding FROM embeddings WHERE entry_id = ?")
+        .get("embed-test-1") as { entry_id: string; embedding: Buffer } | undefined;
+      expect(row).toBeDefined();
+      expect(row!.entry_id).toBe("embed-test-1");
+    });
+
+    it("should handle multiple concurrent embeddings", async () => {
+      const fakeVector = new Float32Array(3072);
+      let embedCallCount = 0;
+      // Use a small delay to keep promises pending until flush
+      const mockEmbedder = {
+        embed: vi.fn().mockImplementation(() => {
+          embedCallCount++;
+          return new Promise<Float32Array>((resolve) =>
+            setTimeout(() => resolve(fakeVector), 50)
+          );
+        }),
+        embedBatch: vi.fn(),
+        dimensions: 3072,
+      } as unknown as GeminiEmbedder;
+
+      const storeWithEmbedder = new SqliteKnowledgeStore(db, mockEmbedder);
+
+      // Add multiple entries rapidly (like ingest_conversation does)
+      await storeWithEmbedder.addEntry(makeEntry({ id: "multi-1", summary: "Entry one" }));
+      await storeWithEmbedder.addEntry(makeEntry({ id: "multi-2", summary: "Entry two" }));
+      await storeWithEmbedder.addEntry(makeEntry({ id: "multi-3", summary: "Entry three" }));
+
+      const flushed = await storeWithEmbedder.flushPendingEmbeddings();
+      expect(flushed).toBe(3);
+      expect(embedCallCount).toBe(3);
+
+      // All embeddings should be persisted
+      const count = (db.prepare("SELECT COUNT(*) as c FROM embeddings").get() as { c: number }).c;
+      expect(count).toBe(3);
+    });
+
+    it("should return 0 on second flush when no new entries added", async () => {
+      const fakeVector = new Float32Array(3072);
+      const mockEmbedder = {
+        embed: vi.fn().mockResolvedValue(fakeVector),
+        embedBatch: vi.fn(),
+        dimensions: 3072,
+      } as unknown as GeminiEmbedder;
+
+      const storeWithEmbedder = new SqliteKnowledgeStore(db, mockEmbedder);
+
+      await storeWithEmbedder.addEntry(makeEntry({ id: "once-1" }));
+      await storeWithEmbedder.flushPendingEmbeddings();
+
+      // Second flush with no new entries
+      const count = await storeWithEmbedder.flushPendingEmbeddings();
+      expect(count).toBe(0);
+    });
+
+    it("should handle embedding failures gracefully", async () => {
+      const mockEmbedder = {
+        embed: vi.fn().mockRejectedValue(new Error("API rate limit")),
+        embedBatch: vi.fn(),
+        dimensions: 3072,
+      } as unknown as GeminiEmbedder;
+
+      const storeWithEmbedder = new SqliteKnowledgeStore(db, mockEmbedder);
+
+      await storeWithEmbedder.addEntry(makeEntry({ id: "fail-1" }));
+
+      // Should not throw even though embedding failed
+      const flushed = await storeWithEmbedder.flushPendingEmbeddings();
+      expect(flushed).toBe(1); // 1 promise was awaited (even though it failed)
+
+      // Knowledge entry should still exist (embedding failure doesn't rollback)
+      const entry = await storeWithEmbedder.getEntry("fail-1");
+      expect(entry).toBeDefined();
+
+      // But no embedding was written
+      const embCount = (db.prepare("SELECT COUNT(*) as c FROM embeddings").get() as { c: number }).c;
+      expect(embCount).toBe(0);
     });
   });
 });

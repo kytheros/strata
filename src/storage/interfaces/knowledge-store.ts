@@ -55,4 +55,17 @@ export interface IKnowledgeStore {
   getAllEntries(user?: string): Promise<KnowledgeEntry[]>;
   getEntries(options: KnowledgeListOptions): Promise<{ entries: KnowledgeEntry[]; total: number }>;
   getTypeDistribution(project?: string): Promise<Record<string, number>>;
+
+  /**
+   * Wait for all pending embedding operations to complete.
+   *
+   * Embedding generation is fire-and-forget during addEntry/upsertEntry/updateEntry
+   * to avoid blocking the write path. Callers that need embeddings to be persisted
+   * before returning (e.g., ingest_conversation) should await this method after
+   * all entries have been added.
+   *
+   * Returns the number of embeddings that completed (including failures).
+   * Implementations without async embedding may return 0 immediately.
+   */
+  flushPendingEmbeddings(): Promise<number>;
 }
