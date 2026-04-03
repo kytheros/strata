@@ -2,3 +2,4 @@ results/*.json
 !results/.gitkeep
 .venv/
 __pycache__/
+cache/

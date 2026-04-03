@@ -46,6 +46,7 @@ SYSTEM_INFO = {
 
 _ANSWER_MODEL = os.environ.get("STRATA_ANSWER_MODEL", "gemini-2.5-flash")
 _STRATA_BASE_DIR = os.environ.get("STRATA_DATA_DIR", "")
+_CACHE_DIR = Path(__file__).resolve().parent / "cache"
 
 # LOCOMO-optimized short-answer prompt for F1 scoring
 _ANSWER_PROMPT_SHORT = (
@@ -599,20 +600,26 @@ def run(
     """
     sample_id = conv.get("sample_id", "unknown")
 
-    # Create isolated data directory for this conversation
-    if _STRATA_BASE_DIR:
-        base = Path(_STRATA_BASE_DIR)
-        base.mkdir(parents=True, exist_ok=True)
-        data_dir = base / sample_id
+    # Check ingestion cache — reuse previously ingested database
+    cache_data_dir = _CACHE_DIR / sample_id / "data"
+    cache_meta_file = _CACHE_DIR / sample_id / "meta.json"
+    use_cache = cache_data_dir.exists() and cache_meta_file.exists()
+
+    if use_cache:
+        data_dir = cache_data_dir
+        print(f"  [{sample_id}] Using cached ingestion: {data_dir}")
     else:
-        data_dir = Path(tempfile.mkdtemp(prefix="strata-locomo-"))
+        if _STRATA_BASE_DIR:
+            base = Path(_STRATA_BASE_DIR)
+            base.mkdir(parents=True, exist_ok=True)
+            data_dir = base / sample_id
+        else:
+            data_dir = Path(tempfile.mkdtemp(prefix="strata-locomo-"))
 
-    # Clean any previous run data
-    if data_dir.exists():
-        shutil.rmtree(data_dir, ignore_errors=True)
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"  [{sample_id}] Data dir: {data_dir}")
+        if data_dir.exists():
+            shutil.rmtree(data_dir, ignore_errors=True)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        print(f"  [{sample_id}] Data dir: {data_dir}")
 
     try:
         # Build env for the Strata subprocess with isolated data dir.
@@ -642,8 +649,20 @@ def run(
         client.connect()
 
         try:
-            # Phase 1: Ingest conversation
-            conv_meta = _ingest_conversation(client, conv)
+            # Phase 1: Ingest conversation (or load from cache)
+            if use_cache:
+                conv_meta = json.loads(cache_meta_file.read_text())
+                print(f"    Loaded cached metadata: {conv_meta.get('speaker_a')}/{conv_meta.get('speaker_b')}")
+            else:
+                conv_meta = _ingest_conversation(client, conv)
+                cache_dir = _CACHE_DIR / sample_id
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_meta_file.write_text(json.dumps(conv_meta))
+                if data_dir != cache_data_dir:
+                    if cache_data_dir.exists():
+                        shutil.rmtree(cache_data_dir)
+                    shutil.copytree(data_dir, cache_data_dir)
+                    print(f"    Cached ingestion to: {cache_data_dir}")
 
             # Phase 2: Answer questions via MemEval's standard QA evaluator
             use_natural = judge_fn == "longmemeval"
@@ -658,6 +677,6 @@ def run(
         finally:
             client.close()
     finally:
-        # Cleanup temp directory if we created one
-        if not _STRATA_BASE_DIR and data_dir.exists():
+        # Cleanup temp directory if we created one (but not the cache)
+        if not _STRATA_BASE_DIR and not use_cache and data_dir.exists():
             shutil.rmtree(data_dir, ignore_errors=True)
