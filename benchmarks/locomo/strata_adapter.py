@@ -48,47 +48,78 @@ _ANSWER_MODEL = os.environ.get("STRATA_ANSWER_MODEL", "gemini-2.5-flash")
 _STRATA_BASE_DIR = os.environ.get("STRATA_DATA_DIR", "")
 _CACHE_DIR = Path(__file__).resolve().parent / "cache"
 
-# LOCOMO-optimized short-answer prompt for F1 scoring
-_ANSWER_PROMPT_SHORT = (
+# ---------------------------------------------------------------------------
+# Strategy-specific answer prompts
+# ---------------------------------------------------------------------------
+
+_ANSWER_PROMPT_RECALL = (
     "You are answering questions about a conversation between two people. "
     "Use ONLY the retrieved context below to answer. If the context does "
     "not contain enough information, say 'None'.\n\n"
     "Rules:\n"
     "1. Be concise but complete -- give the key fact(s) that answer the question\n"
     "2. Use EXACT words and names from the context when possible\n"
-    "3. For 'when' questions about dates:\n"
-    "   - Each context chunk has a [Session: DATE] marker showing when that "
-    "conversation happened.\n"
-    "   - If the text says 'yesterday', 'last week', 'last Saturday', etc., "
-    "resolve it relative to the session date. For example, if the session is "
-    "'5/8/2023' and the text says 'yesterday', the answer is '7 May 2023'.\n"
-    "   - Use the format 'D Month YYYY' (e.g. '7 May 2023') or "
-    "'The [day] before D Month YYYY' for relative references.\n"
-    "   - For approximate dates, use 'Month YYYY' (e.g. 'June 2023').\n"
-    "   - For years only, just state the year (e.g. '2022').\n"
-    "4. For time durations, use the exact phrasing from the context "
-    "(e.g. '4 years', '10 years ago', 'Since 2016')\n"
-    "5. NO full sentences, NO explanations -- just the answer\n"
-    "6. If the answer is truly not in the context, say 'None'\n\n"
+    "3. NO full sentences, NO explanations -- just the answer\n"
+    "4. If the answer is truly not in the context, say 'None'\n\n"
     "## Retrieved Context\n\n{context}\n\n"
     "## Question\n\n{question}\n\n"
     "Answer:"
 )
 
-# Natural-answer prompt for LongMemEval-style judge evaluation
-_ANSWER_PROMPT_NATURAL = (
-    "You are answering questions about a conversation between two people. "
-    "Use ONLY the retrieved context below to answer. If the context does "
-    "not contain enough information, say so.\n\n"
+_ANSWER_PROMPT_TEMPORAL = (
+    "You are answering a question about WHEN something happened in a "
+    "conversation between two people. Use ONLY the retrieved context below.\n\n"
     "Rules:\n"
-    "- Each context chunk has a [Session: DATE] marker showing when that "
+    "1. Each context chunk has a [Session: DATE] marker showing when that "
     "conversation happened.\n"
-    "- For 'when' questions, resolve relative dates (yesterday, last week) "
-    "using the session date. Use format 'D Month YYYY' or 'Month YYYY'.\n\n"
+    "2. If the text says 'yesterday', 'last week', 'last Saturday', etc., "
+    "RESOLVE it to an absolute date using the session date. For example, "
+    "if session date is '5/8/2023' and text says 'yesterday', answer '7 May 2023'.\n"
+    "3. Use the format 'D Month YYYY' (e.g. '7 May 2023').\n"
+    "4. For 'the week before' references, use 'The week before D Month YYYY'.\n"
+    "5. For approximate dates, use 'Month YYYY' or just the year.\n"
+    "6. For 'how long' questions, calculate the duration from the dates.\n"
+    "7. Check the EVENTS section first -- it has structured dates.\n"
+    "8. If the answer is truly not in the context, say 'None'\n\n"
+    "{events_section}"
     "## Retrieved Context\n\n{context}\n\n"
     "## Question\n\n{question}\n\n"
-    "Answer concisely with direct facts. Do not use full sentences -- "
-    "list facts separated by commas when appropriate."
+    "Answer:"
+)
+
+_ANSWER_PROMPT_ENUMERATE = (
+    "You are answering a question that asks for a LIST of items from a "
+    "conversation between two people. Use the retrieved context below.\n\n"
+    "Rules:\n"
+    "1. List ALL matching items found across the events and context -- do not "
+    "stop at the first match.\n"
+    "2. Check the EVENTS section first -- it contains structured facts extracted "
+    "from across all conversation sessions.\n"
+    "3. Then check the Retrieved Context for any additional items.\n"
+    "4. Separate items with commas.\n"
+    "5. Use the exact words from the context when possible.\n"
+    "6. Include items even if they appear in different sessions.\n"
+    "7. If the answer is truly not in the context, say 'None'\n\n"
+    "{events_section}"
+    "## Retrieved Context\n\n{context}\n\n"
+    "## Question\n\n{question}\n\n"
+    "Answer (list all matching items):"
+)
+
+_ANSWER_PROMPT_INFERENCE = (
+    "You are answering a hypothetical question about a person based on their "
+    "conversation history. Use the retrieved context to REASON about what is likely.\n\n"
+    "Rules:\n"
+    "1. Do NOT say 'None' -- instead reason from the available context.\n"
+    "2. Use phrases like 'Likely yes/no because...' or 'Based on the context...'\n"
+    "3. Look for relevant personality traits, stated preferences, career goals, "
+    "hobbies, and life choices that inform the answer.\n"
+    "4. Keep your reasoning brief -- 1-2 sentences max.\n"
+    "5. If the context has very little relevant information, say "
+    "'Based on limited context, likely...' with your best inference.\n\n"
+    "## Retrieved Context\n\n{context}\n\n"
+    "## Question\n\n{question}\n\n"
+    "Answer:"
 )
 
 
@@ -190,6 +221,49 @@ def _extract_target_speaker(
 
 
 # ---------------------------------------------------------------------------
+# Strategy-based question classifier
+# ---------------------------------------------------------------------------
+
+def _classify_question(question: str) -> str:
+    """Classify a question by retrieval/answer strategy.
+
+    Returns one of: "date-lookup", "enumerate", "inference", "recall".
+    Based on LongMemEval's category routing pattern adapted for LOCOMO.
+    """
+    q = question.lower().strip()
+
+    # Inference: hypothetical/reasoning — must check before others
+    # "Would Caroline...", "Could Melanie...", "Is X likely..."
+    if re.match(r"^(would|could|should|might)\b", q):
+        return "inference"
+    if re.search(r"be considered|likely to|pursue .+ as", q):
+        return "inference"
+
+    # Temporal: date/time lookup
+    if re.search(
+        r"when did|when is|when was|when does|when will|"
+        r"what date|what year|what month|what day|"
+        r"how long ago|how long has|how long did|"
+        r"how many (?:days?|weeks?|months?|years?|hours?)",
+        q,
+    ):
+        return "date-lookup"
+
+    # Enumerate: listing/aggregation
+    if re.search(
+        r"what (?:activities|events|books?|things?|types?|kind|hobbies|sports?)|"
+        r"what has .+ (?:done|visited|attended|read|made|painted|participated)|"
+        r"what did .+ do\b|"
+        r"how many(?! (?:days?|weeks?|months?|years?|hours?))|"
+        r"how often|list all|name all",
+        q,
+    ):
+        return "enumerate"
+
+    return "recall"
+
+
+# ---------------------------------------------------------------------------
 # Persistent event loop wrapper for AsyncStrataClient
 # ---------------------------------------------------------------------------
 
@@ -259,6 +333,29 @@ class _PersistentStrataClient:
             return _parse_semantic_results(raw)
 
         return self._run(_do_semantic())
+
+    def search_events(self, query: str, *, project: str | None = None,
+                      limit: int = 20) -> str:
+        """Search structured SVO events via the search_events MCP tool.
+
+        Returns raw text output — formatted events with dates.
+        Used for temporal and listing questions where structured event
+        data provides better coverage than keyword search.
+        """
+        async def _do_events():
+            args: dict = {"query": query, "limit": limit}
+            if project:
+                args["project"] = project
+            return await self._client._transport.call_tool("search_events", args)
+
+        try:
+            raw = self._run(_do_events())
+            # Filter out "no results" messages
+            if raw and "no " not in raw.lower()[:20]:
+                return raw
+            return ""
+        except Exception:
+            return ""
 
 
 def _parse_semantic_results(text: str) -> list[SearchResult]:
@@ -336,10 +433,13 @@ def _get_genai_client() -> genai.Client:
     return _genai_client
 
 
-def _generate_answer(question: str, context: str, use_natural: bool = False) -> str:
+def _generate_answer(question: str, context: str, prompt_template: str) -> str:
     """Generate an answer using Gemini 2.5 Flash given retrieved context."""
-    template = _ANSWER_PROMPT_NATURAL if use_natural else _ANSWER_PROMPT_SHORT
-    prompt = template.format(context=context, question=question)
+    prompt = prompt_template.format(
+        context=context,
+        question=question,
+        events_section="",  # default empty, overridden by caller
+    )
 
     client = _get_genai_client()
     response = client.models.generate_content(
@@ -483,27 +583,24 @@ def _make_answer_fn(
 ) -> Callable[[str], str]:
     """Create an answer function bound to a specific conversation's Strata instance.
 
-    Uses entity-targeted search, multi-retrieval (BM25 + semantic), and
-    session date formatting for optimal LOCOMO F1 scoring.
+    Uses category-specific routing with entity-targeted search,
+    multi-retrieval (BM25 + semantic), search_events for temporal/enumerate,
+    and strategy-specific prompts for optimal LOCOMO scoring.
     """
     sample_id = conv.get("sample_id", "unknown")
     speaker_a = conv_meta.get("speaker_a", "")
     speaker_b = conv_meta.get("speaker_b", "")
-    session_date_map = conv_meta.get("session_date_map", {})
-
-    # Build a set of all session dates for context enrichment
-    all_session_dates = sorted(
-        ((k, v) for k, v in session_date_map.items() if v),
-        key=lambda x: x[0],
-    )
 
     def answer_fn(question: str) -> str:
-        # Step 1: Entity-targeted search — detect speaker, clean query
+        # Step 1: Classify question by strategy
+        strategy = _classify_question(question)
+
+        # Step 2: Entity-targeted search — detect speaker, clean query
         target_speaker, cleaned_query = _extract_target_speaker(
             question, speaker_a, speaker_b,
         )
 
-        # Step 2: Multi-search retrieval (BM25 + semantic)
+        # Step 3: Multi-search retrieval (BM25 + semantic)
         bm25_results: list[SearchResult] = []
         semantic_results: list[SearchResult] = []
 
@@ -531,16 +628,25 @@ def _make_answer_fn(
                 question, project=sample_id, limit=15,
             )
         except Exception as e:
-            # semantic_search may not be available (no GEMINI_API_KEY on server)
             print(f"    Semantic search unavailable: {e}")
 
         # Merge and deduplicate
         results = _merge_results(bm25_results, semantic_results, top_k=20)
 
-        if not results:
+        # Step 4: Strategy-specific search_events for temporal + enumerate
+        events_context = ""
+        if strategy in ("date-lookup", "enumerate"):
+            events_text = client.search_events(
+                cleaned_query, project=sample_id, limit=20,
+            )
+            if events_text:
+                events_context = f"## Events (structured facts with dates)\n\n{events_text}\n\n"
+
+        # Step 5: For inference, don't return None — always attempt an answer
+        if not results and strategy != "inference":
             return "None"
 
-        # Step 3: Format context with session dates visible
+        # Step 6: Format context with session dates visible
         context_parts = []
         for r in results:
             date_str = r.date if r.date else ""
@@ -548,19 +654,28 @@ def _make_answer_fn(
                 context_parts.append(f"[Session: {date_str}] {r.text}")
             else:
                 context_parts.append(f"{r.text}")
-        context = "\n".join(context_parts)
+        context = "\n".join(context_parts) if results else "(No search results found)"
 
         # Add speaker context if a target was identified
         if target_speaker:
-            other_speaker = speaker_b if target_speaker == speaker_a else speaker_a
             context = (
                 f"Note: This conversation is between {speaker_a} and {speaker_b}. "
                 f"The question asks about {target_speaker}.\n\n"
                 + context
             )
 
+        # Step 7: Select prompt by strategy
+        if strategy == "date-lookup":
+            template = _ANSWER_PROMPT_TEMPORAL.replace("{events_section}", events_context)
+        elif strategy == "enumerate":
+            template = _ANSWER_PROMPT_ENUMERATE.replace("{events_section}", events_context)
+        elif strategy == "inference":
+            template = _ANSWER_PROMPT_INFERENCE
+        else:
+            template = _ANSWER_PROMPT_RECALL
+
         try:
-            return _generate_answer(question, context, use_natural=use_natural)
+            return _generate_answer(question, context, template)
         except Exception as e:
             print(f"    Gemini error: {e}")
             return "None"
