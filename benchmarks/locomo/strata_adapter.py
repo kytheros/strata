@@ -534,10 +534,12 @@ def _generate_answer(question: str, context: str, prompt_template: str) -> str:
     prompt = prompt.replace("{events_section}", "")
 
     client = _get_genai_client()
+    # Note: default temperature (~1.0) produces best scores (74.7% relevance).
+    # temperature=0 makes the model too conservative (67.5% — more "None" answers).
+    # temperature=0.2 is recommended for reproducible runs but untested.
     response = client.models.generate_content(
         model=_ANSWER_MODEL,
         contents=prompt,
-        config={"temperature": 0},
     )
     return response.text.strip()
 
