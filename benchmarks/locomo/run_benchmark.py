@@ -55,6 +55,10 @@ def main() -> None:
         help="Max conversations to process in parallel (default: 2)",
     )
     parser.add_argument(
+        "--conversations", type=str, nargs="+", default=None,
+        help="Filter to specific conversation IDs (e.g., conv-43 conv-42)",
+    )
+    parser.add_argument(
         "--output", type=str, default=None,
         help="Output JSON path",
     )
@@ -91,6 +95,15 @@ def main() -> None:
     print(f"{'='*60}\n")
 
     conversations = download(num_samples=args.num_samples)
+    if args.conversations:
+        conversations = [
+            c for c in conversations
+            if c.get("sample_id") in args.conversations
+        ]
+        if not conversations:
+            print(f"Error: no conversations matched {args.conversations}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Filtered to {len(conversations)} conversations: {args.conversations}")
     print(f"Loaded {len(conversations)} conversations\n")
 
     # Run adapter for each conversation (2 in parallel)

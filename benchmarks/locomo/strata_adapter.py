@@ -238,6 +238,15 @@ def _classify_question(question: str) -> str:
         return "inference"
     if re.search(r"be considered|likely to|pursue .+ as", q):
         return "inference"
+    # "What might X...", "What job might X...", "What condition might X..."
+    if re.search(r"what .*(?:might|could|would) ", q):
+        return "inference"
+    # "likely be/have/do", "probably own/live/pursue"
+    if re.search(r"(?:likely|probably) (?:be|have|do|own|live|pursue)", q):
+        return "inference"
+    # "Does X live close to...", "Is X more of a..."
+    if re.search(r"^(?:does|is|are|was|were) .+ (?:likely|probably|close to|more of)", q):
+        return "inference"
 
     # Temporal: date/time lookup
     if re.search(
@@ -261,6 +270,86 @@ def _classify_question(question: str) -> str:
         return "enumerate"
 
     return "recall"
+
+
+# ---------------------------------------------------------------------------
+# Multi-query search for enumerate/multi-hop
+# ---------------------------------------------------------------------------
+
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "am", "are", "was", "were", "be", "been",
+    "being", "have", "has", "had", "do", "does", "did", "will", "would",
+    "shall", "should", "may", "might", "can", "could", "must",
+    "i", "me", "my", "mine", "we", "us", "our", "you", "your",
+    "he", "him", "his", "she", "her", "it", "its", "they", "them", "their",
+    "this", "that", "these", "those",
+    "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "as", "into", "through", "during", "before", "after",
+    "and", "but", "or", "not", "no", "so", "if", "then",
+    "than", "too", "very", "just", "about", "also",
+    "how", "what", "when", "where", "which", "who", "whom", "why",
+    "all", "each", "every", "both", "few", "more", "most", "other",
+    "some", "such", "any", "only", "own", "same",
+    "here", "there", "again", "once", "did", "does", "get", "got",
+    "new", "used", "like", "many",
+})
+
+
+def _extract_content_words(text: str) -> list[str]:
+    """Extract non-stop content words from text for sub-query generation."""
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    return [w for w in words if w not in _STOP_WORDS and len(w) > 1]
+
+
+def _multi_query_search(
+    client: "_PersistentStrataClient",
+    cleaned_query: str,
+    target_speaker: str,
+    project: str,
+) -> list[SearchResult]:
+    """Generate sub-queries and merge results for better recall.
+
+    Strategy:
+    1. Entity + action pairs — speaker name with key nouns/verbs
+    2. Sliding 2-word windows over content words
+    Caps at 5 sub-queries to bound latency.
+    """
+    content_words = _extract_content_words(cleaned_query)
+    if not content_words:
+        return []
+
+    sub_queries: list[str] = []
+
+    # Entity + action: combine speaker with each content word
+    if target_speaker:
+        for word in content_words[:3]:
+            sub_queries.append(f"{target_speaker} {word}")
+
+    # Sliding 2-word windows over content words
+    for i in range(len(content_words) - 1):
+        sq = f"{content_words[i]} {content_words[i + 1]}"
+        if sq not in sub_queries:
+            sub_queries.append(sq)
+
+    # Cap at 5 sub-queries
+    sub_queries = sub_queries[:5]
+
+    all_results: list[SearchResult] = []
+    for sq in sub_queries:
+        try:
+            results = client.search(sq, project=project, limit=15)
+            all_results.extend(results)
+        except Exception:
+            pass
+
+    # Deduplicate by text, keeping highest score
+    seen: dict[str, SearchResult] = {}
+    for r in all_results:
+        key = r.text.strip()
+        if key not in seen or r.score > seen[key].score:
+            seen[key] = r
+
+    return sorted(seen.values(), key=lambda x: x.score, reverse=True)
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +537,7 @@ def _generate_answer(question: str, context: str, prompt_template: str) -> str:
     response = client.models.generate_content(
         model=_ANSWER_MODEL,
         contents=prompt,
+        config={"temperature": 0},
     )
     return response.text.strip()
 
@@ -603,14 +693,20 @@ def _make_answer_fn(
             question, speaker_a, speaker_b,
         )
 
-        # Step 3: Multi-search retrieval (BM25 + semantic)
+        # Step 3: Strategy-dependent search limits
+        if strategy == "enumerate":
+            bm25_limit, sem_limit, merge_top_k = 40, 30, 35
+        else:
+            bm25_limit, sem_limit, merge_top_k = 20, 15, 20
+
+        # Step 4: Multi-search retrieval (BM25 + semantic)
         bm25_results: list[SearchResult] = []
         semantic_results: list[SearchResult] = []
 
         # BM25 search with cleaned query
         try:
             bm25_results = client.search(
-                cleaned_query, project=sample_id, limit=20,
+                cleaned_query, project=sample_id, limit=bm25_limit,
             )
         except Exception as e:
             print(f"    BM25 search error: {e}")
@@ -628,15 +724,24 @@ def _make_answer_fn(
         # Semantic search (vector similarity) for paraphrase matching
         try:
             semantic_results = client.semantic_search(
-                question, project=sample_id, limit=15,
+                question, project=sample_id, limit=sem_limit,
             )
         except Exception as e:
             print(f"    Semantic search unavailable: {e}")
 
         # Merge and deduplicate
-        results = _merge_results(bm25_results, semantic_results, top_k=20)
+        results = _merge_results(bm25_results, semantic_results, top_k=merge_top_k)
 
-        # Step 4: Strategy-specific search_events for temporal + enumerate
+        # Step 5: Multi-query for enumerate (scattered facts across sessions)
+        if strategy == "enumerate":
+            mq_results = _multi_query_search(
+                client, cleaned_query, target_speaker, sample_id,
+            )
+            if mq_results:
+                # Merge multi-query results with existing
+                results = _merge_results(results, mq_results, top_k=merge_top_k)
+
+        # Step 6: Search events for temporal + enumerate (structured dates/facts)
         events_context = ""
         if strategy in ("date-lookup", "enumerate"):
             events_text = client.search_events(
@@ -645,11 +750,11 @@ def _make_answer_fn(
             if events_text:
                 events_context = f"## Events (structured facts with dates)\n\n{events_text}\n\n"
 
-        # Step 5: For inference, don't return None — always attempt an answer
+        # Step 7: For inference, don't return None — always attempt an answer
         if not results and strategy != "inference":
             return "None"
 
-        # Step 6: Format context with session dates visible
+        # Step 8: Format context with session dates visible
         context_parts = []
         for r in results:
             date_str = r.date if r.date else ""
@@ -667,7 +772,7 @@ def _make_answer_fn(
                 + context
             )
 
-        # Step 7: Select prompt by strategy
+        # Step 9: Select prompt by strategy
         if strategy == "date-lookup":
             template = _ANSWER_PROMPT_TEMPORAL.replace("{events_section}", events_context)
         elif strategy == "enumerate":
