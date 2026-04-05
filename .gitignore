@@ -9,4 +9,8 @@ benchmarks/*
 !benchmarks/locomo/
 benchmarks/locomo/.venv/
 benchmarks/locomo/__pycache__/
+!benchmarks/longmemeval/
+benchmarks/longmemeval/*
+!benchmarks/longmemeval/strata_adapter.py
+!benchmarks/longmemeval/run_retrieval_benchmark.py
 autoresearch/
