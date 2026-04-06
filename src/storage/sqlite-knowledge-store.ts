@@ -122,6 +122,17 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
   /** In-flight embedding promises (tracked for flushPendingEmbeddings) */
   private pendingEmbeddings: Set<Promise<void>> = new Set();
 
+  /**
+   * When true, embedEntryAsync() enqueues entries for batched embedding
+   * via flushBatchEmbed() instead of firing per-entry API calls.
+   * Used by callers that add many entries in a row (e.g. ingest_conversation)
+   * to avoid N sequential Gemini round-trips.
+   */
+  private batchEmbedActive: boolean = false;
+
+  /** Queue of entries waiting for batch embedding (id -> text). Map dedups by id. */
+  private batchEmbedQueue: Map<string, string> = new Map();
+
   /** Prepared statement for upserting embeddings */
   private upsertEmbedding: Database.Statement;
 
@@ -295,29 +306,32 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
 
   /**
    * Asynchronously generate and store an embedding for a knowledge entry.
+   *
+   * Default mode: fires the embedding immediately as a fire-and-forget Promise
+   * tracked in pendingEmbeddings. flushPendingEmbeddings() awaits them.
+   *
+   * Batch mode (when batchEmbedActive is true): enqueues the entry's text into
+   * batchEmbedQueue. The caller must invoke flushBatchEmbed() to actually
+   * generate and store embeddings via a single embedBatch() call. This avoids
+   * N sequential Gemini API round-trips when ingesting many entries at once.
+   *
    * Failures are caught and logged — never propagated to the caller.
-   * The promise is tracked in pendingEmbeddings for flushPendingEmbeddings().
    */
   private embedEntryAsync(entry: KnowledgeEntry): void {
     if (!this.embedder) return;
 
     const text = entry.summary + " " + entry.details;
+
+    if (this.batchEmbedActive) {
+      // Map dedups by id — re-embedding the same entry within a batch overwrites.
+      this.batchEmbedQueue.set(entry.id, text);
+      return;
+    }
+
     const promise = this.embedder
       .embed(text, "RETRIEVAL_DOCUMENT")
       .then((vec) => {
-        let buf: Buffer;
-        let format: string;
-
-        if (CONFIG.quantization.enabled) {
-          const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
-          const quantized = quantize(vec, bitWidth);
-          buf = Buffer.from(quantized);
-          format = `tq${bitWidth}`;
-        } else {
-          buf = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength);
-          format = "float32";
-        }
-
+        const { buf, format } = this.encodeEmbedding(vec);
         this.upsertEmbedding.run(entry.id, buf, "gemini-embedding-001", Date.now(), format);
       })
       .catch((err) => {
@@ -328,6 +342,82 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
       });
 
     this.pendingEmbeddings.add(promise);
+  }
+
+  /**
+   * Encode a Float32Array embedding into the storage format
+   * (quantized or raw float32) along with the format tag.
+   */
+  private encodeEmbedding(vec: Float32Array): { buf: Buffer; format: string } {
+    if (CONFIG.quantization.enabled) {
+      const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
+      const quantized = quantize(vec, bitWidth);
+      return { buf: Buffer.from(quantized), format: `tq${bitWidth}` };
+    }
+    return {
+      buf: Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength),
+      format: "float32",
+    };
+  }
+
+  /**
+   * Enable batch embedding mode. While active, embedEntryAsync() queues
+   * entries instead of firing per-entry API calls. Call flushBatchEmbed()
+   * to generate all queued embeddings via a single embedBatch() call.
+   *
+   * Use this when ingesting many entries in a row (e.g. ingest_conversation)
+   * to reduce Gemini API round-trips by ~10-20x.
+   */
+  beginBatchEmbed(): void {
+    this.batchEmbedActive = true;
+  }
+
+  /**
+   * Generate embeddings for all entries queued during batch mode and persist
+   * them. Drains batchEmbedQueue and disables batch mode. Safe to call when
+   * the queue is empty or when no embedder is configured (returns 0).
+   *
+   * Embedding generation uses a single embedder.embedBatch() call which
+   * internally chunks into MAX_BATCH_SIZE-per-request groups. Failures are
+   * logged per-batch but do not throw.
+   *
+   * @returns The number of embeddings successfully generated and stored.
+   */
+  async flushBatchEmbed(): Promise<number> {
+    const queueSize = this.batchEmbedQueue.size;
+    if (queueSize === 0 || !this.embedder) {
+      this.batchEmbedActive = false;
+      this.batchEmbedQueue.clear();
+      return 0;
+    }
+
+    const ids: string[] = [];
+    const texts: string[] = [];
+    for (const [id, text] of this.batchEmbedQueue) {
+      ids.push(id);
+      texts.push(text);
+    }
+    this.batchEmbedQueue.clear();
+    this.batchEmbedActive = false;
+
+    let stored = 0;
+    try {
+      const vectors = await this.embedder.embedBatch(texts, "RETRIEVAL_DOCUMENT");
+      // Store all embeddings in a single transaction for speed
+      const storeTxn = this.db.transaction(() => {
+        const now = Date.now();
+        for (let i = 0; i < vectors.length; i++) {
+          const { buf, format } = this.encodeEmbedding(vectors[i]);
+          this.upsertEmbedding.run(ids[i], buf, "gemini-embedding-001", now, format);
+          stored++;
+        }
+      });
+      storeTxn();
+    } catch (err) {
+      console.error(`[strata] Batch embedding failed for ${ids.length} entries:`, err);
+    }
+
+    return stored;
   }
 
   /**
