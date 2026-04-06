@@ -292,7 +292,7 @@ def ingest_question(
 _QUESTION_TYPE_TO_STRATEGY: dict[str, str] = {
     "single-session-user": "recall",
     "single-session-assistant": "recall",
-    "single-session-preference": "recall",
+    "single-session-preference": "preference",
     "multi-session": "enumerate",
     "temporal-reasoning": "date-lookup",
     "knowledge-update": "recall",
@@ -437,6 +437,28 @@ _AGENT_SYSTEM_PROMPTS: dict[str, str] = {
         "Resolve relative dates (yesterday, last week) using session dates. "
         "Use format 'D Month YYYY' (e.g. '7 May 2023'). "
         "For duration questions, calculate from the dates."
+    ),
+    "preference": (
+        "You are providing a PERSONALIZED RECOMMENDATION or response that must "
+        "reflect the user's known preferences, tools, habits, and personal context. "
+        "This is NOT a fact-lookup question -- you must search for the user's "
+        "background on the topic, then synthesize a tailored response. "
+        "\n\n"
+        "Required steps: "
+        "(1) Search broadly for the user's preferences, tools, opinions, or habits "
+        "related to the topic. Try search_history with topic keywords AND "
+        "semantic_search with phrases like 'user prefers X', 'user uses X', "
+        "'user dislikes X'. "
+        "(2) Look for specific brands, products, software, or methods the user "
+        "has mentioned positively. "
+        "(3) Generate a personalized response that explicitly references the "
+        "user's preferences. For example, if they use Adobe Premiere Pro, "
+        "recommend Premiere-specific resources, not generic ones. "
+        "\n\n"
+        "NEVER answer 'None' for a preference question -- always provide a "
+        "recommendation that reflects what you found about the user. If the "
+        "search returns little, infer from the user's general interests and "
+        "context, but always personalize."
     ),
 }
 
