@@ -43,6 +43,132 @@ def _load_env():
                     os.environ[key] = val
 
 
+def _run_smoke_test(client) -> None:
+    """Pre-flight integration check for the MCP tool contract.
+
+    Ingests a single probe message into a throwaway project, then exercises
+    every retrieval tool the agent loop will use. Hard-fails the run if any
+    tool returns errors, missing fields, or unexpected shapes.
+
+    Catches the recurring class of bugs where the adapter / parser silently
+    reshapes errors into "valid empty" responses:
+      - semantic_search Zod-strict rejection (2026-04-06)
+      - IngestResult camelCase parsing bug (2026-04-05)
+      - any future tool/schema drift between adapter and MCP server
+
+    A passing smoke test does NOT prove the benchmark is correct -- only
+    that the integration plumbing works end-to-end. It costs ~5 seconds.
+    """
+    SMOKE_PROJECT = "__smoke_test_lme"
+    SMOKE_TOKEN = f"smokeprobe{int(time.time())}xyzzy"
+
+    print("Pre-flight smoke test...")
+
+    probe_messages = [
+        {
+            "role": "user",
+            "text": (
+                f"My favorite color is purple and the secret token is "
+                f"{SMOKE_TOKEN}. I am testing the retrieval pipeline."
+            ),
+            "timestamp": "2026-04-06T12:00:00Z",
+        },
+        {
+            "role": "assistant",
+            "text": (
+                f"Got it -- your favorite color is purple, and the token "
+                f"{SMOKE_TOKEN} is recorded for the smoke test."
+            ),
+            "timestamp": "2026-04-06T12:00:01Z",
+        },
+    ]
+
+    def _fail(stage: str, msg: str) -> None:
+        print(f"  FAIL [{stage}]: {msg}")
+        print(
+            "\nSmoke test failed. The benchmark is aborting BEFORE running real "
+            "questions. Fix the integration and retry. Do not bypass this gate -- "
+            "the smoke test exists because we have repeatedly burned hours running "
+            "benchmarks against silently-broken tooling."
+        )
+        sys.exit(1)
+
+    # 1. ingest_conversation
+    try:
+        ingest_result = client.ingest(
+            probe_messages, agent="smoke", project=SMOKE_PROJECT,
+        )
+    except Exception as e:
+        _fail("ingest", f"threw exception: {type(e).__name__}: {e}")
+
+    if ingest_result is None:
+        _fail("ingest", "returned None")
+    if not hasattr(ingest_result, "entries_extracted"):
+        _fail("ingest", f"missing entries_extracted field. Got: {ingest_result!r}")
+    if ingest_result.entries_extracted == 0:
+        _fail(
+            "ingest",
+            f"reported 0 entries extracted (this is the camelCase parser bug "
+            f"signature). Raw: {ingest_result!r}",
+        )
+    print(f"  + ingest_conversation: {ingest_result.entries_extracted} entries extracted")
+
+    # 2. search_history must find the unique sentinel token
+    try:
+        hist_results = client.search(SMOKE_TOKEN, project=SMOKE_PROJECT, limit=10)
+    except Exception as e:
+        _fail("search_history", f"threw exception: {type(e).__name__}: {e}")
+    if not hist_results:
+        _fail(
+            "search_history",
+            f"returned 0 results for unique token {SMOKE_TOKEN}. The probe "
+            f"was just ingested -- this means search/index is broken.",
+        )
+    if not any(SMOKE_TOKEN in r.text for r in hist_results):
+        _fail(
+            "search_history",
+            f"results do not contain the sentinel token. Got: "
+            f"{[r.text[:80] for r in hist_results[:3]]}",
+        )
+    print(f"  + search_history: {len(hist_results)} results, sentinel found")
+
+    # 3. semantic_search must return real results, not error sentinels
+    try:
+        sem_results = client.semantic_search(
+            "favorite color", project=SMOKE_PROJECT, limit=10,
+        )
+    except Exception as e:
+        _fail("semantic_search", f"threw exception: {type(e).__name__}: {e}")
+    if not sem_results:
+        _fail(
+            "semantic_search",
+            "returned 0 results for 'favorite color' after ingesting a "
+            "message containing exactly that phrase. Either the tool is "
+            "erroring (and the parser stripped the error) or vector indexing "
+            "is broken. Both are blockers.",
+        )
+    # Defense in depth: scan for error-shaped results that snuck through
+    error_words = ("zoderror", "invalid arguments", "validation error", "no semantic search")
+    for r in sem_results:
+        lower = r.text.lower()
+        if any(w in lower for w in error_words):
+            _fail(
+                "semantic_search",
+                f"result text looks like an error message, not real content: "
+                f"{r.text[:200]!r}",
+            )
+    print(f"  + semantic_search: {len(sem_results)} results, no error sentinels")
+
+    # 4. search_events must not throw (may legitimately return empty)
+    try:
+        events_text = client.search_events("color", project=SMOKE_PROJECT, limit=10)
+    except Exception as e:
+        _fail("search_events", f"threw exception: {type(e).__name__}: {e}")
+    print(f"  + search_events: returned ({len(events_text)} chars)")
+
+    print("Smoke test PASSED.\n")
+
+
 def main():
     _load_env()
 
@@ -165,6 +291,13 @@ def main():
         print(f"\nConnecting to Strata MCP server...")
         client.connect()
         print("Connected.\n")
+
+        # Pre-flight smoke test: verifies the MCP tool contract end-to-end
+        # before we burn hours on a real benchmark run. Catches things like
+        # the semantic_search Zod-strict bug, IngestResult camelCase bug,
+        # and parser-swallowing-errors regressions.
+        _run_smoke_test(client)
+
         print("=" * 70)
 
         results: list[dict] = []
