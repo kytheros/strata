@@ -256,14 +256,18 @@ def ingest_question(
     client: _PersistentStrataClient,
     question: dict,
     project: str,
-    batch_size: int = 5,
+    batch_size: int = 1,
 ) -> dict:
     """Ingest a LongMemEval question's haystack sessions.
 
-    Batches multiple sessions per ingest_conversation call to reduce
-    MCP transport overhead and Gemini API calls. Each batch of sessions
-    is sent as one message list with session boundaries preserved via
-    timestamps.
+    One source session per ingest_conversation call (batch_size=1) so
+    each session gets its own LLM extraction budget. Batching multiple
+    sessions per call (the previous default of 5) caused 18/48 sessions
+    to be silently dropped on lme-75832dbd because the extractor's
+    Maximum-30-entries cap and 8K maxTokens output budget were per-call,
+    so a single verbose session could starve the rest of its batch of
+    extraction quota. See specs/2026-04-06-extraction-user-bias-fix-design.md
+    and the 2026-04-07 75832dbd diagnostic for evidence.
 
     Returns metadata dict with turn count and session info.
     """
