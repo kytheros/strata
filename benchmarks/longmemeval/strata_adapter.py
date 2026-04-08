@@ -32,8 +32,8 @@ from strata.types import IngestResult, SearchResult
 # Configuration
 # ---------------------------------------------------------------------------
 
-_ANSWER_MODEL = os.environ.get("LONGMEMEVAL_ANSWER_MODEL", "gpt-4o")
-_JUDGE_MODEL = os.environ.get("LONGMEMEVAL_JUDGE_MODEL", "gpt-4o")
+_ANSWER_MODEL = os.environ.get("LONGMEMEVAL_ANSWER_MODEL", "gpt-4o-2024-08-06")
+_JUDGE_MODEL = os.environ.get("LONGMEMEVAL_JUDGE_MODEL", "gpt-4o-2024-08-06")
 _MAX_AGENT_STEPS = int(os.environ.get("LONGMEMEVAL_MAX_AGENT_STEPS", "5"))
 _CACHE_DIR = Path(__file__).resolve().parent / "cache" / "retrieval-adapter"
 _DATA_DIR = Path(__file__).resolve().parent / "data"
