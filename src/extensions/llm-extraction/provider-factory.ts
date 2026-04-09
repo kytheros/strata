@@ -77,11 +77,33 @@ export function loadDistillConfig(): DistillationConfig | null {
 }
 
 /**
+ * Strip markdown code fences from an LLM response before JSON parsing.
+ *
+ * Handles both ```json...``` and generic ```...``` wrappers with optional
+ * leading/trailing whitespace. Returns the trimmed inner content, or the
+ * original string if no fences are present.
+ *
+ * Why: Gemma 4, Gemini, and most chat-tuned models wrap JSON responses in
+ * markdown code fences even when told "return ONLY valid JSON". Our
+ * validators are used in HybridProvider's fallback decision, so rejecting
+ * fence-wrapped output causes unnecessary frontier fallbacks and defeats
+ * the whole point of local-first routing.
+ */
+function stripJsonFences(raw: string): string {
+  const trimmed = raw.trim();
+  // ```json\n{...}\n```  or  ```\n{...}\n```
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+  if (fenceMatch) return fenceMatch[1].trim();
+  return trimmed;
+}
+
+/**
  * Validate that a string is parseable JSON with an "entries" array (extraction output).
+ * Handles markdown-wrapped JSON responses transparently.
  */
 export function validateExtractionOutput(raw: string): boolean {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(stripJsonFences(raw));
     return Array.isArray(parsed?.entries);
   } catch {
     return false;
@@ -90,10 +112,11 @@ export function validateExtractionOutput(raw: string): boolean {
 
 /**
  * Validate that a string is parseable JSON with a "topic" string (summarization output).
+ * Handles markdown-wrapped JSON responses transparently.
  */
 export function validateSummarizationOutput(raw: string): boolean {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(stripJsonFences(raw));
     return typeof parsed?.topic === "string" && parsed.topic.length > 0;
   } catch {
     return false;
@@ -104,10 +127,11 @@ export function validateSummarizationOutput(raw: string): boolean {
  * Validate that a string is parseable JSON matching the ConflictResolution
  * shape expected by strata/src/knowledge/conflict-resolver.ts:
  *   { shouldAdd: boolean, actions: Array<{ action: string, ... }> }
+ * Handles markdown-wrapped JSON responses transparently.
  */
 export function validateConflictResolutionOutput(raw: string): boolean {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(stripJsonFences(raw));
     if (typeof parsed?.shouldAdd !== "boolean") return false;
     if (!Array.isArray(parsed.actions)) return false;
     return true;
@@ -134,7 +158,9 @@ export async function getExtractionProvider(): Promise<LlmProvider | null> {
       localModel: distillConfig.extractionModel,
       frontierProvider: gemini,
       validateOutput: validateExtractionOutput,
-      localTimeoutMs: 15000,
+      // 90s accommodates Ollama cold starts (model load from disk can take
+      // 20-45s on first call for a 9.6GB model). Warm calls return in 1-3s.
+      localTimeoutMs: 90000,
     });
   }
 
@@ -159,7 +185,8 @@ export async function getSummarizationProvider(): Promise<LlmProvider | null> {
       localModel: distillConfig.summarizationModel,
       frontierProvider: gemini,
       validateOutput: validateSummarizationOutput,
-      localTimeoutMs: 15000,
+      // 90s — same cold-start tolerance as extraction.
+      localTimeoutMs: 90000,
     });
   }
 
@@ -185,7 +212,9 @@ export async function getConflictResolutionProvider(): Promise<LlmProvider | nul
       localModel: distillConfig.conflictResolutionModel,
       frontierProvider: gemini,
       validateOutput: validateConflictResolutionOutput,
-      localTimeoutMs: 10000, // Shorter than extraction: classification is fast
+      // 60s — classification is fast once warm, but e2b has its own cold-load
+      // penalty since it's a different model from extraction/summarization.
+      localTimeoutMs: 60000,
     });
   }
 
