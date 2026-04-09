@@ -35,10 +35,18 @@ export class HybridProvider implements LlmProvider {
 
   async complete(prompt: string, options?: CompletionOptions): Promise<string> {
     // 1. Try local model
+    //
+    // Always force jsonMode=true for local calls because HybridProvider's
+    // only use case is JSON-validated output (its validateOutput predicate
+    // is checked below). Ollama's native JSON mode constrains sampling to
+    // produce parseable JSON, eliminating markdown fences and prose
+    // preambles that would otherwise fail validation and trigger
+    // unnecessary frontier fallbacks.
     try {
       const raw = await this.local.complete(prompt, {
         ...options,
         timeoutMs: this.config.localTimeoutMs,
+        jsonMode: true,
       });
 
       // 2. Validate output (must be parseable JSON with expected structure)

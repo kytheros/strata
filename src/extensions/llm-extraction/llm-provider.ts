@@ -62,21 +62,38 @@ export class OllamaProvider implements LlmProvider {
   }
 
   async complete(prompt: string, options: CompletionOptions = {}): Promise<string> {
-    const { temperature = 0.2, timeoutMs = 30000 } = options;
+    const { temperature = 0.2, timeoutMs = 30000, maxTokens, jsonMode } = options;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      // Build Ollama's options object. num_predict caps output tokens
+      // (critical — without it Ollama defaults to unlimited generation,
+      // causing long extraction prompts to run past the HTTP timeout
+      // even when the model could produce a valid short answer).
+      const ollamaOptions: Record<string, number> = { temperature };
+      if (typeof maxTokens === "number" && maxTokens > 0) {
+        ollamaOptions.num_predict = maxTokens;
+      }
+
+      // Request body for Ollama /api/generate. format: "json" enables
+      // Ollama's native JSON-constrained sampling, which produces
+      // parseable JSON directly (no markdown fences, no prose preamble).
+      const requestBody: Record<string, unknown> = {
+        model: this.model,
+        prompt,
+        stream: false,
+        options: ollamaOptions,
+      };
+      if (jsonMode) {
+        requestBody.format = "json";
+      }
+
       const response = await fetch(`${this.baseUrl}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: this.model,
-          prompt,
-          stream: false,
-          options: { temperature },
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 
