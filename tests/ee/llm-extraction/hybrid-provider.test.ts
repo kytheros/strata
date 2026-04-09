@@ -327,3 +327,126 @@ describe("HybridProvider", () => {
     }
   });
 });
+
+describe("HybridProvider jsonMode forcing", () => {
+  // Regression coverage for commit 3856bf0: before the fix, HybridProvider
+  // passed caller options straight through to the local model. Callers
+  // like enhancedExtract in strata-pro don't set jsonMode:true, so local
+  // Gemma 4 calls were made without Ollama's native JSON-constrained
+  // sampling, causing the validator to reject valid-but-prose outputs
+  // and trigger unnecessary frontier fallbacks.
+  //
+  // HybridProvider's only use case is JSON-validated output, so it now
+  // explicitly forces jsonMode:true on every local call regardless of
+  // what the caller passed. Frontier fallback calls are unchanged —
+  // they receive the caller's original options since non-Ollama
+  // providers use different JSON-mode mechanisms.
+  //
+  // We observe the forced jsonMode by inspecting the Ollama request
+  // body: when jsonMode is true, OllamaProvider sets a top-level
+  // format:"json" field in the request (verified by
+  // llm-provider.test.ts). Same pattern as the surrounding tests in
+  // this file — mock global fetch, assert on the serialized body.
+
+  it("forces jsonMode:true on local calls even when caller omits it", async () => {
+    const localResult = JSON.stringify({ entries: [] });
+    const frontier = mockProvider("gemini", "should not be called");
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: localResult }),
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new HybridProvider({
+        localUrl: "http://localhost:11434",
+        localModel: "gemma4:e4b",
+        frontierProvider: frontier,
+        validateOutput: validEntries,
+        localTimeoutMs: 5000,
+      });
+
+      // Caller passes maxTokens but no jsonMode
+      await provider.complete("test prompt", { maxTokens: 1024 });
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      // HybridProvider must force jsonMode:true, which OllamaProvider
+      // serializes as top-level format:"json".
+      expect(body.format).toBe("json");
+      // Other caller options must be preserved through the spread.
+      expect(body.options.num_predict).toBe(1024);
+      // Frontier must NOT have been called — local succeeded.
+      expect(frontier.calls).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("forces jsonMode:true on local calls even when caller passed jsonMode:false", async () => {
+    const localResult = JSON.stringify({ entries: [] });
+    const frontier = mockProvider("gemini", "should not be called");
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: localResult }),
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new HybridProvider({
+        localUrl: "http://localhost:11434",
+        localModel: "gemma4:e4b",
+        frontierProvider: frontier,
+        validateOutput: validEntries,
+        localTimeoutMs: 5000,
+      });
+
+      // Caller actively tries to disable jsonMode — must be overridden.
+      await provider.complete("test prompt", { jsonMode: false });
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.format).toBe("json");
+      expect(frontier.calls).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does NOT force jsonMode on frontier fallback", async () => {
+    const frontierResult = JSON.stringify({ entries: [] });
+    const frontier = mockProvider("gemini", frontierResult);
+
+    // Simulate local Ollama connection refused so we fall through to frontier.
+    const mockFetch = vi.fn().mockRejectedValue(
+      new TypeError("fetch failed: connection refused")
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new HybridProvider({
+        localUrl: "http://localhost:11434",
+        localModel: "gemma4:e4b",
+        frontierProvider: frontier,
+        validateOutput: validEntries,
+        localTimeoutMs: 5000,
+      });
+
+      const callerOpts: CompletionOptions = { maxTokens: 1024 };
+      await provider.complete("test prompt", callerOpts);
+
+      // Frontier should receive caller's original options, NOT with forced
+      // jsonMode — non-Ollama providers use different JSON-mode mechanisms.
+      expect(frontier.calls).toHaveLength(1);
+      expect(frontier.calls[0].options?.jsonMode).toBeUndefined();
+      expect(frontier.calls[0].options?.maxTokens).toBe(1024);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

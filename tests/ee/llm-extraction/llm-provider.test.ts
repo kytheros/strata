@@ -219,3 +219,164 @@ describe("OllamaProvider", () => {
     }
   });
 });
+
+describe("OllamaProvider maxTokens forwarding", () => {
+  // Regression coverage for commit 3856bf0: before the fix, OllamaProvider
+  // destructured only { temperature, timeoutMs } from CompletionOptions and
+  // never forwarded maxTokens to Ollama's /api/generate. Ollama's default
+  // num_predict is -1 (unlimited), which let long extraction prompts run
+  // past the HTTP timeout even when the model would otherwise have produced
+  // a short valid answer.
+
+  it("forwards maxTokens as options.num_predict in the request body", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "test response" }),
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new OllamaProvider("gemma4:e4b");
+      await provider.complete("test prompt", { maxTokens: 512 });
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.options).toBeDefined();
+      expect(body.options.num_predict).toBe(512);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("omits num_predict when maxTokens is not set", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "test response" }),
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new OllamaProvider("gemma4:e4b");
+      await provider.complete("test prompt");
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.options).toBeDefined();
+      expect(body.options.num_predict).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("omits num_predict when maxTokens is zero or negative", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "test response" }),
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new OllamaProvider("gemma4:e4b");
+      await provider.complete("test prompt", { maxTokens: 0 });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.options.num_predict).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("preserves temperature alongside num_predict", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "test response" }),
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new OllamaProvider("gemma4:e4b");
+      await provider.complete("test prompt", { maxTokens: 1024, temperature: 0.5 });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.options.num_predict).toBe(1024);
+      expect(body.options.temperature).toBe(0.5);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("OllamaProvider jsonMode forwarding", () => {
+  // Regression coverage for commit 3856bf0: before the fix, jsonMode was
+  // never sent to Ollama, so local Gemma 4 calls didn't use native
+  // JSON-constrained sampling and returned prose-wrapped output that
+  // failed downstream validation.
+
+  it("adds top-level format:'json' when jsonMode is true", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "{}" }),
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new OllamaProvider("gemma4:e4b");
+      await provider.complete("test prompt", { jsonMode: true });
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.format).toBe("json");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("omits format field when jsonMode is false", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "{}" }),
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new OllamaProvider("gemma4:e4b");
+      await provider.complete("test prompt", { jsonMode: false });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.format).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("omits format field when jsonMode is not set", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "{}" }),
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    try {
+      const provider = new OllamaProvider("gemma4:e4b");
+      await provider.complete("test prompt");
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.format).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
