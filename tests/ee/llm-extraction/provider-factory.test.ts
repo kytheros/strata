@@ -414,6 +414,135 @@ describe("validateConflictResolutionOutput", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// stripJsonFences behavior (tested through the three public validators that
+// call it). Ships with commit 161934f — added because Gemma 4 and Gemini both
+// wrap JSON responses in markdown code fences even when told not to, which
+// would otherwise cause HybridProvider to fall back to frontier unnecessarily.
+// ---------------------------------------------------------------------------
+describe("validators accept markdown-fenced JSON (stripJsonFences)", () => {
+  it("validateExtractionOutput accepts ```json fenced payload", () => {
+    const fenced = '```json\n{"entries": []}\n```';
+    expect(validateExtractionOutput(fenced)).toBe(true);
+  });
+
+  it("validateExtractionOutput accepts bare ``` fenced payload", () => {
+    const fenced = '```\n{"entries": [{"type": "decision", "summary": "ok"}]}\n```';
+    expect(validateExtractionOutput(fenced)).toBe(true);
+  });
+
+  it("validateExtractionOutput accepts fenced payload with surrounding whitespace", () => {
+    const fenced = '   \n```json\n{"entries": []}\n```\n   ';
+    expect(validateExtractionOutput(fenced)).toBe(true);
+  });
+
+  it("validateExtractionOutput still rejects fenced invalid JSON", () => {
+    const fenced = '```json\n{not valid}\n```';
+    expect(validateExtractionOutput(fenced)).toBe(false);
+  });
+
+  it("validateSummarizationOutput accepts ```json fenced topic", () => {
+    const fenced = '```json\n{"topic": "refactored auth module"}\n```';
+    expect(validateSummarizationOutput(fenced)).toBe(true);
+  });
+
+  it("validateConflictResolutionOutput accepts ```json fenced resolution", () => {
+    const fenced = '```json\n{"shouldAdd": true, "actions": []}\n```';
+    expect(validateConflictResolutionOutput(fenced)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadDistillConfig home-dir fallback — ships with commit 4509b26. Benchmark
+// harnesses point STRATA_DATA_DIR at an isolated per-question cache dir so
+// each question gets its own SQLite database, but users still want their
+// global ~/.strata/config.json distillation preference honored. Without the
+// fallback, loadDistillConfig would return null in benchmarks and the factory
+// would silently fall through to Gemini — defeating the whole point of the
+// local-inference run.
+// ---------------------------------------------------------------------------
+describe("loadDistillConfig home-dir fallback", () => {
+  beforeEach(() => {
+    mockExistsSync.mockReset();
+    mockReadFileSync.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("falls back to ~/.strata/config.json when STRATA_DATA_DIR has no config", () => {
+    vi.stubEnv("STRATA_DATA_DIR", "/tmp/test-strata-isolated");
+
+    mockExistsSync.mockImplementation((path) => {
+      const p = String(path);
+      // Primary path (STRATA_DATA_DIR) has no config — simulates benchmark
+      // harness pattern where each question gets its own empty cache dir.
+      if (p.includes("test-strata-isolated")) return false;
+      // Anything else ending in config.json is the home fallback — it exists.
+      return p.endsWith("config.json");
+    });
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        distillation: { enabled: true, extractionModel: "gemma4:e4b" },
+      })
+    );
+
+    const config = loadDistillConfig();
+    expect(config).not.toBeNull();
+    expect(config!.enabled).toBe(true);
+    expect(config!.extractionModel).toBe("gemma4:e4b");
+  });
+
+  it("prefers STRATA_DATA_DIR config over home fallback when both exist", () => {
+    vi.stubEnv("STRATA_DATA_DIR", "/tmp/test-strata-primary");
+
+    // Both paths "exist" — primary wins.
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockImplementation((path) => {
+      const p = String(path);
+      if (p.includes("test-strata-primary")) {
+        return JSON.stringify({
+          distillation: { enabled: true, extractionModel: "primary-model" },
+        });
+      }
+      return JSON.stringify({
+        distillation: { enabled: true, extractionModel: "home-model" },
+      });
+    });
+
+    const config = loadDistillConfig();
+    expect(config).not.toBeNull();
+    expect(config!.extractionModel).toBe("primary-model");
+  });
+
+  it("returns null when neither STRATA_DATA_DIR nor home has a config", () => {
+    vi.stubEnv("STRATA_DATA_DIR", "/tmp/test-strata-missing");
+    mockExistsSync.mockReturnValue(false);
+    expect(loadDistillConfig()).toBeNull();
+  });
+
+  it("does not double-check homedir when STRATA_DATA_DIR is unset (primary == home)", () => {
+    // Without STRATA_DATA_DIR, primaryDataDir = homedir() + .strata, so
+    // primaryPath and homePath are identical. The dedupe branch in
+    // loadDistillConfig prevents the second existsSync call.
+    vi.stubEnv("STRATA_DATA_DIR", "");
+
+    let existsCalls = 0;
+    mockExistsSync.mockImplementation(() => {
+      existsCalls++;
+      return true;
+    });
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ distillation: { enabled: true } })
+    );
+
+    const config = loadDistillConfig();
+    expect(config).not.toBeNull();
+    expect(existsCalls).toBe(1); // primaryPath only, no fallback probe
+  });
+});
+
 describe("getConflictResolutionProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
