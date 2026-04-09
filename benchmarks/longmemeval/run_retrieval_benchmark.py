@@ -257,6 +257,13 @@ def main():
         "CLAUDE_DIR": str(empty_claude_dir),
         "STRATA_DISABLE_WATCHER": "1",
         "NODE_OPTIONS": os.environ.get("NODE_OPTIONS", "") + " --max-old-space-size=8192",
+        # Strict mode: any HybridProvider local failure throws instead of
+        # silently falling back to Gemini. Without this, benchmark runs
+        # measure a Gemma/Gemini hybrid that masks real local-inference
+        # problems (queue timeouts, validation failures, misconfigured
+        # timeouts). Set to "0" if you genuinely want the production
+        # fallback behavior for a specific run.
+        "STRATA_HYBRID_STRICT": os.environ.get("STRATA_HYBRID_STRICT", "1"),
     }
 
     # Find Strata CLI (prefer strata-pro for full extraction pipeline)

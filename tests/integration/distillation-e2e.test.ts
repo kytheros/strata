@@ -502,6 +502,56 @@ describe("E2E Test 5: Hybrid provider behavior", () => {
     expect(frontier.complete).toHaveBeenCalledOnce();
   });
 
+  it("STRICT MODE: throws when local returns invalid JSON (no silent fallback)", async () => {
+    // Benchmark runs MUST fail loudly when local inference degrades so we
+    // can see the real problem instead of silently measuring a Gemma/Gemini
+    // hybrid that masks bugs like request queueing or timeout misconfiguration.
+    vi.stubEnv("STRATA_HYBRID_STRICT", "1");
+
+    const frontier = mockProvider("should not be called", "gemini");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: "this is not valid JSON at all" }),
+    }) as unknown as typeof fetch;
+
+    const provider = new HybridProvider({
+      localUrl: "http://localhost:11434",
+      localModel: "strata-extraction-7b",
+      frontierProvider: frontier,
+      validateOutput: validateExtractionOutput,
+      localTimeoutMs: 15000,
+    });
+
+    await expect(provider.complete("test prompt")).rejects.toThrow(
+      /validation failed|strict mode/i
+    );
+    expect(frontier.complete).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
+  it("STRICT MODE: throws when local throws (no silent fallback to frontier)", async () => {
+    vi.stubEnv("STRATA_HYBRID_STRICT", "1");
+
+    const frontier = mockProvider("should not be called", "gemini");
+
+    globalThis.fetch = vi.fn().mockRejectedValue(
+      new TypeError("fetch failed: connection refused")
+    ) as unknown as typeof fetch;
+
+    const provider = new HybridProvider({
+      localUrl: "http://localhost:11434",
+      localModel: "strata-extraction-7b",
+      frontierProvider: frontier,
+      validateOutput: validateExtractionOutput,
+      localTimeoutMs: 15000,
+    });
+
+    await expect(provider.complete("test prompt")).rejects.toThrow();
+    expect(frontier.complete).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
   it("falls back to frontier when local throws (Ollama not running)", async () => {
     const frontierResult = JSON.stringify({ entries: [] });
     const frontier = mockProvider(frontierResult, "gemini");
