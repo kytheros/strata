@@ -1,0 +1,442 @@
+[
+  {
+    "id": "conf-001",
+    "candidate": {
+      "type": "fact",
+      "summary": "User works as a software engineer at Acme Corp",
+      "details": "Mentioned in a conversation about team standups"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-002",
+    "candidate": {
+      "type": "fact",
+      "summary": "User has a golden retriever named Max",
+      "details": "User mentioned taking Max to the vet"
+    },
+    "similar": [
+      {
+        "id": "k-existing-001",
+        "type": "fact",
+        "summary": "User has a dog",
+        "details": "Mentioned walking the dog"
+      }
+    ],
+    "expected_action": "update"
+  },
+  {
+    "id": "conf-003",
+    "candidate": {
+      "type": "fact",
+      "summary": "User lives in San Francisco",
+      "details": "User mentioned the SF fog"
+    },
+    "similar": [
+      {
+        "id": "k-existing-002",
+        "type": "fact",
+        "summary": "User lives in Seattle",
+        "details": "User mentioned the Space Needle"
+      }
+    ],
+    "expected_action": "delete"
+  },
+  {
+    "id": "conf-004",
+    "candidate": {
+      "type": "preference",
+      "summary": "User prefers dark mode editors",
+      "details": "Brought up when discussing VS Code themes"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-005",
+    "candidate": {
+      "type": "fact",
+      "summary": "User drives a Tesla Model Y",
+      "details": "Mentioned in context of road trips"
+    },
+    "similar": [
+      {
+        "id": "k-existing-003",
+        "type": "fact",
+        "summary": "User drives an electric car",
+        "details": "Mentioned EV charging stations"
+      }
+    ],
+    "expected_action": "update"
+  },
+  {
+    "id": "conf-006",
+    "candidate": {
+      "type": "preference",
+      "summary": "User is vegan",
+      "details": "User said they avoid all animal products"
+    },
+    "similar": [
+      {
+        "id": "k-existing-004",
+        "type": "preference",
+        "summary": "User eats a lot of steak and chicken",
+        "details": "Mentioned grilling meat on weekends"
+      }
+    ],
+    "expected_action": "delete"
+  },
+  {
+    "id": "conf-007",
+    "candidate": {
+      "type": "decision",
+      "summary": "User chose PostgreSQL for the new project",
+      "details": "After evaluating MySQL and SQLite"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-008",
+    "candidate": {
+      "type": "fact",
+      "summary": "User's team has 8 engineers",
+      "details": "Mentioned during a conversation about standup format"
+    },
+    "similar": [
+      {
+        "id": "k-existing-005",
+        "type": "fact",
+        "summary": "User's team has 5 engineers",
+        "details": "Mentioned a few months ago"
+      }
+    ],
+    "expected_action": "update"
+  },
+  {
+    "id": "conf-009",
+    "candidate": {
+      "type": "preference",
+      "summary": "User prefers tabs over spaces",
+      "details": "Stated when setting up editor config"
+    },
+    "similar": [
+      {
+        "id": "k-existing-006",
+        "type": "preference",
+        "summary": "User prefers spaces with 2-space indentation",
+        "details": "Previous strong opinion stated in an earlier session"
+      }
+    ],
+    "expected_action": "delete"
+  },
+  {
+    "id": "conf-010",
+    "candidate": {
+      "type": "fact",
+      "summary": "User's birthday is March 15",
+      "details": "Mentioned in passing while discussing plans"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-011",
+    "candidate": {
+      "type": "solution",
+      "summary": "Fixed memory leak by clearing event listeners on unmount",
+      "details": "useEffect cleanup function removes the listener"
+    },
+    "similar": [
+      {
+        "id": "k-existing-007",
+        "type": "solution",
+        "summary": "Fixed a React memory leak",
+        "details": "General mention of a memory leak being resolved"
+      }
+    ],
+    "expected_action": "update"
+  },
+  {
+    "id": "conf-012",
+    "candidate": {
+      "type": "fact",
+      "summary": "User works remotely from Lisbon",
+      "details": "Mentioned after moving recently"
+    },
+    "similar": [
+      {
+        "id": "k-existing-008",
+        "type": "fact",
+        "summary": "User works from an office in New York",
+        "details": "Mentioned commuting to a Manhattan office"
+      }
+    ],
+    "expected_action": "delete"
+  },
+  {
+    "id": "conf-013",
+    "candidate": {
+      "type": "pattern",
+      "summary": "Use Zustand for client state, React Query for server state",
+      "details": "Separation of concerns avoids overloading one store"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-014",
+    "candidate": {
+      "type": "fact",
+      "summary": "User's daughter Lily is 7 years old",
+      "details": "Mentioned while discussing school schedules"
+    },
+    "similar": [
+      {
+        "id": "k-existing-009",
+        "type": "fact",
+        "summary": "User has a daughter",
+        "details": "Daughter mentioned in passing"
+      }
+    ],
+    "expected_action": "update"
+  },
+  {
+    "id": "conf-015",
+    "candidate": {
+      "type": "preference",
+      "summary": "User dislikes meetings before 10am",
+      "details": "Prefers morning heads-down time"
+    },
+    "similar": [
+      {
+        "id": "k-existing-010",
+        "type": "preference",
+        "summary": "User schedules all their standups for 8am",
+        "details": "Likes early morning meetings"
+      }
+    ],
+    "expected_action": "delete"
+  },
+  {
+    "id": "conf-016",
+    "candidate": {
+      "type": "fact",
+      "summary": "User uses Neovim with LazyVim config",
+      "details": "Mentioned editor setup"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-017",
+    "candidate": {
+      "type": "fact",
+      "summary": "User's company raised a Series B of $30M",
+      "details": "Mentioned while discussing growth plans"
+    },
+    "similar": [
+      {
+        "id": "k-existing-011",
+        "type": "fact",
+        "summary": "User's company raised a Series A",
+        "details": "Seed to Series A transition discussed"
+      }
+    ],
+    "expected_action": "update"
+  },
+  {
+    "id": "conf-018",
+    "candidate": {
+      "type": "decision",
+      "summary": "Team chose Kubernetes for deployment",
+      "details": "Decided over Docker Swarm for ecosystem maturity"
+    },
+    "similar": [
+      {
+        "id": "k-existing-012",
+        "type": "decision",
+        "summary": "Team chose Heroku for deployment",
+        "details": "Picked for simplicity and managed infra"
+      }
+    ],
+    "expected_action": "delete"
+  },
+  {
+    "id": "conf-019",
+    "candidate": {
+      "type": "error_fix",
+      "summary": "Fixed CORS issue by adding Access-Control-Allow-Origin header",
+      "details": "Server was missing CORS middleware"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-020",
+    "candidate": {
+      "type": "fact",
+      "summary": "User's favorite language is Rust (mainly for system programming)",
+      "details": "Uses Rust for performance-critical components"
+    },
+    "similar": [
+      {
+        "id": "k-existing-013",
+        "type": "fact",
+        "summary": "User's favorite language is Rust",
+        "details": "Mentioned preference earlier"
+      }
+    ],
+    "expected_action": "noop"
+  },
+  {
+    "id": "conf-021",
+    "candidate": {
+      "type": "preference",
+      "summary": "User prefers TypeScript strict mode enabled",
+      "details": "Always starts projects with strict: true"
+    },
+    "similar": [
+      {
+        "id": "k-existing-014",
+        "type": "preference",
+        "summary": "User prefers TypeScript strict mode",
+        "details": "Strict type checking preferred"
+      }
+    ],
+    "expected_action": "noop"
+  },
+  {
+    "id": "conf-022",
+    "candidate": {
+      "type": "fact",
+      "summary": "User graduated from MIT in 2015",
+      "details": "BS in computer science"
+    },
+    "similar": [
+      {
+        "id": "k-existing-015",
+        "type": "fact",
+        "summary": "User graduated from MIT in 2015",
+        "details": "Undergrad degree from MIT"
+      }
+    ],
+    "expected_action": "noop"
+  },
+  {
+    "id": "conf-023",
+    "candidate": {
+      "type": "fact",
+      "summary": "User is building an iOS app with SwiftUI",
+      "details": "Started the project last month"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-024",
+    "candidate": {
+      "type": "solution",
+      "summary": "Fixed slow Postgres query by adding a composite index on (user_id, created_at)",
+      "details": "Query went from 12s to 40ms after the index"
+    },
+    "similar": [
+      {
+        "id": "k-existing-016",
+        "type": "solution",
+        "summary": "Added an index to speed up a Postgres query",
+        "details": "Improved query performance substantially"
+      }
+    ],
+    "expected_action": "update"
+  },
+  {
+    "id": "conf-025",
+    "candidate": {
+      "type": "fact",
+      "summary": "User's car gets 32 MPG",
+      "details": "Calculated on the latest road trip"
+    },
+    "similar": [
+      {
+        "id": "k-existing-017",
+        "type": "fact",
+        "summary": "User's car gets 45 MPG",
+        "details": "Mentioned as highway average"
+      }
+    ],
+    "expected_action": "delete"
+  },
+  {
+    "id": "conf-026",
+    "candidate": {
+      "type": "pattern",
+      "summary": "Use feature flags for progressive rollouts",
+      "details": "Gates new features behind a percent-rollout toggle"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-027",
+    "candidate": {
+      "type": "fact",
+      "summary": "User plays guitar as a hobby",
+      "details": "Mentioned practicing most evenings"
+    },
+    "similar": [
+      {
+        "id": "k-existing-018",
+        "type": "fact",
+        "summary": "User plays guitar",
+        "details": "Mentioned once in a prior session"
+      }
+    ],
+    "expected_action": "noop"
+  },
+  {
+    "id": "conf-028",
+    "candidate": {
+      "type": "decision",
+      "summary": "Team chose TypeScript over Flow for new projects",
+      "details": "Flow's ecosystem is shrinking and TS has better tooling"
+    },
+    "similar": [],
+    "expected_action": "add"
+  },
+  {
+    "id": "conf-029",
+    "candidate": {
+      "type": "fact",
+      "summary": "User's hometown is Portland, Oregon",
+      "details": "Grew up in Portland before moving to SF"
+    },
+    "similar": [
+      {
+        "id": "k-existing-019",
+        "type": "fact",
+        "summary": "User's hometown is Austin, Texas",
+        "details": "Childhood in Austin"
+      }
+    ],
+    "expected_action": "delete"
+  },
+  {
+    "id": "conf-030",
+    "candidate": {
+      "type": "preference",
+      "summary": "User prefers vim motions in all editors",
+      "details": "Uses vim bindings in VS Code and browser extensions too"
+    },
+    "similar": [
+      {
+        "id": "k-existing-020",
+        "type": "preference",
+        "summary": "User uses vim keybindings",
+        "details": "Prefers modal editing"
+      }
+    ],
+    "expected_action": "noop"
+  }
+]

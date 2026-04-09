@@ -1,0 +1,782 @@
+[
+  {
+    "id": "ext-001",
+    "session": {
+      "sessionId": "fixture-ext-001",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm planning a camping trip to Yosemite next weekend with my wife. We usually bring our REI Kingdom 6 tent.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Sounds great. Yosemite has many campgrounds — which one are you booking?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "We got Upper Pines this time. We prefer it because it's close to the valley floor.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["camping", "yosemite", "upper pines", "tent", "wife"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-002",
+    "session": {
+      "sessionId": "fixture-ext-002",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My daily commute is about 45 minutes each way on the Red Line. I work at the Prudential Center in Boston.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "That's a significant daily trip. Do you use any apps to check delays?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Yeah, I use the MBTA app and Citymapper. Citymapper is better for multi-modal trips.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["commute", "red line", "boston", "citymapper"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-003",
+    "session": {
+      "sessionId": "fixture-ext-003",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm a vegetarian, but I also have a pretty severe peanut allergy, so most Thai restaurants are off-limits.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "That's a tricky combination. Are you okay with other tree nuts?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Almonds and cashews are fine, just peanuts. I'm also mildly lactose intolerant.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["vegetarian", "peanut", "allergy", "lactose"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-004",
+    "session": {
+      "sessionId": "fixture-ext-004",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I drive a 2019 Subaru Outback. It's due for a 60k mile service next month.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Subarus typically need timing belt inspection around that mileage. Are you going to the dealer?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "No, I use an independent Subaru specialist in Oakland. They're about half the dealer price.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["subaru", "outback", "2019", "oakland"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-005",
+    "session": {
+      "sessionId": "fixture-ext-005",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm a senior backend engineer at Stripe. I work mostly on the payments API team.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "What's your day-to-day look like?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Lots of code review, a couple of design docs a month, and oncall rotation one week in six.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["stripe", "backend", "payments", "engineer"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-006",
+    "session": {
+      "sessionId": "fixture-ext-006",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My dog Luna is a 3-year-old Australian Shepherd. She's really high energy.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Aussies need a lot of exercise. How do you keep her busy?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "We do agility training twice a week and long hikes on weekends. She also loves frisbee.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["luna", "australian shepherd", "agility", "dog"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-007",
+    "session": {
+      "sessionId": "fixture-ext-007",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I primarily work in TypeScript and Rust. I avoid Python unless absolutely required.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Any particular reason you avoid Python?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "The type system feels weak and the deployment story with venvs and pip is painful compared to cargo.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["typescript", "rust", "python", "cargo"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-008",
+    "session": {
+      "sessionId": "fixture-ext-008",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I live in the Mission District in San Francisco. Been here about five years.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Do you bike around the neighborhood much?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "All the time. Valencia Street has a nice bike lane now and I can reach the ferry building in 15 minutes.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["mission district", "san francisco", "valencia", "bike"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-009",
+    "session": {
+      "sessionId": "fixture-ext-009",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I just bought a new mechanical keyboard — the Keychron Q1 Pro. Settled on it after comparing to a ZSA Moonlander.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Why did you pick the Q1 over the Moonlander?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "The Q1 is less radical for my muscle memory and QMK support is mature. Moonlander would have required rewiring my entire typing habit.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["keychron", "q1 pro", "moonlander", "keyboard"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-010",
+    "session": {
+      "sessionId": "fixture-ext-010",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I lift four days a week — push/pull/legs/upper. I'm currently cutting before summer.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "What's your current calorie target?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "2200 a day, 180g protein. I'm doing 20 minutes of incline walking after each lift.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["lift", "cutting", "protein", "push pull legs"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-011",
+    "session": {
+      "sessionId": "fixture-ext-011",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I mostly listen to progressive rock and jazz fusion. Favorites are Tool, King Crimson, and Snarky Puppy.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Have you been to any live shows recently?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Saw Snarky Puppy at the Greek Theater last summer. Absolutely amazing.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["progressive rock", "jazz", "tool", "king crimson", "snarky puppy"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-012",
+    "session": {
+      "sessionId": "fixture-ext-012",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I read maybe two non-fiction books a month. Right now I'm finishing 'The Dawn of Everything' by Graeber.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "How are you finding it?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Dense but rewarding. I read mostly on a Kobo Libra before bed.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["non-fiction", "graeber", "dawn of everything", "kobo"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-013",
+    "session": {
+      "sessionId": "fixture-ext-013",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My wife Sarah is a pediatric nurse. We have two kids — Emma is 6 and Jake is 4.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "How do you balance work and family?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Sarah works three 12s, which gives us two weekdays together. My mom helps with pickup on her shift days.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["sarah", "wife", "emma", "jake", "pediatric nurse"],
+    "min_entries": 3
+  },
+  {
+    "id": "ext-014",
+    "session": {
+      "sessionId": "fixture-ext-014",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I got into pottery last year. I throw on the wheel at a local studio about twice a week.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "What got you started?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "A friend took me to an open studio night and I was hooked. I mostly make functional dinnerware now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["pottery", "wheel", "studio", "dinnerware"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-015",
+    "session": {
+      "sessionId": "fixture-ext-015",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I visited Japan last October. Spent a week in Tokyo and a week in Kyoto.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "What was your favorite part?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Fushimi Inari at 6am — completely empty. And the tsukemen at Gonokami in Shinjuku was the best bowl of noodles I've ever had.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["japan", "tokyo", "kyoto", "fushimi inari"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-016",
+    "session": {
+      "sessionId": "fixture-ext-016",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm saving aggressively to buy a house in the next 3 years. Target is $150k down.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Where are you parking the savings?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Mostly a high-yield savings account at Ally, plus I maxed my Roth IRA this year for the first time.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["house", "down payment", "ally", "roth ira"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-017",
+    "session": {
+      "sessionId": "fixture-ext-017",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I was diagnosed with Type 2 diabetes two years ago. I manage it with metformin and diet.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "How's your A1C been trending?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Started at 8.2, now at 6.4. I cut out most refined carbs and walk 45 minutes after dinner.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["diabetes", "metformin", "a1c", "type 2"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-018",
+    "session": {
+      "sessionId": "fixture-ext-018",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I did my undergrad in EE at Georgia Tech and a master's in computer architecture at CMU.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "What was your thesis on?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Cache coherence protocols for heterogeneous SoCs. Pretty niche but it landed me my first job.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["georgia tech", "cmu", "electrical engineering", "computer architecture"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-019",
+    "session": {
+      "sessionId": "fixture-ext-019",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My main machine is a 16-inch MacBook Pro M3 Max with 64GB of RAM. Phone is a Pixel 8 Pro.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Any external monitors?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "LG UltraFine 5K as the primary, and a vertical Dell 27 for docs. Logitech MX Master 3S for the mouse.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["macbook pro", "m3 max", "pixel 8", "ultrafine"],
+    "min_entries": 3
+  },
+  {
+    "id": "ext-020",
+    "session": {
+      "sessionId": "fixture-ext-020",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My go-to restaurant for date night is Liholiho Yacht Club in SF. We also love Nopa for late dinners.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Any place you go for a quick lunch?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Tartine for a sandwich, or Marufuku Ramen when I want something heavier.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["liholiho", "nopa", "tartine", "marufuku"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-021",
+    "session": {
+      "sessionId": "fixture-ext-021",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I read the Economist every week and follow the Financial Times online. I stopped reading Twitter for news.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Why'd you stop with Twitter?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Signal-to-noise dropped off a cliff in 2024. I get headlines from Feedly RSS now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["economist", "financial times", "feedly", "rss"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-022",
+    "session": {
+      "sessionId": "fixture-ext-022",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I play Factorio and Satisfactory when I have time. Also dipped into Baldur's Gate 3 last winter.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "How many hours did BG3 take you?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Around 120 for a full playthrough. Factorio though — I've got 900 hours in that one and still loading new mods.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["factorio", "satisfactory", "baldur", "gate"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-023",
+    "session": {
+      "sessionId": "fixture-ext-023",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm a die-hard Arsenal supporter. Been watching since the Invincibles season.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Any other teams you follow?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "In the NBA I'm a Warriors fan, and I catch the occasional 49ers game but I'm not hardcore about NFL.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["arsenal", "warriors", "49ers", "football"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-024",
+    "session": {
+      "sessionId": "fixture-ext-024",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I've been learning Japanese for about a year. Currently at N4 level aiming for N3 by December.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "How are you studying?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Anki daily for vocab, Bunpro for grammar, and weekly iTalki sessions with a tutor in Osaka.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["japanese", "n4", "anki", "bunpro"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-025",
+    "session": {
+      "sessionId": "fixture-ext-025",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I cook mostly Italian and Thai at home. I lean heavily on a cast iron pan and a carbon steel wok.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Any favorite dishes?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Cacio e pepe is my weeknight standard, and pad see ew when I want something quick and spicy.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["italian", "thai", "cast iron", "wok"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-026",
+    "session": {
+      "sessionId": "fixture-ext-026",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I've got a vegetable garden in my backyard — tomatoes, basil, serrano peppers, and zucchini this year.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Any pests giving you trouble?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Squash bugs on the zucchini. I'm trying neem oil and hand-picking before resorting to BT.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["garden", "tomatoes", "zucchini", "basil"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-027",
+    "session": {
+      "sessionId": "fixture-ext-027",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My wardrobe is mostly Uniqlo basics and a few nicer pieces from Taylor Stitch. I avoid logos.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Any favorite items?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "The Taylor Stitch Democratic jeans in rinsed indigo. Also a Buck Mason pocket tee that I own in five colors.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["uniqlo", "taylor stitch", "buck mason", "jeans"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-028",
+    "session": {
+      "sessionId": "fixture-ext-028",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I shoot with a Fuji X-T5 and a 23mm f/1.4. Mostly street photography on weekends.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "What edit workflow do you use?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Capture One for raw, and I prefer the Classic Chrome film simulation straight out of camera for most shots.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["fuji", "x-t5", "23mm", "photography"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-029",
+    "session": {
+      "sessionId": "fixture-ext-029",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm building a small side project — a markdown-based habit tracker that syncs to Git.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Interesting — what stack?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "SvelteKit on the front, and I'm using isomorphic-git in the browser so it works offline-first.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["side project", "markdown", "habit tracker", "sveltekit", "isomorphic-git"],
+    "min_entries": 2
+  },
+  {
+    "id": "ext-030",
+    "session": {
+      "sessionId": "fixture-ext-030",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My routine is pretty fixed. Up at 6, coffee and reading until 7, then gym until 8, then work from home.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "How do you unwind in the evening?",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Dinner with the family at 6, a walk around the neighborhood, and I'm usually in bed by 10 with a book.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_keywords": ["routine", "gym", "coffee", "6am"],
+    "min_entries": 2
+  }
+]

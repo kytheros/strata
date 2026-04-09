@@ -1,0 +1,752 @@
+[
+  {
+    "id": "sum-001",
+    "session": {
+      "sessionId": "fixture-sum-001",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm getting a CORS error when my React frontend hits the Flask API on localhost:5000.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "You need flask-cors. Install it and add CORS(app) to your Flask app.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "That fixed it. Thanks!",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["cors", "flask", "react"]
+  },
+  {
+    "id": "sum-002",
+    "session": {
+      "sessionId": "fixture-sum-002",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "TypeScript is inferring `any` for my generic function and I can't figure out why.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Can you share the function signature? Often the issue is missing the type parameter in the return type.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "You're right — I had `function wrap<T>(x): T[]` instead of `function wrap<T>(x: T): T[]`. Adding the type on the parameter fixed the inference.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["typescript", "generic", "inference"]
+  },
+  {
+    "id": "sum-003",
+    "session": {
+      "sessionId": "fixture-sum-003",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My Postgres query over the events table is taking 12 seconds. It's a simple WHERE on user_id and created_at.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Run EXPLAIN ANALYZE — you likely need a composite index on (user_id, created_at DESC).",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Added the composite index and it's down to 40ms. Huge improvement.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["postgres", "query", "index"]
+  },
+  {
+    "id": "sum-004",
+    "session": {
+      "sessionId": "fixture-sum-004",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My Docker container can't reach my host's Postgres on localhost:5432.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Inside the container, localhost is the container itself. Use `host.docker.internal` on Mac/Windows or the host's gateway IP on Linux.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Switched to host.docker.internal and it connects fine now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["docker", "network", "container"]
+  },
+  {
+    "id": "sum-005",
+    "session": {
+      "sessionId": "fixture-sum-005",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My useEffect is firing infinitely. It sets state which triggers a re-render which re-runs the effect.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "You need a proper dependency array. If you're setting state based on props, put the prop in the array — not the state you're setting.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Right, I had an object literal in the deps. Moved it outside or used useMemo and the loop stopped.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["react", "useeffect", "hook", "infinite"]
+  },
+  {
+    "id": "sum-006",
+    "session": {
+      "sessionId": "fixture-sum-006",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My Kubernetes pod keeps CrashLoopBackOff. Logs show 'connection refused' for the database.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Check if the service exists and the pod has the right env vars. Also look at the readiness probe — the DB might not be ready when the pod starts.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "The readiness probe was the issue. Added an initial delay and the pod stabilized.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["kubernetes", "pod", "crashloop"]
+  },
+  {
+    "id": "sum-007",
+    "session": {
+      "sessionId": "fixture-sum-007",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My Python virtualenv is broken. pip can't find any packages after I moved the project folder.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Virtualenvs hardcode the interpreter path. Delete the venv and recreate it: `rm -rf .venv && python -m venv .venv`.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Recreated it and reinstalled from requirements.txt. Everything works now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["python", "virtualenv", "venv"]
+  },
+  {
+    "id": "sum-008",
+    "session": {
+      "sessionId": "fixture-sum-008",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I have a git merge conflict in package-lock.json and I can't resolve it manually.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Don't try to hand-resolve lockfile conflicts. Delete the file, run `npm install` again, and commit the regenerated lockfile.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Worked perfectly. npm regenerated a clean lockfile.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["git", "merge", "conflict"]
+  },
+  {
+    "id": "sum-009",
+    "session": {
+      "sessionId": "fixture-sum-009",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Our prod TLS cert expired overnight. Now customers can't hit the API.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Get Let's Encrypt via certbot immediately: `certbot renew --force-renewal`. Set up auto-renewal via cron afterward.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Renewed and configured the cron. Also added a Datadog monitor for cert expiry 14 days out.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["ssl", "tls", "certificate", "expir"]
+  },
+  {
+    "id": "sum-010",
+    "session": {
+      "sessionId": "fixture-sum-010",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Should I enable SQLite WAL mode for a mostly-read workload with occasional writes?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Yes — WAL gives you readers that don't block on writers. `PRAGMA journal_mode = WAL` once, and it persists.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Enabled it. Read latency under concurrent writes dropped noticeably.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["sqlite", "wal", "mode"]
+  },
+  {
+    "id": "sum-011",
+    "session": {
+      "sessionId": "fixture-sum-011",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "How do I refresh an OAuth token when it expires mid-request?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Wrap your fetch in a 401-retry handler: on 401, call the refresh endpoint with the refresh token, store the new access token, and retry the original request once.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Implemented the retry wrapper with a mutex so concurrent requests don't all try to refresh at once. Clean.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["oauth", "token", "refresh"]
+  },
+  {
+    "id": "sum-012",
+    "session": {
+      "sessionId": "fixture-sum-012",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "We're adding a new content-type to our GraphQL schema. Is it better to make it a union or an interface?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Use an interface if all variants share common fields. Use a union when they have nothing in common. Interfaces play nicer with fragment inlining on the client.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Went with interface since we share id, createdAt, and authorId across types.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["graphql", "schema", "interface"]
+  },
+  {
+    "id": "sum-013",
+    "session": {
+      "sessionId": "fixture-sum-013",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Our webpack bundle is 4.2MB. How do I get it under 1MB?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Start with bundle-analyzer to find the biggest culprits. Tree-shake lodash by importing from `lodash/get` directly, and dynamic-import your heavy routes.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Lodash was the big win — dropped 600KB. Dynamic imports on the admin panel shaved another 900KB.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["webpack", "bundle", "size"]
+  },
+  {
+    "id": "sum-014",
+    "session": {
+      "sessionId": "fixture-sum-014",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm setting up NGINX as a reverse proxy in front of a Node.js app. Websockets aren't connecting.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "NGINX needs the Upgrade and Connection headers for websockets. Add `proxy_set_header Upgrade $http_upgrade` and `proxy_set_header Connection 'upgrade'` to your location block.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Added those headers and the websocket handshake completes now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["nginx", "reverse proxy", "websocket"]
+  },
+  {
+    "id": "sum-015",
+    "session": {
+      "sessionId": "fixture-sum-015",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Our Redis cache is returning stale data after a database write. When should I invalidate?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Invalidate inside the same transaction as the write. Write to DB, then DEL the key before the transaction commits. Cache-aside pattern only reads from DB on cache miss.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Moved the DEL inside the transaction wrapper. No more staleness.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["redis", "cache", "invalidation"]
+  },
+  {
+    "id": "sum-016",
+    "session": {
+      "sessionId": "fixture-sum-016",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My Lambda is getting AccessDenied when reading from an S3 bucket. Both are in the same account.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Check the Lambda execution role — it needs `s3:GetObject` on the specific bucket ARN. And make sure the bucket policy doesn't explicitly deny it.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "The role was missing the resource ARN. Added it and the reads work now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["aws", "s3", "iam"]
+  },
+  {
+    "id": "sum-017",
+    "session": {
+      "sessionId": "fixture-sum-017",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Our Node.js service memory grows from 200MB to 2GB over 12 hours. I can't find the leak.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Take heap snapshots 1h apart and compare them in Chrome DevTools. Look for retained objects that shouldn't persist — event listeners and closures over large objects are common culprits.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Found it — we had a global event emitter with listeners added per request but never removed. Fixed the cleanup and memory is stable now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["node", "memory", "leak"]
+  },
+  {
+    "id": "sum-018",
+    "session": {
+      "sessionId": "fixture-sum-018",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Vite HMR stopped working after I added a Docker dev setup. Changes don't show up in the browser.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Inside Docker, Vite's HMR websocket needs to know the external host. Set `server.hmr.host` and `server.hmr.clientPort` in vite.config.ts, and use `server.watch.usePolling = true` for fsevents.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Added polling and the HMR host config. Hot reload works inside the container now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["vite", "hmr", "hot reload"]
+  },
+  {
+    "id": "sum-019",
+    "session": {
+      "sessionId": "fixture-sum-019",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Prisma migration failed mid-run in production. The schema is now out of sync with the database.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "First, run `prisma migrate resolve --rolled-back <migration-name>` to mark it failed. Then fix the SQL manually or write a new migration that handles the partial state before re-running migrate deploy.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Marked it rolled back and wrote a corrective migration. Prod is stable again.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["prisma", "migration"]
+  },
+  {
+    "id": "sum-020",
+    "session": {
+      "sessionId": "fixture-sum-020",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "The Rust compiler is yelling at me about a lifetime — 'borrowed value does not live long enough'.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "You're probably returning a reference to a local variable. Either return the owned value (use `String` not `&str`) or make the caller pass in the buffer.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Changed the function to return `String` and the borrow checker is happy.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["rust", "lifetime", "borrow"]
+  },
+  {
+    "id": "sum-021",
+    "session": {
+      "sessionId": "fixture-sum-021",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Two Go goroutines are deadlocking — each is holding a mutex the other needs.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Classic AB-BA deadlock. Establish a total ordering on lock acquisition — every goroutine must acquire mutex A before mutex B, never the reverse.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Refactored to always acquire in the same order and the deadlock is gone.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["go", "goroutine", "deadlock"]
+  },
+  {
+    "id": "sum-022",
+    "session": {
+      "sessionId": "fixture-sum-022",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Our GitHub Actions pipeline is failing in CI but the same tests pass locally.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Likely an env var or filesystem case-sensitivity difference. Check that your imports use the exact filename casing and that CI secrets are set for the workflow.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "It was a case issue — `./Utils.ts` vs `./utils.ts`. Mac is case-insensitive, Linux in CI isn't. Fixed the imports.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["ci", "github actions", "pipeline"]
+  },
+  {
+    "id": "sum-023",
+    "session": {
+      "sessionId": "fixture-sum-023",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Tailwind classes are missing from my production build even though they work in dev.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Tailwind's purge only scans files listed in your content config. Make sure all your template paths are in `content: [...]` in tailwind.config.js, including dynamic class names.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Added the missing paths. Classes show up in prod now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["tailwind", "purge", "css"]
+  },
+  {
+    "id": "sum-024",
+    "session": {
+      "sessionId": "fixture-sum-024",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I have a Supabase RLS policy that should allow users to read their own rows, but queries return empty.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Check that the policy uses `auth.uid() = user_id` and that your client passes the JWT. Without the auth header, the row filter sees no user and returns nothing.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "The client was using the anon key without the bearer token. Added the session and rows come back correctly.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["supabase", "rls", "row level"]
+  },
+  {
+    "id": "sum-025",
+    "session": {
+      "sessionId": "fixture-sum-025",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "My FFmpeg h264 encode is producing huge files at decent quality. What flags give better compression?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Use `-c:v libx264 -crf 22 -preset slow`. CRF 22 is visually lossless for most content, and `slow` trades encode time for better compression.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "CRF 22 with preset slow gave me a 40% smaller file at the same visual quality. Exactly what I needed.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["ffmpeg", "encoding", "h264"]
+  },
+  {
+    "id": "sum-026",
+    "session": {
+      "sessionId": "fixture-sum-026",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "macOS code signing is failing with 'errSecInternalComponent' when I try to notarize my app.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "That usually means the keychain is locked or the signing identity isn't accessible to the build process. Run `security unlock-keychain` before codesign and verify the identity with `security find-identity -v`.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Unlocking the keychain fixed it. Notarization passes now.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["macos", "code signing", "notariz"]
+  },
+  {
+    "id": "sum-027",
+    "session": {
+      "sessionId": "fixture-sum-027",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I need to group a MongoDB collection by date and compute averages. How do I write the aggregation?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Use `$group` with `_id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }` and `$avg` for the numeric field. Follow with `$sort` on _id if you want chronological output.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "That pipeline gives me exactly the daily averages I needed. Thanks.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["mongodb", "aggregation", "pipeline"]
+  },
+  {
+    "id": "sum-028",
+    "session": {
+      "sessionId": "fixture-sum-028",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "We're debating how to version our REST API. Should we use URL paths like /v1/ or headers?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "URL path versioning is more discoverable and easier to cache. Header versioning is cleaner in theory but harder to test with curl and breaks CDN caching. Most teams go with /v1/ in the path.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Agreed, we'll use /v1/ in the path. Simpler for clients.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["rest", "api", "versioning"]
+  },
+  {
+    "id": "sum-029",
+    "session": {
+      "sessionId": "fixture-sum-029",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "I'm migrating my Chrome extension from Manifest V2 to V3. Background scripts are breaking.",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "V3 replaces persistent background pages with service workers. You can't use `window` or `document` — rewrite as an event-driven service worker and use `chrome.storage` for state instead of module globals.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Converted the background script to a service worker and moved state into chrome.storage.local. Extension loads cleanly in V3.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["chrome", "extension", "manifest"]
+  },
+  {
+    "id": "sum-030",
+    "session": {
+      "sessionId": "fixture-sum-030",
+      "project": "eval",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Someone on my team accidentally committed a secret. What's the safest way to purge it from git history?",
+          "timestamp": "2026-04-01T10:00:00Z"
+        },
+        {
+          "role": "assistant",
+          "text": "Use `git filter-repo` to remove the file from history, then force-push. Critically — rotate the secret immediately since it was public, and add a GitHub Actions secret-scanning check so this doesn't happen again.",
+          "timestamp": "2026-04-01T10:00:30Z"
+        },
+        {
+          "role": "user",
+          "text": "Rotated the key, filter-repo'd the history, and set up gitleaks in CI. Good prevention for next time.",
+          "timestamp": "2026-04-01T10:01:00Z"
+        }
+      ]
+    },
+    "expected_topic_keywords": ["github", "secret", "git history"]
+  }
+]
