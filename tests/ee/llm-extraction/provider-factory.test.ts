@@ -110,8 +110,8 @@ describe("loadDistillConfig", () => {
     expect(config).not.toBeNull();
     expect(config!.enabled).toBe(true);
     expect(config!.localUrl).toBe("http://localhost:11434");
-    expect(config!.extractionModel).toBe("strata-extraction-7b");
-    expect(config!.summarizationModel).toBe("strata-summarization-7b");
+    expect(config!.extractionModel).toBe("gemma4:e4b");
+    expect(config!.summarizationModel).toBe("gemma4:e4b");
     expect(config!.fallback).toBe("gemini");
   });
 
@@ -147,6 +147,67 @@ describe("loadDistillConfig", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(JSON.stringify({ otherSetting: true }));
     expect(loadDistillConfig()).toBeNull();
+  });
+});
+
+describe("loadDistillConfig defaults", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses gemma4:e4b as default extractionModel", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ distillation: { enabled: true } }));
+    const config = loadDistillConfig();
+    expect(config).not.toBeNull();
+    expect(config!.extractionModel).toBe("gemma4:e4b");
+  });
+
+  it("uses gemma4:e4b as default summarizationModel", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ distillation: { enabled: true } }));
+    const config = loadDistillConfig();
+    expect(config!.summarizationModel).toBe("gemma4:e4b");
+  });
+
+  it("uses gemma4:e2b as default conflictResolutionModel", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ distillation: { enabled: true } }));
+    const config = loadDistillConfig();
+    expect(config!.conflictResolutionModel).toBe("gemma4:e2b");
+  });
+
+  it("respects user-provided model overrides", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        distillation: {
+          enabled: true,
+          extractionModel: "custom-extract",
+          summarizationModel: "custom-sum",
+          conflictResolutionModel: "custom-conflict",
+        },
+      })
+    );
+    const config = loadDistillConfig();
+    expect(config!.extractionModel).toBe("custom-extract");
+    expect(config!.summarizationModel).toBe("custom-sum");
+    expect(config!.conflictResolutionModel).toBe("custom-conflict");
+  });
+
+  it("falls back conflictResolutionModel to extractionModel when only extractionModel is set", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        distillation: {
+          enabled: true,
+          extractionModel: "mymodel:latest",
+        },
+      })
+    );
+    const config = loadDistillConfig();
+    expect(config!.extractionModel).toBe("mymodel:latest");
+    expect(config!.conflictResolutionModel).toBe("mymodel:latest");
   });
 });
 

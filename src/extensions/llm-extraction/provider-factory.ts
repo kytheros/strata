@@ -21,6 +21,12 @@ export interface DistillationConfig {
   localUrl: string;
   extractionModel: string;
   summarizationModel: string;
+  /**
+   * Model used for conflict resolution (per-entry classify/delete/update).
+   * Defaults to extractionModel if unset. A smaller variant (e.g. gemma4:e2b)
+   * is recommended since conflict resolution is a short classification task.
+   */
+  conflictResolutionModel: string;
   fallback: string;
 }
 
@@ -45,8 +51,10 @@ export function loadDistillConfig(): DistillationConfig | null {
         return {
           enabled: true,
           localUrl: "http://localhost:11434",
-          extractionModel: d.extractionModel || "strata-extraction-7b",
-          summarizationModel: d.summarizationModel || "strata-summarization-7b",
+          extractionModel: d.extractionModel || "gemma4:e4b",
+          summarizationModel: d.summarizationModel || "gemma4:e4b",
+          conflictResolutionModel:
+            d.conflictResolutionModel || d.extractionModel || "gemma4:e2b",
           fallback: d.fallback || "gemini",
         };
       }
@@ -57,8 +65,10 @@ export function loadDistillConfig(): DistillationConfig | null {
     return {
       enabled: true,
       localUrl,
-      extractionModel: d.extractionModel || "strata-extraction-7b",
-      summarizationModel: d.summarizationModel || "strata-summarization-7b",
+      extractionModel: d.extractionModel || "gemma4:e4b",
+      summarizationModel: d.summarizationModel || "gemma4:e4b",
+      conflictResolutionModel:
+        d.conflictResolutionModel || d.extractionModel || "gemma4:e2b",
       fallback: d.fallback || "gemini",
     };
   } catch {
