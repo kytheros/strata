@@ -95,27 +95,41 @@ Search parameters in `src/config.ts` are empirically optimized via automated eva
 
 ## Local Model Distillation
 
-Community users with `GEMINI_API_KEY` get LLM-powered extraction and summarization. Training pairs accumulate passively in the `training_data` table. When enough data is collected (~1,000 pairs), users can fine-tune a private local model via the Python SDK.
+Users with `GEMINI_API_KEY` get LLM-powered extraction, conflict resolution,
+and summarization via Gemini 2.5 Flash. With one command they can route the
+entire pipeline through **Gemma 4** running locally via Ollama, with Gemini
+remaining as a safety-net fallback.
+
+### Quick start
+
+```bash
+strata distill setup   # Pulls gemma4:e4b + gemma4:e2b, writes config
+strata distill test    # Verifies all three pipeline stages
+```
+
+See `docs/local-inference.md` for the full guide.
 
 ### Architecture
-- `src/extensions/llm-extraction/gemini-provider.ts` — Gemini LLM provider (activated when API key set)
-- `src/extensions/llm-extraction/enhanced-extractor.ts` — LLM extraction with training data capture
-- `src/extensions/llm-extraction/smart-summarizer.ts` — LLM summarization with training data capture
-- `src/extensions/llm-extraction/training-capture.ts` — Saves (input, output) pairs to `training_data` table
+- `src/extensions/llm-extraction/llm-provider.ts` — `LlmProvider` interface + `OllamaProvider`
+- `src/extensions/llm-extraction/gemini-provider.ts` — Gemini LLM provider
 - `src/extensions/llm-extraction/hybrid-provider.ts` — Local-first with frontier fallback
-- `src/extensions/llm-extraction/provider-factory.ts` — Auto-selects provider based on config
+- `src/extensions/llm-extraction/provider-factory.ts` — `getExtractionProvider()`, `getSummarizationProvider()`, `getConflictResolutionProvider()`. Auto-selects hybrid vs gemini based on `~/.strata/config.json`.
+- `src/cli/distill.ts` — `status`, `export-data`, `activate`, `deactivate`, `setup`, `test`
 - `src/sanitizer/sanitizer.ts` — Redacts secrets before LLM calls and training capture
+- `evals/local-inference-quality/` — Frozen eval suite gating Gemma 4 ship
 
 ### CLI Commands
 - `strata distill status` — Training data counts and readiness
 - `strata distill export-data` — Export training pairs to JSONL
 - `strata distill activate` — Enable hybrid provider (local-first)
 - `strata distill deactivate` — Revert to frontier-only
+- `strata distill setup` — One-step Gemma 4 local inference setup
+- `strata distill test` — Verify all three pipeline stages
 
 ### Python SDK (strata-py)
 The fine-tuning pipeline lives in `strata-py/strata/distill/`:
 - `pip install strata-memory[distill]` — adds Unsloth/PyTorch
-- `strata-distill start` — QLoRA fine-tuning
+- `strata-distill start` — QLoRA fine-tuning (Gemma 4 is the recommended base)
 - `strata-distill eval` — score against frozen eval
 - `strata-distill export` — GGUF export + Ollama registration
 

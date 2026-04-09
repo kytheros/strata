@@ -258,6 +258,22 @@ All ranking parameters are centralized in [`src/config.ts`](src/config.ts) and w
 
 ---
 
+## Local LLM Inference (Gemma 4)
+
+Strata's extraction, conflict resolution, and summarization pipeline can run
+entirely on local hardware via Gemma 4 and Ollama. Zero per-call API cost,
+no data leaving the machine.
+
+```bash
+strata distill setup   # Installs gemma4:e4b + e2b, writes config
+strata distill test    # Verifies all three pipeline stages
+```
+
+See [docs/local-inference.md](docs/local-inference.md) for the full guide
+including troubleshooting and performance benchmarks.
+
+---
+
 ## Local Model Distillation
 
 Fine-tune a private model from your own coding sessions. When `GEMINI_API_KEY` is set, Strata captures (input, output) training pairs from every LLM-powered extraction and summarization. Once you have enough data (~1,000 pairs), export and train a local model that runs entirely offline.
