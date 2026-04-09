@@ -68,8 +68,13 @@ export async function resolveConflicts(
     const prompt = buildPrompt(candidate, similar);
 
     const raw = await provider.complete(prompt, {
-      // Classification task, not generation — 256 tokens is sufficient
-      maxTokens: 256,
+      // 1024 provides headroom for multi-action responses with full UUIDs
+      // and merged content. Previously 256, which fit Gemini's terse output
+      // but truncated Gemma 4's fuller JSON under format:"json" mode,
+      // producing invalid mid-JSON responses that failed validation and
+      // triggered unnecessary frontier fallbacks. 1024 comfortably fits
+      // 5-10 actions across realistic conflict scenarios.
+      maxTokens: 1024,
       temperature: 0.1,
       timeoutMs: 8000,
     });

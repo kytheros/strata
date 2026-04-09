@@ -34,6 +34,25 @@ function makeProvider(response: string): LlmProvider {
   };
 }
 
+/**
+ * Provider that captures options passed to complete() so tests can assert
+ * what the caller requested.
+ */
+function makeCapturingProvider(response: string): {
+  provider: LlmProvider;
+  capturedOptions: Array<Record<string, unknown>>;
+} {
+  const capturedOptions: Array<Record<string, unknown>> = [];
+  const provider: LlmProvider = {
+    name: "test",
+    complete: vi.fn(async (_prompt: string, options?: Record<string, unknown>) => {
+      capturedOptions.push(options || {});
+      return response;
+    }),
+  };
+  return { provider, capturedOptions };
+}
+
 function makeFailingProvider(): LlmProvider {
   return {
     name: "test",
@@ -53,6 +72,32 @@ describe("resolveConflicts", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     db.close();
+  });
+
+  it("requests at least 1024 maxTokens from the provider (headroom for multi-action JSON output)", async () => {
+    // Regression guard: previously maxTokens was 256, which was enough for
+    // Gemini's terse JSON ("{\"shouldAdd\":true,\"actions\":[]}") but
+    // truncated Gemma 4's output under format:"json" mode because Gemma 4
+    // emits fuller JSON with per-action mergedSummary/mergedDetails fields
+    // and full UUIDs. Result: HybridProvider received mid-JSON truncated
+    // output, validation failed, every conflict resolution call fell back
+    // to frontier. See the 2026-04-09 canary DEBUG capture.
+    //
+    // Contract: resolveConflicts MUST request enough tokens to fit a
+    // realistic multi-action response. 1024 is the current floor — it
+    // comfortably fits 5-10 actions with full UUIDs and merged content.
+    const existing = makeEntry({ id: "abc123", summary: "User uses yarn" });
+    await store.addEntry(existing);
+
+    const { provider, capturedOptions } = makeCapturingProvider(
+      JSON.stringify({ shouldAdd: true, actions: [] })
+    );
+    const candidate = makeEntry({ summary: "User uses yarn workspaces" });
+    await resolveConflicts(candidate, store, provider);
+
+    expect(capturedOptions.length).toBe(1);
+    const maxTokens = capturedOptions[0].maxTokens as number | undefined;
+    expect(maxTokens).toBeGreaterThanOrEqual(1024);
   });
 
   it("returns shouldAdd:true with delete action when LLM says supersede", async () => {
