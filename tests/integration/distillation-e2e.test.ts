@@ -187,6 +187,12 @@ describe("E2E Test 2: Gemini activation", () => {
   it("getExtractionProvider returns GeminiProvider (not HybridProvider) when no distill config", async () => {
     vi.stubEnv("GEMINI_API_KEY", "test-e2e-key-12345");
     vi.stubEnv("STRATA_DATA_DIR", "/tmp/nonexistent-e2e-test");
+    // Isolate homedir() so loadDistillConfig's fallback can't find the
+    // dev machine's real ~/.strata/config.json. Without these stubs,
+    // commit 4509b26's home-dir fallback picks up the user's actual
+    // distillation config and returns HybridProvider.
+    vi.stubEnv("USERPROFILE", "/tmp/nonexistent-e2e-home");
+    vi.stubEnv("HOME", "/tmp/nonexistent-e2e-home");
     const provider = await getExtractionProvider();
     expect(provider).not.toBeNull();
     expect(provider!.name).toBe("gemini");
@@ -528,14 +534,29 @@ describe("E2E Test 6: Provider factory wiring", () => {
     "..",
     ".test-distill-e2e-factory"
   );
+  const testHomeDir = join(
+    import.meta.dirname,
+    "..",
+    ".test-distill-e2e-factory-home"
+  );
 
   beforeEach(() => {
     resetGeminiProviderCache();
     if (existsSync(testDataDir)) {
       rmSync(testDataDir, { recursive: true, force: true });
     }
+    if (existsSync(testHomeDir)) {
+      rmSync(testHomeDir, { recursive: true, force: true });
+    }
     mkdirSync(testDataDir, { recursive: true });
+    mkdirSync(testHomeDir, { recursive: true });
     vi.stubEnv("STRATA_DATA_DIR", testDataDir);
+    // Isolate homedir() so loadDistillConfig's fallback can't find the
+    // dev machine's real ~/.strata/config.json. Commit 4509b26 added
+    // a home-dir fallback that otherwise bleeds through into tests that
+    // expect loadDistillConfig to return null.
+    vi.stubEnv("USERPROFILE", testHomeDir);
+    vi.stubEnv("HOME", testHomeDir);
   });
 
   afterEach(() => {
@@ -543,6 +564,9 @@ describe("E2E Test 6: Provider factory wiring", () => {
     vi.unstubAllEnvs();
     if (existsSync(testDataDir)) {
       rmSync(testDataDir, { recursive: true, force: true });
+    }
+    if (existsSync(testHomeDir)) {
+      rmSync(testHomeDir, { recursive: true, force: true });
     }
   });
 
