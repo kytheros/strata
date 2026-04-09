@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetGeminiProviderCache } from "../../../src/extensions/llm-extraction/gemini-provider.js";
 import {
+  getConflictResolutionProvider,
   getExtractionProvider,
   getSummarizationProvider,
   loadDistillConfig,
+  validateConflictResolutionOutput,
   validateExtractionOutput,
   validateSummarizationOutput,
 } from "../../../src/extensions/llm-extraction/provider-factory.js";
@@ -371,5 +373,83 @@ describe("getSummarizationProvider", () => {
 
     const provider = await getSummarizationProvider();
     expect(provider).toBeNull();
+  });
+});
+
+describe("validateConflictResolutionOutput", () => {
+  it("returns true for valid shouldAdd-only resolution", () => {
+    expect(
+      validateConflictResolutionOutput(JSON.stringify({ shouldAdd: true, actions: [] }))
+    ).toBe(true);
+  });
+
+  it("returns true for resolution with delete actions", () => {
+    const valid = JSON.stringify({
+      shouldAdd: false,
+      actions: [{ action: "delete", targetId: "k-123" }],
+    });
+    expect(validateConflictResolutionOutput(valid)).toBe(true);
+  });
+
+  it("returns true for resolution with update actions", () => {
+    const valid = JSON.stringify({
+      shouldAdd: false,
+      actions: [{ action: "update", targetId: "k-123", newSummary: "updated" }],
+    });
+    expect(validateConflictResolutionOutput(valid)).toBe(true);
+  });
+
+  it("returns false for non-JSON input", () => {
+    expect(validateConflictResolutionOutput("not json")).toBe(false);
+  });
+
+  it("returns false when shouldAdd is missing", () => {
+    expect(validateConflictResolutionOutput(JSON.stringify({ actions: [] }))).toBe(false);
+  });
+
+  it("returns false when actions is not an array", () => {
+    expect(
+      validateConflictResolutionOutput(JSON.stringify({ shouldAdd: true, actions: "bad" }))
+    ).toBe(false);
+  });
+});
+
+describe("getConflictResolutionProvider", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetGeminiProviderCache();
+  });
+
+  afterEach(() => {
+    delete process.env.GEMINI_API_KEY;
+  });
+
+  it("returns null when GEMINI_API_KEY is unset and distillation is disabled", async () => {
+    mockExistsSync.mockReturnValue(false);
+    const provider = await getConflictResolutionProvider();
+    expect(provider).toBeNull();
+  });
+
+  it("returns a gemini provider when key set but distillation disabled", async () => {
+    process.env.GEMINI_API_KEY = "test-key";
+    mockExistsSync.mockReturnValue(false);
+    const provider = await getConflictResolutionProvider();
+    expect(provider).not.toBeNull();
+    expect(provider!.name).toBe("gemini");
+  });
+
+  it("returns HybridProvider using conflictResolutionModel when distillation is enabled", async () => {
+    process.env.GEMINI_API_KEY = "test-key";
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        distillation: {
+          enabled: true,
+          conflictResolutionModel: "gemma4:e2b",
+        },
+      })
+    );
+    const provider = await getConflictResolutionProvider();
+    expect(provider).toBeInstanceOf(HybridProvider);
   });
 });

@@ -101,6 +101,22 @@ export function validateSummarizationOutput(raw: string): boolean {
 }
 
 /**
+ * Validate that a string is parseable JSON matching the ConflictResolution
+ * shape expected by strata/src/knowledge/conflict-resolver.ts:
+ *   { shouldAdd: boolean, actions: Array<{ action: string, ... }> }
+ */
+export function validateConflictResolutionOutput(raw: string): boolean {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.shouldAdd !== "boolean") return false;
+    if (!Array.isArray(parsed.actions)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get the appropriate LLM provider for knowledge extraction.
  *
  * Priority:
@@ -144,6 +160,32 @@ export async function getSummarizationProvider(): Promise<LlmProvider | null> {
       frontierProvider: gemini,
       validateOutput: validateSummarizationOutput,
       localTimeoutMs: 15000,
+    });
+  }
+
+  return gemini;
+}
+
+/**
+ * Get the LLM provider for conflict resolution (per-entry classify/delete/update).
+ *
+ * Priority:
+ * 1. Hybrid (distillation enabled + GEMINI_API_KEY) -> local-first with frontier fallback
+ *    — uses the smaller conflictResolutionModel (e.g. gemma4:e2b) for speed.
+ * 2. Gemini (GEMINI_API_KEY set) -> frontier only
+ * 3. null (no key) -> caller skips conflict resolution and direct-adds
+ */
+export async function getConflictResolutionProvider(): Promise<LlmProvider | null> {
+  const distillConfig = loadDistillConfig();
+  const gemini = await getCachedGeminiProvider();
+
+  if (distillConfig && gemini) {
+    return new HybridProvider({
+      localUrl: distillConfig.localUrl,
+      localModel: distillConfig.conflictResolutionModel,
+      frontierProvider: gemini,
+      validateOutput: validateConflictResolutionOutput,
+      localTimeoutMs: 10000, // Shorter than extraction: classification is fast
     });
   }
 
