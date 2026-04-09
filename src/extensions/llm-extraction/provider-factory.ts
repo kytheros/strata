@@ -31,10 +31,23 @@ export interface DistillationConfig {
 }
 
 export function loadDistillConfig(): DistillationConfig | null {
-  const dataDir = process.env.STRATA_DATA_DIR || join(homedir(), ".strata");
-  const configPath = join(dataDir, "config.json");
+  // Look in STRATA_DATA_DIR first (per-project override), then fall back to
+  // the user-level ~/.strata/config.json. This lets benchmark harnesses and
+  // isolated environments override STRATA_DATA_DIR for database isolation
+  // while still picking up the user's local-inference preference from their
+  // home directory.
+  const primaryDataDir = process.env.STRATA_DATA_DIR || join(homedir(), ".strata");
+  const primaryPath = join(primaryDataDir, "config.json");
+  const homePath = join(homedir(), ".strata", "config.json");
 
-  if (!existsSync(configPath)) return null;
+  let configPath: string;
+  if (existsSync(primaryPath)) {
+    configPath = primaryPath;
+  } else if (primaryPath !== homePath && existsSync(homePath)) {
+    configPath = homePath;
+  } else {
+    return null;
+  }
 
   try {
     const raw = JSON.parse(readFileSync(configPath, "utf-8"));
