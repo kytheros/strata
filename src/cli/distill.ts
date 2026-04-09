@@ -380,6 +380,204 @@ export async function runDistillDeactivate(): Promise<void> {
   console.log("Strata will use the standard provider (Gemini or heuristic).");
 }
 
+/**
+ * Options for `strata distill setup`.
+ */
+export interface DistillSetupOptions {
+  /** Skip the `ollama pull` step. Useful for tests and CI. */
+  skipPull?: boolean;
+  /** Override the Ollama base URL (default: http://localhost:11434). */
+  ollamaUrl?: string;
+}
+
+/**
+ * Run the `strata distill setup` command.
+ *
+ * One-step onboarding for local inference:
+ *  1. Probe Ollama /api/tags
+ *  2. Pull gemma4:e4b and gemma4:e2b (skippable via --skip-pull)
+ *  3. Write distillation block to ~/.strata/config.json
+ */
+export async function runDistillSetup(options: DistillSetupOptions = {}): Promise<void> {
+  const ollamaUrl = options.ollamaUrl || "http://localhost:11434";
+
+  console.log("Strata Local Inference Setup");
+  console.log("");
+
+  // Step 1: Probe Ollama
+  console.log("[1/3] Checking Ollama installation...");
+  let availableModels: string[] = [];
+  try {
+    const response = await fetch(`${ollamaUrl}/api/tags`);
+    if (!response.ok) {
+      throw new Error(`Ollama returned HTTP ${response.status}`);
+    }
+    const body = (await response.json()) as { models?: Array<{ name: string }> };
+    availableModels = (body.models || []).map((m) => m.name);
+    console.log(`  OK  Ollama detected at ${ollamaUrl}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Ollama not reachable at ${ollamaUrl}: ${message}\n` +
+        "  Install Ollama from https://ollama.com and ensure it is running."
+    );
+  }
+
+  // Step 2: Pull models
+  const modelsToPull = ["gemma4:e4b", "gemma4:e2b"];
+  if (options.skipPull) {
+    console.log("[2/3] Skipping model pulls (--skip-pull).");
+  } else {
+    console.log("[2/3] Pulling Gemma 4 models...");
+    const { execSync } = await import("child_process");
+    for (const model of modelsToPull) {
+      if (availableModels.includes(model)) {
+        console.log(`  OK  ${model} already present`);
+        continue;
+      }
+      console.log(`  Pulling ${model}...`);
+      try {
+        execSync(`ollama pull ${model}`, { stdio: "inherit" });
+        console.log(`  OK  ${model}`);
+      } catch (err) {
+        throw new Error(
+          `Failed to pull ${model}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+  }
+
+  // Step 3: Write config
+  console.log("[3/3] Updating ~/.strata/config.json...");
+  const existing = readConfig();
+  const merged = {
+    ...existing,
+    distillation: {
+      enabled: true,
+      localUrl: ollamaUrl,
+      extractionModel: "gemma4:e4b",
+      summarizationModel: "gemma4:e4b",
+      conflictResolutionModel: "gemma4:e2b",
+      fallback: "gemini",
+    },
+  };
+  writeConfig(merged);
+  console.log("  OK  distillation.enabled = true");
+  console.log("  OK  extractionModel = gemma4:e4b");
+  console.log("  OK  summarizationModel = gemma4:e4b");
+  console.log("  OK  conflictResolutionModel = gemma4:e2b");
+  console.log("");
+  console.log("Setup complete. Test with:");
+  console.log("  strata distill test");
+}
+
+/**
+ * Run the `strata distill test` command.
+ *
+ * Exercises each pipeline stage end-to-end:
+ *  1. Extraction — short prompt, expects valid entries JSON
+ *  2. Summarization — short prompt, expects valid topic JSON
+ *  3. Conflict resolution — short prompt, expects valid shouldAdd JSON
+ *
+ * Uses the factory so the same hybrid provider stack applied in
+ * strata-pro's ingest_conversation is validated here.
+ */
+export async function runDistillTest(): Promise<void> {
+  const {
+    getExtractionProvider,
+    getSummarizationProvider,
+    getConflictResolutionProvider,
+    validateExtractionOutput,
+    validateSummarizationOutput,
+    validateConflictResolutionOutput,
+  } = await import("../extensions/llm-extraction/provider-factory.js");
+
+  console.log("Testing local inference pipeline...");
+  console.log("");
+
+  let anyFailures = false;
+
+  // Extraction
+  try {
+    console.log("[1/3] Extraction test (extraction provider)...");
+    const provider = await getExtractionProvider();
+    if (!provider) {
+      console.log("  FAIL  no extraction provider (missing GEMINI_API_KEY?)");
+      anyFailures = true;
+    } else {
+      const prompt =
+        'Return ONLY valid JSON: {"entries":[{"type":"fact","summary":"user likes coffee"}]}';
+      const start = Date.now();
+      const raw = await provider.complete(prompt, { timeoutMs: 30000 });
+      const ms = Date.now() - start;
+      if (validateExtractionOutput(raw)) {
+        console.log(`  OK  valid JSON with entries (${ms}ms)`);
+      } else {
+        console.log(`  FAIL  output did not match entries schema: ${raw.slice(0, 200)}`);
+        anyFailures = true;
+      }
+    }
+  } catch (err) {
+    console.log(`  FAIL  ${err instanceof Error ? err.message : String(err)}`);
+    anyFailures = true;
+  }
+
+  // Summarization
+  try {
+    console.log("[2/3] Summarization test (summarization provider)...");
+    const provider = await getSummarizationProvider();
+    if (!provider) {
+      console.log("  FAIL  no summarization provider");
+      anyFailures = true;
+    } else {
+      const prompt = 'Return ONLY valid JSON: {"topic":"test topic"}';
+      const start = Date.now();
+      const raw = await provider.complete(prompt, { timeoutMs: 30000 });
+      const ms = Date.now() - start;
+      if (validateSummarizationOutput(raw)) {
+        console.log(`  OK  valid JSON with topic (${ms}ms)`);
+      } else {
+        console.log(`  FAIL  output did not match topic schema: ${raw.slice(0, 200)}`);
+        anyFailures = true;
+      }
+    }
+  } catch (err) {
+    console.log(`  FAIL  ${err instanceof Error ? err.message : String(err)}`);
+    anyFailures = true;
+  }
+
+  // Conflict resolution
+  try {
+    console.log("[3/3] Conflict resolution test (conflict-resolution provider)...");
+    const provider = await getConflictResolutionProvider();
+    if (!provider) {
+      console.log("  FAIL  no conflict resolution provider");
+      anyFailures = true;
+    } else {
+      const prompt = 'Return ONLY valid JSON: {"shouldAdd":true,"actions":[]}';
+      const start = Date.now();
+      const raw = await provider.complete(prompt, { timeoutMs: 20000 });
+      const ms = Date.now() - start;
+      if (validateConflictResolutionOutput(raw)) {
+        console.log(`  OK  valid resolution (${ms}ms)`);
+      } else {
+        console.log(`  FAIL  output did not match resolution schema: ${raw.slice(0, 200)}`);
+        anyFailures = true;
+      }
+    }
+  } catch (err) {
+    console.log(`  FAIL  ${err instanceof Error ? err.message : String(err)}`);
+    anyFailures = true;
+  }
+
+  console.log("");
+  if (anyFailures) {
+    console.log("Some checks failed. See output above.");
+  } else {
+    console.log("All checks passed. Local inference is ready.");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // System prompts for JSONL export
 // ---------------------------------------------------------------------------

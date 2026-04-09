@@ -54,7 +54,9 @@ Usage:
   strata distill status                   Show distillation training data stats
   strata distill export-data              Export training data to JSONL
   strata distill activate                 Enable local model distillation mode
-  strata distill deactivate              Disable local model distillation mode
+  strata distill deactivate               Disable local model distillation mode
+  strata distill setup                    One-step Gemma 4 local inference setup
+  strata distill test                     Verify local inference pipeline
   strata deploy cloudflare                Deploy Strata to Cloudflare Workers + D1
   strata deploy gcp                       Deploy Strata to GCP Cloud Run
   strata deploy gcp --multi-tenant        Deploy multi-tenant Strata on Cloud Run + Cloud SQL
@@ -716,8 +718,14 @@ async function main(): Promise<void> {
     case "distill": {
       const subcommand = args[0];
       const distillArgs = args.slice(1);
-      const { runDistillStatus, runDistillExport, runDistillActivate, runDistillDeactivate } =
-        await import("./cli/distill.js");
+      const {
+        runDistillStatus,
+        runDistillExport,
+        runDistillActivate,
+        runDistillDeactivate,
+        runDistillSetup,
+        runDistillTest,
+      } = await import("./cli/distill.js");
 
       switch (subcommand) {
         case "status":
@@ -732,14 +740,24 @@ async function main(): Promise<void> {
         case "deactivate":
           await runDistillDeactivate();
           break;
+        case "setup":
+          await runDistillSetup({ skipPull: flags["skip-pull"] === true });
+          break;
+        case "test":
+          await runDistillTest();
+          break;
         default:
-          console.log("Usage: strata distill <status|export-data|activate|deactivate>");
+          console.log(
+            "Usage: strata distill <status|export-data|activate|deactivate|setup|test>"
+          );
           console.log("");
           console.log("Subcommands:");
           console.log("  status        Show training data statistics and readiness");
           console.log("  export-data   Export training data to JSONL for fine-tuning");
           console.log("  activate      Enable local model distillation mode");
           console.log("  deactivate    Disable local model distillation mode");
+          console.log("  setup         One-step Gemma 4 local inference setup");
+          console.log("  test          Verify local inference pipeline");
           process.exit(subcommand ? 1 : 0);
       }
       break;
