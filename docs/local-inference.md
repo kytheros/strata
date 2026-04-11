@@ -143,3 +143,55 @@ Numbers vary with hardware. GPUs produce a larger speedup. The quality
 thresholds in `evals/local-inference-quality/` guarantee Gemma 4 stays
 within 85% of Gemini's extraction quality, 80% of summarization, and
 90% of conflict resolution.
+
+## Performance tuning
+
+### Parallel request handling
+
+Ollama defaults to processing one request at a time (`OLLAMA_NUM_PARALLEL=1`).
+Strata sends conflict-resolution calls in parallel, which queue up and may
+timeout on the default setting.
+
+**Recommended:** Set parallel slots to 4:
+
+```bash
+# Linux/macOS
+export OLLAMA_NUM_PARALLEL=4
+
+# Windows (persists across restarts)
+setx OLLAMA_NUM_PARALLEL 4
+# Then restart Ollama
+```
+
+### VRAM considerations
+
+Strata uses two model sizes by default:
+- **gemma4:e4b** (9.6 GB) for extraction and summarization
+- **gemma4:e2b** (7.2 GB) for conflict resolution
+
+Both models together need ~22 GB VRAM. If your GPU has ≤16 GB, Ollama must
+evict one model to load the other on every switch, adding ~12 seconds per swap.
+
+**Fix for ≤16 GB GPUs:** Use the same model for all three stages:
+
+```json
+// ~/.strata/config.json
+{
+  "distillation": {
+    "enabled": true,
+    "extractionModel": "gemma4:e4b",
+    "summarizationModel": "gemma4:e4b",
+    "conflictResolutionModel": "gemma4:e4b"
+  }
+}
+```
+
+### Timeout settings
+
+Extraction prompts on long conversations (50+ turns) can take 60-120 seconds
+on consumer GPUs. The default timeout is 180 seconds. If you see extraction
+falling back to heuristic mode, check that:
+
+1. Ollama is running and the model is pulled (`ollama list`)
+2. `OLLAMA_NUM_PARALLEL` is set to at least 4
+3. Your GPU has enough free VRAM (check `nvidia-smi`)
