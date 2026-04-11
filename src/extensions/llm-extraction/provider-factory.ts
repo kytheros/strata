@@ -171,9 +171,13 @@ export async function getExtractionProvider(): Promise<LlmProvider | null> {
       localModel: distillConfig.extractionModel,
       frontierProvider: gemini,
       validateOutput: validateExtractionOutput,
-      // 90s accommodates Ollama cold starts (model load from disk can take
-      // 20-45s on first call for a 9.6GB model). Warm calls return in 1-3s.
-      localTimeoutMs: 90000,
+      // 180s accommodates both Ollama cold starts (model load 20-45s) and
+      // long extraction prompts on consumer GPUs. LongMemEval sessions with
+      // 50+ turns produce 15K+ token prompts where prompt processing alone
+      // takes 60-90s on an RTX 4060 Ti, plus up to 40s generation at 8192
+      // num_predict. With OLLAMA_NUM_PARALLEL>1 the per-slot GPU bandwidth
+      // is shared, pushing large prompts past the old 90s ceiling.
+      localTimeoutMs: 180000,
     });
   }
 
