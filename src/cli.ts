@@ -41,6 +41,10 @@ function printHelp(): void {
 Usage:
   strata                                  Start MCP server on stdio (default)
   strata serve                            Start HTTP server on port 3000 (or $PORT)
+  strata serve --rest                     Start REST API on port 3001
+  strata serve --rest --rest-port 8080    REST API on custom port
+  strata serve --rest --rest-token SECRET REST API with bearer token auth
+  strata serve --rest --multi-tenant      REST + multi-tenant MCP mode
   strata search <query>                   Search conversation history
   strata find-procedures <query>          Search for procedures (Pro)
   strata entities [query]                 Search entity graph (Pro)
@@ -97,6 +101,9 @@ Serve flags:
   --multi-tenant    Enable multi-tenant HTTP mode (per-user databases)
   --data-dir <path> Base directory for per-user databases (overrides STRATA_DATA_DIR)
   --max-dbs <n>     Max open databases in pool (default: 200)
+  --rest            Start REST API for game engines (default port: 3001)
+  --rest-port <n>   REST API port (default: 3001)
+  --rest-token <t>  Bearer token for REST API auth (or STRATA_REST_TOKEN env)
 
 Activate flags:
   --binary          Download standalone binary instead of tarball
@@ -166,6 +173,12 @@ function parseArgs(argv: string[]): {
       flags.port = argv[++i];
     } else if (arg === "--multi-tenant") {
       flags["multi-tenant"] = true;
+    } else if (arg === "--rest") {
+      flags["rest"] = true;
+    } else if (arg === "--rest-port" && i + 1 < argv.length) {
+      flags["rest-port"] = argv[++i];
+    } else if (arg === "--rest-token" && i + 1 < argv.length) {
+      flags["rest-token"] = argv[++i];
     } else if (arg === "--data-dir" && i + 1 < argv.length) {
       flags["data-dir"] = argv[++i];
     } else if (arg === "--max-dbs" && i + 1 < argv.length) {
@@ -638,6 +651,42 @@ async function runServe(
 
     process.on("SIGTERM", shutdown);
     process.on("SIGINT", shutdown);
+  }
+
+  // REST API server (can run alongside MCP transport or standalone)
+  if (flags["rest"]) {
+    const { startRestTransport } = await import("./transports/rest-transport.js");
+    const { getDataDir } = await import("./storage/database.js");
+
+    const restPort = flags["rest-port"]
+      ? parseInt(String(flags["rest-port"]), 10)
+      : 3001;
+    const restToken = flags["rest-token"]
+      ? String(flags["rest-token"])
+      : process.env.STRATA_REST_TOKEN || undefined;
+    const restBaseDir = flags["data-dir"]
+      ? String(flags["data-dir"])
+      : process.env.STRATA_DATA_DIR || getDataDir();
+
+    const restHandle = await startRestTransport({
+      port: restPort,
+      token: restToken,
+      baseDir: restBaseDir,
+    });
+
+    // Extend shutdown to close REST server too
+    const origShutdown = process.listeners("SIGTERM").pop() as (() => void) | undefined;
+    const restShutdown = async () => {
+      console.log("\nShutting down REST server...");
+      await restHandle.close();
+      if (origShutdown) origShutdown();
+      else process.exit(0);
+    };
+
+    process.removeAllListeners("SIGTERM");
+    process.removeAllListeners("SIGINT");
+    process.on("SIGTERM", restShutdown);
+    process.on("SIGINT", restShutdown);
   }
 }
 
