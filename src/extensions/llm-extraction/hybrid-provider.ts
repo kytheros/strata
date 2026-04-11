@@ -27,6 +27,10 @@ export class HybridProvider implements LlmProvider {
   readonly name = "hybrid";
   private local: OllamaProvider;
   private config: HybridProviderConfig;
+  /** Consecutive local failure count for circuit-breaker */
+  private consecutiveFailures = 0;
+  /** Max consecutive failures before skipping local */
+  private static readonly CIRCUIT_BREAKER_THRESHOLD = 3;
 
   constructor(config: HybridProviderConfig) {
     this.config = config;
@@ -40,6 +44,15 @@ export class HybridProvider implements LlmProvider {
     // validation failures, misconfigured timeouts) instead of measuring a
     // Gemma/Gemini hybrid that masks the underlying bug.
     const strict = process.env.STRATA_HYBRID_STRICT === "1";
+
+    // Circuit-breaker: skip local if too many consecutive failures.
+    // When Ollama is misconfigured (wrong model, out of VRAM), every call
+    // times out for the full localTimeoutMs before falling back. Three
+    // consecutive timeouts = minutes of silent waiting. Skip straight to
+    // frontier until a successful local call resets the counter.
+    if (this.consecutiveFailures >= HybridProvider.CIRCUIT_BREAKER_THRESHOLD && !strict) {
+      return this.config.frontierProvider.complete(prompt, options);
+    }
 
     // 1. Try local model
     //
@@ -58,10 +71,12 @@ export class HybridProvider implements LlmProvider {
 
       // 2. Validate output (must be parseable JSON with expected structure)
       if (this.config.validateOutput(raw)) {
+        this.consecutiveFailures = 0; // Reset on success
         return raw; // Local model succeeded
       }
 
-      // 3. Validation failed — strict mode throws, otherwise fall through to frontier
+      // 3. Validation failed — increment circuit-breaker, strict mode throws
+      this.consecutiveFailures++;
       if (strict) {
         throw new LlmError(
           "[HybridProvider] local model output failed validation (strict mode — no fallback)",
@@ -77,6 +92,7 @@ export class HybridProvider implements LlmProvider {
         // Re-throw in strict mode so benchmarks surface the real failure
         throw err;
       }
+      this.consecutiveFailures++;
       if (err instanceof LlmError) {
         console.warn(
           `[HybridProvider] local model error (${err.statusCode ?? "unknown"}), falling back to frontier`

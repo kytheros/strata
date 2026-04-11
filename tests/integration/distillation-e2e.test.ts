@@ -298,6 +298,31 @@ describe("E2E Test 3: Training data accumulation", () => {
     expect(stats.lastCapturedAt).toBeGreaterThan(0);
   });
 
+  it("dialogue training pairs can be saved and iterated", () => {
+    const db = openDatabase(":memory:");
+    try {
+      saveTrainingPair(db, {
+        taskType: "dialogue",
+        inputText: "Player: Can I buy a sword?\n\n[Memories: player saved daughter]",
+        outputJson: "Take it — no charge. Consider it a father's gratitude.",
+        modelUsed: "claude-sonnet-4-6",
+        qualityScore: 0.95,
+        heuristicDiverged: false,
+      });
+
+      const rows = [...iterateTrainingData(db, "dialogue")];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].taskType).toBe("dialogue");
+      expect(rows[0].inputText).toContain("Player: Can I buy a sword?");
+      expect(rows[0].outputJson).toContain("father's gratitude");
+
+      const counts = getTrainingDataCount(db);
+      expect(counts.dialogue).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
   it("heuristic_diverged is set correctly when heuristic returns 0 entries and LLM returns 3", async () => {
     // Use a session with messages that do NOT match any heuristic patterns
     const session = makeSession({
@@ -550,6 +575,75 @@ describe("E2E Test 5: Hybrid provider behavior", () => {
     await expect(provider.complete("test prompt")).rejects.toThrow();
     expect(frontier.complete).not.toHaveBeenCalled();
     vi.unstubAllEnvs();
+  });
+
+  it("circuit-breaker: skips local after 3 consecutive failures", async () => {
+    let callCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      callCount++;
+      throw new TypeError("fetch failed: connection refused");
+    }) as unknown as typeof fetch;
+
+    const frontier = mockProvider(
+      JSON.stringify({ entries: [{ type: "fact", summary: "from frontier" }] }),
+      "gemini"
+    );
+
+    const provider = new HybridProvider({
+      localUrl: "http://localhost:11434",
+      localModel: "strata-extraction-7b",
+      frontierProvider: frontier,
+      validateOutput: validateExtractionOutput,
+      localTimeoutMs: 15000,
+    });
+
+    // First 3 calls: local fails, falls back to frontier
+    await provider.complete("prompt 1");
+    await provider.complete("prompt 2");
+    await provider.complete("prompt 3");
+    expect(callCount).toBe(3); // 3 local attempts
+
+    // 4th call: circuit-breaker should skip local entirely
+    await provider.complete("prompt 4");
+    expect(callCount).toBe(3); // no new local attempt
+    expect(frontier.complete).toHaveBeenCalledTimes(4);
+  });
+
+  it("circuit-breaker: resets after successful local call", async () => {
+    let callCount = 0;
+    const localResult = JSON.stringify({
+      entries: [{ type: "decision", summary: "local success" }],
+    });
+
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      callCount++;
+      // Fail first 2, succeed on 3rd
+      if (callCount <= 2) {
+        throw new TypeError("fetch failed");
+      }
+      return {
+        ok: true,
+        json: async () => ({ response: localResult }),
+      };
+    }) as unknown as typeof fetch;
+
+    const frontier = mockProvider("frontier result", "gemini");
+
+    const provider = new HybridProvider({
+      localUrl: "http://localhost:11434",
+      localModel: "strata-extraction-7b",
+      frontierProvider: frontier,
+      validateOutput: validateExtractionOutput,
+      localTimeoutMs: 15000,
+    });
+
+    await provider.complete("prompt 1"); // fail 1, frontier
+    await provider.complete("prompt 2"); // fail 2, frontier
+    await provider.complete("prompt 3"); // success! resets counter
+
+    // Next call should still try local (counter was reset)
+    await provider.complete("prompt 4");
+    expect(callCount).toBe(4); // all 4 attempted local
   });
 
   it("falls back to frontier when local throws (Ollama not running)", async () => {
