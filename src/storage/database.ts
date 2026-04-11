@@ -385,7 +385,7 @@ function initSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS training_data (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization')),
+      task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue')),
       input_text TEXT NOT NULL,
       output_json TEXT NOT NULL,
       model_used TEXT NOT NULL,
@@ -398,6 +398,37 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_training_task ON training_data(task_type, quality_score DESC);
     CREATE INDEX IF NOT EXISTS idx_training_created ON training_data(created_at);
   `);
+
+  // Migrate existing training_data tables that lack the 'dialogue' task type
+  const trainingSql = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='training_data'"
+  ).get() as { sql: string } | undefined;
+  if (trainingSql && !trainingSql.sql.includes("'dialogue'")) {
+    db.pragma("foreign_keys = OFF");
+    const migrateTraining = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE training_data_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue')),
+          input_text TEXT NOT NULL,
+          output_json TEXT NOT NULL,
+          model_used TEXT NOT NULL,
+          quality_score REAL NOT NULL DEFAULT 1.0,
+          heuristic_diverged INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          used_in_run INTEGER
+        );
+        INSERT INTO training_data_new (id, task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at, used_in_run)
+        SELECT id, task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at, used_in_run FROM training_data;
+        DROP TABLE training_data;
+        ALTER TABLE training_data_new RENAME TO training_data;
+        CREATE INDEX IF NOT EXISTS idx_training_task ON training_data(task_type, quality_score DESC);
+        CREATE INDEX IF NOT EXISTS idx_training_created ON training_data(created_at);
+      `);
+    });
+    migrateTraining();
+    db.pragma("foreign_keys = ON");
+  }
 
   // Evidence gap tracking table
   db.exec(`

@@ -13,7 +13,7 @@ import type Database from "better-sqlite3";
 
 /** A training pair ready for insertion */
 export interface TrainingPair {
-  taskType: "extraction" | "summarization";
+  taskType: "extraction" | "summarization" | "dialogue";
   inputText: string;
   outputJson: string;
   modelUsed: string;
@@ -25,6 +25,7 @@ export interface TrainingPair {
 export interface TrainingDataCounts {
   extraction: number;
   summarization: number;
+  dialogue: number;
 }
 
 /**
@@ -62,6 +63,7 @@ export function getTrainingDataCount(db: Database.Database): TrainingDataCounts 
   return {
     extraction: rows.find((r) => r.task_type === "extraction")?.count ?? 0,
     summarization: rows.find((r) => r.task_type === "summarization")?.count ?? 0,
+    dialogue: rows.find((r) => r.task_type === "dialogue")?.count ?? 0,
   };
 }
 
@@ -77,6 +79,7 @@ export interface TaskStats {
 export interface TrainingDataStats {
   extraction: TaskStats;
   summarization: TaskStats;
+  dialogue: TaskStats;
   lastCapturedAt: number | null;  // Unix timestamp (ms) of most recent pair
 }
 
@@ -105,6 +108,7 @@ export function getTrainingDataStats(db: Database.Database): TrainingDataStats {
 
   const extractionRow = rows.find((r) => r.task_type === "extraction");
   const summarizationRow = rows.find((r) => r.task_type === "summarization");
+  const dialogueRow = rows.find((r) => r.task_type === "dialogue");
 
   // Get most recent pair timestamp
   const lastRow = db.prepare(`
@@ -123,6 +127,12 @@ export function getTrainingDataStats(db: Database.Database): TrainingDataStats {
       highQuality: summarizationRow?.high_quality ?? 0,
       mediumQuality: summarizationRow?.medium_quality ?? 0,
       heuristicDiverged: summarizationRow?.heuristic_diverged ?? 0,
+    },
+    dialogue: {
+      total: dialogueRow?.total ?? 0,
+      highQuality: dialogueRow?.high_quality ?? 0,
+      mediumQuality: dialogueRow?.medium_quality ?? 0,
+      heuristicDiverged: dialogueRow?.heuristic_diverged ?? 0,
     },
     lastCapturedAt: lastRow?.last_at ?? null,
   };
@@ -146,7 +156,7 @@ export interface TrainingDataRow {
  */
 export function* iterateTrainingData(
   db: Database.Database,
-  taskType: "extraction" | "summarization",
+  taskType: "extraction" | "summarization" | "dialogue",
   minQuality: number = 0.7
 ): Generator<TrainingDataRow> {
   const stmt = db.prepare(`

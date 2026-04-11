@@ -181,6 +181,11 @@ export async function runDistillStatus(
     console.log(
       `  Summarization:   ${fmtMod.text(fmt(summarizationUsable))} pairs (threshold: ${fmt(DISTILL_THRESHOLD)}) ${summarizationReady ? fmtMod.success("\u2713") : fmtMod.active("~")} ${summarizationIndicator}`
     );
+
+    const dialogueTotal = stats.dialogue.total;
+    console.log(
+      `  Dialogue:        ${fmtMod.text(fmt(dialogueTotal))} pairs (NPC training data)`
+    );
     console.log();
 
     // Quality breakdown
@@ -281,16 +286,16 @@ export async function runDistillExport(
     ? parseFloat(String(flags["min-quality"]))
     : 0.7;
 
-  if (!taskType || !["extraction", "summarization"].includes(taskType)) {
+  if (!taskType || !["extraction", "summarization", "dialogue"].includes(taskType)) {
     console.log(
-      "Usage: strata distill export-data --task <extraction|summarization> --output <path.jsonl> [--min-quality <0.0-1.0>]"
+      "Usage: strata distill export-data --task <extraction|summarization|dialogue> --output <path.jsonl> [--min-quality <0.0-1.0>]"
     );
     process.exit(1);
   }
 
   if (!outputPath) {
     console.log(
-      "Usage: strata distill export-data --task <extraction|summarization> --output <path.jsonl> [--min-quality <0.0-1.0>]"
+      "Usage: strata distill export-data --task <extraction|summarization|dialogue> --output <path.jsonl> [--min-quality <0.0-1.0>]"
     );
     process.exit(1);
   }
@@ -310,6 +315,11 @@ export async function runDistillExport(
     // contains the full prompt + transcript. For the JSONL format, we split
     // the system prompt from the user input.
     systemPrompt = getExtractionPrompt();
+  } else if (taskType === "dialogue") {
+    // Dialogue pairs store the full context (player message + memories) as
+    // input_text and the NPC response as output_json. No system prompt
+    // splitting needed — export them as-is.
+    systemPrompt = "";
   } else {
     systemPrompt = getSummarizerPrompt();
   }
@@ -321,7 +331,7 @@ export async function runDistillExport(
 
     for (const row of iterateTrainingData(
       db,
-      taskType as "extraction" | "summarization",
+      taskType as "extraction" | "summarization" | "dialogue",
       minQuality
     )) {
       // The input_text contains SYSTEM_PROMPT + transcript.
