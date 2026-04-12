@@ -139,6 +139,85 @@ public class DeleteResult
     public bool deleted;
 }
 
+[Serializable]
+public class NpcAlignment
+{
+    public string ethical;
+    public string moral;
+}
+
+[Serializable]
+public class NpcProfileResult
+{
+    public string agent_id;
+    public string name;
+    public string title;
+    public NpcAlignment alignment;
+    public string faction;
+    public string[] traits;
+    public string backstory;
+    public float defaultTrust;
+    public int memory_count;
+    public long last_interaction;
+}
+
+[Serializable]
+public class CharacterCardResult
+{
+    public string playerId;
+    public string displayName;
+    public string[] factions;
+    public string[] tags;
+}
+
+[Serializable]
+public class CharacterCardRequest
+{
+    public string displayName;
+    public string[] factions;
+    public string[] tags;
+}
+
+[Serializable]
+public class ObservationItem
+{
+    public string @event;
+    public long timestamp;
+    public string[] tags;
+    public TrustDelta delta;
+    public string source;
+}
+
+[Serializable]
+public class TrustDelta
+{
+    public float trust;
+}
+
+[Serializable]
+public class RelationshipResult
+{
+    public float trust;
+    public int familiarity;
+    public string disposition;
+    public ObservationItem[] observations;
+}
+
+[Serializable]
+public class ObserveRequest
+{
+    public string @event;
+    public string[] tags;
+}
+
+[Serializable]
+public class ObserveResult
+{
+    public float trust;
+    public string disposition;
+    public TrustDelta delta;
+}
+
 /// <summary>
 /// Typed HTTP client for Strata's REST API. Supports both no-auth mode
 /// (construct with empty token) and player-token mode (construct
@@ -228,9 +307,36 @@ public class StrataClient
         return result?.deleted ?? false;
     }
 
-    public async Task<ProfileResult> GetProfile(string agentId)
+    public async Task<NpcProfileResult> GetProfile(string agentId)
     {
-        return await Get<ProfileResult>($"/api/agents/{agentId}/profile");
+        return await Get<NpcProfileResult>($"/api/agents/{agentId}/profile");
+    }
+
+    public async Task<RelationshipResult> GetRelationship(string agentId)
+    {
+        return await Get<RelationshipResult>($"/api/agents/{agentId}/relationship");
+    }
+
+    public async Task<ObserveResult> Observe(string agentId, string eventName, string[] tags)
+    {
+        var req = new ObserveRequest { @event = eventName, tags = tags ?? Array.Empty<string>() };
+        return await Post<ObserveResult>($"/api/agents/{agentId}/relationship/observe", req);
+    }
+
+    public async Task<CharacterCardResult> GetCharacter(string playerId)
+    {
+        return await Get<CharacterCardResult>($"/api/players/{playerId}/character");
+    }
+
+    public async Task SetCharacter(string playerId, string displayName, string[] factions, string[] tags)
+    {
+        var req = new CharacterCardRequest
+        {
+            displayName = displayName,
+            factions = factions ?? Array.Empty<string>(),
+            tags = tags ?? Array.Empty<string>(),
+        };
+        await Post<CharacterCardResult>($"/api/players/{playerId}/character", req);
     }
 
     // ── HTTP helpers (never throw — return null on failure) ──
