@@ -1,4 +1,5 @@
-// StrataClient.cs — Unity helper for Strata's REST API
+// StrataClient.cs — Unity helper for Strata REST API
+// Uses [Serializable] request/response classes because Unity's JsonUtility cannot serialize anonymous objects.
 // See specs/2026-04-11-per-player-npc-scoping-design.md
 
 using System;
@@ -7,6 +8,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
+
+// ── Request DTOs (JsonUtility requires [Serializable]) ──
 
 [Serializable]
 public class StoreRequest
@@ -63,27 +66,98 @@ public class ProvisionPlayerResponse
     public bool isNew;
 }
 
+// ── Response DTOs ──
+
+[Serializable]
+public class StoreResult
+{
+    public string id;
+    public bool stored;
+}
+
+[Serializable]
+public class SearchResultItem
+{
+    public string id;
+    public string text;
+    public string type;
+    public float confidence;
+    public string source;
+    public long timestamp;
+    public string[] tags;
+}
+
+[Serializable]
+public class SearchResponse
+{
+    public SearchResultItem[] results;
+}
+
+[Serializable]
+public class RecallContextItem
+{
+    public string text;
+    public string type;
+    public float confidence;
+    public string source;
+}
+
+[Serializable]
+public class RecallResult
+{
+    public RecallContextItem[] context;
+    public string summary;
+}
+
+[Serializable]
+public class IngestResult
+{
+    public string document_id;
+    public int chunks;
+    public bool indexed;
+}
+
+[Serializable]
+public class TrainingResult
+{
+    public bool stored;
+    public string task_type;
+    public int total_pairs;
+}
+
+[Serializable]
+public class ProfileResult
+{
+    public string agent_id;
+    public int memory_count;
+    public long last_interaction;
+}
+
+[Serializable]
+public class DeleteResult
+{
+    public bool deleted;
+}
+
 /// <summary>
-/// Thin HTTP client for Strata's REST API. Supports both no-auth mode
-/// (construct with empty bearerToken) and player-token mode (construct
+/// Typed HTTP client for Strata's REST API. Supports both no-auth mode
+/// (construct with empty token) and player-token mode (construct
 /// with a token returned by <see cref="ProvisionPlayer"/>).
+/// All data methods return null on failure (never throw).
 /// </summary>
 public class StrataClient
 {
     private readonly HttpClient _http;
     private readonly string _baseUrl;
-    private readonly string _bearerToken;
 
-    public StrataClient(string baseUrl, string bearerToken, int timeoutSeconds = 30)
+    public StrataClient(string baseUrl = "http://localhost:3001", string token = null, int timeoutSeconds = 15)
     {
         _baseUrl = baseUrl.TrimEnd('/');
-        _bearerToken = bearerToken ?? "";
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        if (!string.IsNullOrEmpty(_bearerToken))
+        if (!string.IsNullOrEmpty(token))
         {
-            _http.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", _bearerToken);
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
     }
 
@@ -117,57 +191,101 @@ public class StrataClient
         return parsed.playerToken;
     }
 
-    public async Task<string> Store(string agentId, string memory, string type = "fact", string[] tags = null)
+    public async Task<StoreResult> StoreMemory(string agentId, string memory, string type = "fact", string[] tags = null)
     {
-        var req = new StoreRequest { memory = memory, type = type, tags = tags ?? new string[0] };
-        return await PostJson($"/api/agents/{agentId}/store", JsonUtility.ToJson(req));
+        var req = new StoreRequest { memory = memory, type = type, tags = tags ?? Array.Empty<string>() };
+        return await Post<StoreResult>($"/api/agents/{agentId}/store", req);
     }
 
-    public async Task<string> Search(string agentId, string query, int limit = 20)
+    public async Task<SearchResultItem[]> Search(string agentId, string query, int limit = 5)
     {
         var req = new SearchRequest { query = query, limit = limit };
-        return await PostJson($"/api/agents/{agentId}/search", JsonUtility.ToJson(req));
+        var response = await Post<SearchResponse>($"/api/agents/{agentId}/search", req);
+        return response?.results ?? Array.Empty<SearchResultItem>();
     }
 
-    public async Task<string> Recall(string agentId, string situation, int limit = 10)
+    public async Task<RecallResult> Recall(string agentId, string situation, int limit = 10)
     {
         var req = new RecallRequest { situation = situation, limit = limit };
-        return await PostJson($"/api/agents/{agentId}/recall", JsonUtility.ToJson(req));
+        return await Post<RecallResult>($"/api/agents/{agentId}/recall", req);
     }
 
-    public async Task<string> Ingest(string agentId, string title, string content, string[] tags = null)
+    public async Task<IngestResult> IngestLore(string agentId, string title, string content, string[] tags = null)
     {
-        var req = new IngestRequest { title = title, content = content, tags = tags ?? new string[0] };
-        return await PostJson($"/api/agents/{agentId}/ingest", JsonUtility.ToJson(req));
+        var req = new IngestRequest { title = title, content = content, tags = tags ?? Array.Empty<string>() };
+        return await Post<IngestResult>($"/api/agents/{agentId}/ingest", req);
     }
 
-    public async Task<string> Profile(string agentId)
+    public async Task<TrainingResult> CaptureTraining(string agentId, string input, string output, string model, float quality = 0.8f)
     {
-        var response = await _http.GetAsync(_baseUrl + $"/api/agents/{agentId}/profile");
-        return await response.Content.ReadAsStringAsync();
+        var req = new TrainingRequest { input = input, output = output, model = model, quality = quality };
+        return await Post<TrainingResult>($"/api/agents/{agentId}/training", req);
     }
 
-    public async Task<string> DeleteMemory(string agentId, string memoryId)
+    public async Task<bool> DeleteMemory(string agentId, string memoryId)
     {
-        var response = await _http.DeleteAsync(_baseUrl + $"/api/agents/{agentId}/memory/{memoryId}");
-        return await response.Content.ReadAsStringAsync();
+        var result = await Delete<DeleteResult>($"/api/agents/{agentId}/memory/{memoryId}");
+        return result?.deleted ?? false;
     }
 
-    public async Task<string> Training(string agentId, string input, string output, string model = null, float quality = 0.8f)
+    public async Task<ProfileResult> GetProfile(string agentId)
     {
-        var req = new TrainingRequest { input = input, output = output, model = model ?? "unknown", quality = quality };
-        return await PostJson($"/api/agents/{agentId}/training", JsonUtility.ToJson(req));
+        return await Get<ProfileResult>($"/api/agents/{agentId}/profile");
     }
 
-    private async Task<string> PostJson(string path, string json)
+    // ── HTTP helpers (never throw — return null on failure) ──
+
+    private async Task<T> Post<T>(string path, object body) where T : class
     {
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var response = await _http.PostAsync(_baseUrl + path, content);
-        var respText = await response.Content.ReadAsStringAsync();
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            Debug.LogWarning($"[Strata] {path} returned {(int)response.StatusCode}: {respText}");
+            var json = JsonUtility.ToJson(body);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _http.PostAsync(_baseUrl + path, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                Debug.LogWarning($"[Strata] POST {path} returned {(int)response.StatusCode}");
+                return null;
+            }
+            var responseJson = await response.Content.ReadAsStringAsync();
+            return JsonUtility.FromJson<T>(responseJson);
         }
-        return respText;
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Strata] POST {path} failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<T> Get<T>(string path) where T : class
+    {
+        try
+        {
+            var response = await _http.GetAsync(_baseUrl + path);
+            if (!response.IsSuccessStatusCode) return null;
+            var json = await response.Content.ReadAsStringAsync();
+            return JsonUtility.FromJson<T>(json);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Strata] GET {path} failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<T> Delete<T>(string path) where T : class
+    {
+        try
+        {
+            var response = await _http.DeleteAsync(_baseUrl + path);
+            if (!response.IsSuccessStatusCode) return null;
+            var json = await response.Content.ReadAsStringAsync();
+            return JsonUtility.FromJson<T>(json);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Strata] DELETE {path} failed: {ex.Message}");
+            return null;
+        }
     }
 }
