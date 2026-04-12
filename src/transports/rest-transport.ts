@@ -26,6 +26,10 @@ import { buildHealthResponse } from "./health.js";
 import { createServer, type CreateServerResult } from "../server.js";
 import { KNOWLEDGE_TYPES, type KnowledgeType } from "../knowledge/knowledge-store.js";
 import { PlayerRegistry, type PlayerEntry } from "./player-registry.js";
+import { NpcProfileStore } from "./npc-profile-store.js";
+import { CharacterStore } from "./character-store.js";
+import { RelationshipStore } from "./relationship-store.js";
+import { computeTrustDelta, type NpcAlignment, type TagRuleOverrides } from "./tag-rule-engine.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -145,6 +149,9 @@ export async function startRestTransport(
 
   mkdirSync(baseDir, { recursive: true });
   const registry = new PlayerRegistry(baseDir);
+  const profileStore = new NpcProfileStore(baseDir);
+  const characterStore = new CharacterStore(baseDir);
+  const relationshipStore = new RelationshipStore(baseDir);
 
   // LRU cache of per-(player, npc) createServer() instances, keyed by "<playerId>:<npcId>".
   // Map iteration order = insertion order; re-inserting on access promotes to MRU.
@@ -235,7 +242,7 @@ export async function startRestTransport(
 
     // CORS for game-engine dev tools
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (method === "OPTIONS") {
       res.writeHead(204);
@@ -340,6 +347,82 @@ export async function startRestTransport(
         return;
       }
 
+      // ── Profile endpoint (admin-write) ──────────────────────────────
+      params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "PUT");
+      if (params) {
+        if (auth.kind !== "admin") {
+          json(res, 403, { error: "Profile write requires the admin token", code: 403 });
+          return;
+        }
+        const body = await parseBody(req);
+        try {
+          const profile = profileStore.write(params.agentId, body);
+          auditLog("profile.update", { npcId: params.agentId });
+          json(res, 200, { updated: true, npcId: params.agentId, profile });
+        } catch (err) {
+          json(res, 422, { error: (err as Error).message, code: 422 });
+        }
+        return;
+      }
+
+      // ── Profile read (player OR admin) ──────────────────────────────
+      params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "GET");
+      if (params) {
+        const profile = profileStore.read(params.agentId);
+        let memoryCount = 0;
+        let lastInteraction: number | null = null;
+        const pid = resolvePlayerId(auth);
+        if (pid) {
+          try {
+            const srv = getOrCreateAgentServer(pid, params.agentId);
+            const all = await srv.storage.knowledge.search("");
+            memoryCount = all.length;
+            lastInteraction = all.length > 0 ? Math.max(...all.map((r) => r.timestamp)) : null;
+          } catch { /* ignore */ }
+        }
+        json(res, 200, {
+          agent_id: params.agentId,
+          ...(profile ?? {}),
+          memory_count: memoryCount,
+          last_interaction: lastInteraction,
+        });
+        return;
+      }
+
+      // ── Character card (player writes own, admin writes any) ─────────
+      params = matchRoute(pathname, method, "/api/players/:playerId/character", "PUT");
+      if (params) {
+        const pid = resolvePlayerId(auth);
+        if (auth.kind === "player" && pid !== params.playerId) {
+          json(res, 403, { error: "Players can only update their own character card", code: 403 });
+          return;
+        }
+        if (auth.kind !== "admin" && auth.kind !== "player") {
+          json(res, 403, { error: "Character card write requires a player or admin token", code: 403 });
+          return;
+        }
+        const body = await parseBody(req);
+        const card = characterStore.write(params.playerId, body);
+        json(res, 200, { playerId: params.playerId, ...card });
+        return;
+      }
+
+      params = matchRoute(pathname, method, "/api/players/:playerId/character", "GET");
+      if (params) {
+        const pid = resolvePlayerId(auth);
+        if (auth.kind === "player" && pid !== params.playerId) {
+          json(res, 403, { error: "Players can only read their own character card", code: 403 });
+          return;
+        }
+        if (auth.kind !== "admin" && auth.kind !== "player") {
+          json(res, 403, { error: "Character card read requires a player or admin token", code: 403 });
+          return;
+        }
+        const card = characterStore.read(params.playerId);
+        json(res, 200, { playerId: params.playerId, ...card });
+        return;
+      }
+
       // ── Data endpoints ──────────────────────────────────────────────
       const playerId = resolvePlayerId(auth);
       if (playerId === null) {
@@ -356,6 +439,34 @@ export async function startRestTransport(
         const body = await parseBody(req);
         const srv = getOrCreateAgentServer(playerId, params.agentId);
         const result = await handleStore(params.agentId, body, srv);
+
+        // Tag-rule side effect (Task 8): if tags are present and an NPC profile
+        // exists, compute trust delta and record an observation automatically.
+        const storeTags = Array.isArray(body.tags)
+          ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
+          : [];
+        if (storeTags.length > 0) {
+          const profile = profileStore.read(params.agentId);
+          if (profile?.alignment) {
+            const delta = computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined);
+            if (delta.trust !== 0) {
+              const character = characterStore.read(playerId);
+              relationshipStore.addObservation(
+                playerId, params.agentId,
+                {
+                  event: `auto:${storeTags[0]}`,
+                  timestamp: Date.now(),
+                  tags: storeTags,
+                  delta,
+                  source: "tag-rule",
+                },
+                profile,
+                character
+              );
+            }
+          }
+        }
+
         json(res, 200, result);
         return;
       }
@@ -387,10 +498,38 @@ export async function startRestTransport(
         return;
       }
 
-      params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "GET");
+      params = matchRoute(pathname, method, "/api/agents/:agentId/relationship", "GET");
       if (params) {
-        const srv = getOrCreateAgentServer(playerId, params.agentId);
-        const result = await handleProfile(params.agentId, srv);
+        const profile = profileStore.read(params.agentId);
+        const character = characterStore.read(playerId);
+        const result = relationshipStore.get(playerId, params.agentId, profile, character);
+        json(res, 200, result);
+        return;
+      }
+
+      params = matchRoute(pathname, method, "/api/agents/:agentId/relationship/observe", "POST");
+      if (params) {
+        const body = await parseBody(req);
+        const event = typeof body.event === "string" ? body.event : "unknown";
+        const tags = Array.isArray(body.tags)
+          ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
+          : [];
+
+        const profile = profileStore.read(params.agentId);
+        const character = characterStore.read(playerId);
+        const alignment: NpcAlignment = profile?.alignment ?? { ethical: "neutral" as const, moral: "neutral" as const };
+
+        const delta = computeTrustDelta(tags, alignment, profile?.tagRules as TagRuleOverrides | null | undefined);
+        const observation = {
+          event,
+          timestamp: Date.now(),
+          tags,
+          delta,
+          source: "manual" as const,
+        };
+        const result = relationshipStore.addObservation(
+          playerId, params.agentId, observation, profile, character
+        );
         json(res, 200, result);
         return;
       }

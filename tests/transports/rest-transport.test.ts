@@ -541,3 +541,267 @@ describe("REST Transport — hybrid retrieval with real embedder", () => {
     expect(body.context[0].source).toBe("hybrid");
   }, 15000);
 });
+
+describe("REST Transport — NPC profiles", () => {
+  const ADMIN_TOKEN = "a".repeat(32);
+
+  it("PUT /api/agents/:npcId/profile creates a profile (admin)", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const res = await fetch(`${getBaseUrl()}/api/agents/goran/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({
+        name: "Goran", title: "Blacksmith",
+        alignment: { ethical: "lawful", moral: "good" },
+        traits: ["honest"], backstory: "Runs the forge.",
+        defaultTrust: -0.1,
+        factionBias: { "merchants": 0.3 },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.updated).toBe(true);
+    expect(body.profile.name).toBe("Goran");
+  });
+
+  it("PUT profile rejects player token with 403", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const { playerToken } = await (await fetch(`${getBaseUrl()}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+    const res = await fetch(`${getBaseUrl()}/api/agents/goran/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ name: "Goran", alignment: { ethical: "lawful", moral: "good" } }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("GET profile returns merged profile + metadata", async () => {
+    const baseDir = makeTempDir();
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir });
+    // Create profile
+    await fetch(`${getBaseUrl()}/api/agents/goran/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({
+        name: "Goran", alignment: { ethical: "lawful", moral: "good" },
+        defaultTrust: -0.1,
+      }),
+    });
+    // Provision player and store a memory
+    const { playerToken } = await (await fetch(`${getBaseUrl()}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+    await fetch(`${getBaseUrl()}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ memory: "test memory for profile check", type: "fact" }),
+    });
+    // Read profile with player token
+    const res = await fetch(`${getBaseUrl()}/api/agents/goran/profile`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.name).toBe("Goran");
+    expect(body.agent_id).toBe("goran");
+    expect(body.memory_count).toBeGreaterThanOrEqual(1);
+    expect(body.defaultTrust).toBe(-0.1);
+  });
+
+  it("PUT profile returns 422 on invalid alignment", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const res = await fetch(`${getBaseUrl()}/api/agents/goran/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({ name: "Goran", alignment: { ethical: "chaotic-good", moral: "good" } }),
+    });
+    expect(res.status).toBe(422);
+  });
+});
+
+describe("REST Transport — character cards", () => {
+  const ADMIN_TOKEN = "a".repeat(32);
+
+  it("PUT + GET character card round-trips", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const { playerId, playerToken } = await (await fetch(`${getBaseUrl()}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+
+    await fetch(`${getBaseUrl()}/api/players/${playerId}/character`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ displayName: "Mike", factions: ["merchants"], tags: ["human"] }),
+    });
+
+    const res = await fetch(`${getBaseUrl()}/api/players/${playerId}/character`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.displayName).toBe("Mike");
+    expect(body.factions).toEqual(["merchants"]);
+  });
+
+  it("player cannot read another player's character card", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const { playerToken } = await (await fetch(`${getBaseUrl()}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+
+    const res = await fetch(`${getBaseUrl()}/api/players/some-other-player/character`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("REST Transport — relationships and first-contact", () => {
+  const ADMIN_TOKEN = "a".repeat(32);
+
+  async function setupPlayerWithProfile(baseUrl: string) {
+    // Create NPC profile
+    await fetch(`${baseUrl}/api/agents/goran/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({
+        name: "Goran", alignment: { ethical: "lawful", moral: "good" },
+        defaultTrust: -0.1, factionBias: { merchants: 0.3 },
+      }),
+    });
+    // Provision player
+    const { playerId, playerToken } = await (await fetch(`${baseUrl}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+    // Set character card with merchant faction
+    await fetch(`${baseUrl}/api/players/${playerId}/character`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ displayName: "Mike", factions: ["merchants"], tags: ["human"] }),
+    });
+    return { playerId, playerToken };
+  }
+
+  it("GET relationship returns first-contact computed trust", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const { playerToken } = await setupPlayerWithProfile(getBaseUrl());
+
+    const res = await fetch(`${getBaseUrl()}/api/agents/goran/relationship`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.trust).toBeCloseTo(0.2); // -0.1 + 0.3
+    expect(body.familiarity).toBe(0);
+    expect(body.disposition).toBe("wary");
+    expect(body.observations).toEqual([]);
+  });
+
+  it("POST /observe shifts trust and records observation", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const { playerToken } = await setupPlayerWithProfile(getBaseUrl());
+
+    const res = await fetch(`${getBaseUrl()}/api/agents/goran/relationship/observe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ event: "helped-at-forge", tags: ["cooperation"] }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.trust).toBeGreaterThan(0.2); // first-contact 0.2 + cooperation delta
+    expect(body.disposition).toBeDefined();
+
+    // Verify observation persisted
+    const relRes = await fetch(`${getBaseUrl()}/api/agents/goran/relationship`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    const rel = await relRes.json();
+    expect(rel.observations.length).toBe(1);
+    expect(rel.observations[0].event).toBe("helped-at-forge");
+    expect(rel.familiarity).toBe(1);
+  });
+});
+
+describe("REST Transport — tag-rule auto-fire on /store", () => {
+  const ADMIN_TOKEN = "a".repeat(32);
+
+  it("storing a memory with tags automatically shifts trust", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+
+    // Create NPC profile (lawful good)
+    await fetch(`${getBaseUrl()}/api/agents/goran/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({
+        name: "Goran",
+        alignment: { ethical: "lawful", moral: "good" },
+        defaultTrust: 0.0,
+        factionBias: {},
+      }),
+    });
+
+    // Provision player
+    const { playerToken } = await (await fetch(`${getBaseUrl()}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+
+    // Store a memory with theft tag
+    await fetch(`${getBaseUrl()}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({
+        memory: "Player stole bread from the market",
+        type: "episodic",
+        tags: ["theft", "crime"],
+      }),
+    });
+
+    // Check that relationship was updated
+    const relRes = await fetch(`${getBaseUrl()}/api/agents/goran/relationship`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    const rel = await relRes.json();
+    expect(rel.trust).toBeLessThan(0); // theft tag should produce negative delta
+    expect(rel.observations.length).toBe(1);
+    expect(rel.observations[0].source).toBe("tag-rule");
+    expect(rel.observations[0].tags).toContain("theft");
+  });
+
+  it("storing a memory without tags does not create a relationship observation", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+
+    const { playerToken } = await (await fetch(`${getBaseUrl()}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+
+    // Store memory with no tags
+    await fetch(`${getBaseUrl()}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ memory: "Player said hello", type: "episodic" }),
+    });
+
+    // Relationship should be first-contact state (no observations)
+    const relRes = await fetch(`${getBaseUrl()}/api/agents/goran/relationship`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    const rel = await relRes.json();
+    expect(rel.observations.length).toBe(0);
+  });
+});
