@@ -104,6 +104,7 @@ Serve flags:
   --rest            Start REST API for game engines (default port: 3001)
   --rest-port <n>   REST API port (default: 3001)
   --rest-token <t>  Bearer token for REST API auth (or STRATA_REST_TOKEN env)
+  --rest-max-agents <n>  LRU cap for per-(player, npc) cache (default: 200)
 
 Activate flags:
   --binary          Download standalone binary instead of tarball
@@ -179,6 +180,8 @@ function parseArgs(argv: string[]): {
       flags["rest-port"] = argv[++i];
     } else if (arg === "--rest-token" && i + 1 < argv.length) {
       flags["rest-token"] = argv[++i];
+    } else if (arg === "--rest-max-agents" && i + 1 < argv.length) {
+      flags["rest-max-agents"] = argv[++i];
     } else if (arg === "--data-dir" && i + 1 < argv.length) {
       flags["data-dir"] = argv[++i];
     } else if (arg === "--max-dbs" && i + 1 < argv.length) {
@@ -201,6 +204,10 @@ function parseArgs(argv: string[]): {
       flags.global = true;
     } else if (arg === "--no-color") {
       flags["no-color"] = true;
+    } else if (arg === "--player-id" && i + 1 < argv.length) {
+      flags["player-id"] = argv[++i];
+    } else if (arg === "--dry-run") {
+      flags["dry-run"] = true;
     } else if (arg === "--task" && i + 1 < argv.length) {
       flags.task = argv[++i];
     } else if (arg === "--output" && i + 1 < argv.length) {
@@ -667,12 +674,24 @@ async function runServe(
     const restBaseDir = flags["data-dir"]
       ? String(flags["data-dir"])
       : process.env.STRATA_DATA_DIR || getDataDir();
+    const restMaxAgents = flags["rest-max-agents"]
+      ? parseInt(String(flags["rest-max-agents"]), 10)
+      : undefined;
 
-    const restHandle = await startRestTransport({
-      port: restPort,
-      token: restToken,
-      baseDir: restBaseDir,
-    });
+    let restHandle;
+    try {
+      restHandle = await startRestTransport({
+        port: restPort,
+        token: restToken,
+        baseDir: restBaseDir,
+        maxAgents: restMaxAgents,
+      });
+    } catch (err) {
+      console.error(
+        `[strata] Failed to start REST transport: ${(err as Error).message}`
+      );
+      process.exit(1);
+    }
 
     // Extend shutdown to close REST server too
     const origShutdown = process.listeners("SIGTERM").pop() as (() => void) | undefined;
@@ -922,6 +941,34 @@ async function main(): Promise<void> {
     case "status":
       await runStatus();
       break;
+    case "rest-migrate": {
+      const { runRestMigrate } = await import("./cli/rest-migrate.js");
+      const playerId = flags["player-id"] ? String(flags["player-id"]) : null;
+      if (!playerId) {
+        console.error("Usage: strata rest-migrate --player-id <uuid-or-name> [--dry-run]");
+        process.exit(1);
+      }
+      const baseDir = flags["data-dir"]
+        ? String(flags["data-dir"])
+        : join(process.env.HOME || process.env.USERPROFILE || ".", ".strata");
+      const dryRun = !!flags["dry-run"];
+      try {
+        const result = runRestMigrate({ baseDir, playerId, dryRun });
+        console.log(
+          `${dryRun ? "[dry-run] " : ""}Moved ${result.moved.length} agent director${result.moved.length === 1 ? "y" : "ies"} to ${result.targetDir}`
+        );
+        for (const name of result.moved) console.log(`  - ${name}`);
+        if (result.skipped.length > 0) {
+          console.log(`Skipped ${result.skipped.length}:`);
+          for (const name of result.skipped) console.log(`  - ${name}`);
+        }
+        process.exit(0);
+      } catch (err) {
+        console.error(`rest-migrate failed: ${(err as Error).message}`);
+        process.exit(1);
+      }
+      break;
+    }
     default:
       // No command = start MCP server (default behavior)
       await startServer();
