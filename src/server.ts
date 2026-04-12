@@ -68,7 +68,11 @@ export interface CreateServerResult {
   indexManager: SqliteIndexManager | null;
   entityStore: IEntityStore;
   storage: StorageContext;
+  /** Hybrid retrieval bridge (FTS5 + vector + RRF). Exposed for REST transport. */
+  semanticBridge: SemanticSearchBridge;
   init: () => Promise<void>;
+  /** Ensure the write-side embedder is initialized. Resolves immediately if already done. */
+  initEmbedder: () => Promise<void>;
   startRealtimeWatcher: (sessionFilePath: string) => RealtimeWatcher | null;
   stopRealtimeWatcher: () => void;
   startIncrementalIndexer: () => IncrementalIndexer | null;
@@ -167,30 +171,43 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
   // On D1 path, db is null — bridge will gracefully degrade (no vector search).
   const semanticBridge = new SemanticSearchBridge(storage.documents, indexManager?.db ?? null);
 
-  // -- Lazy embedder initialization for write-side embedding --
-  // Runs once, injects embedder into SqliteKnowledgeStore for auto-embedding on addEntry().
-  let embedderInitAttempted = false;
-  async function initEmbedder(): Promise<void> {
-    if (embedderInitAttempted) return;
-    embedderInitAttempted = true;
+  // -- Eager embedder initialization for write-side embedding --
+  // Starts immediately at server creation so the embedder is available for
+  // any code path that stores knowledge entries (file-watcher indexing,
+  // ingest_conversation, store_memory, etc.). The promise is stored so
+  // callers that need the embedder *before* writing can `await initEmbedder()`.
+  let embedderInitPromise: Promise<void> | null = null;
+  function initEmbedder(): Promise<void> {
+    if (embedderInitPromise) return embedderInitPromise;
 
-    try {
-      const embedder = await tryCreateGeminiEmbedder();
-      if (embedder) {
-        // Inject the embedder into the knowledge store for write-side embedding.
-        // Only works for SqliteKnowledgeStore (has embedder field); D1 store handles this internally.
-        if (indexManager) {
-          (indexManager.knowledge as any).embedder = embedder; // eslint-disable-line @typescript-eslint/no-explicit-any
+    embedderInitPromise = (async () => {
+      try {
+        const embedder = await tryCreateGeminiEmbedder();
+        if (embedder) {
+          // Inject the embedder into the knowledge store for write-side embedding.
+          // Only works for SqliteKnowledgeStore (has embedder field); D1 store handles this internally.
+          if (indexManager) {
+            (indexManager.knowledge as any).embedder = embedder; // eslint-disable-line @typescript-eslint/no-explicit-any
+          }
+          console.error("[strata] Semantic search: active (Gemini embeddings)");
+        } else {
+          console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
         }
-        console.error("[strata] Semantic search: active (Gemini embeddings)");
-      } else {
+      } catch {
+        // No credentials available -- write-side embedding disabled
         console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
       }
-    } catch {
-      // No credentials available -- write-side embedding disabled
-      console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
-    }
+    })();
+
+    return embedderInitPromise;
   }
+
+  // Start embedder initialization eagerly (fire-and-forget at creation time).
+  // This ensures the embedder is injected before any tool call that stores
+  // knowledge entries, including ingest_conversation which bypasses ensureIndex().
+  // Callers that need to guarantee the embedder is ready (e.g., ingest_conversation)
+  // can `await initEmbedder()` — it returns the same promise, so no duplicate work.
+  initEmbedder().catch(() => {});
 
   // -- Lazy reranker initialization --
   // Runs once, injects reranker into SqliteSearchEngine for session-level reranking.
@@ -224,8 +241,7 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
     }
     initialized = true;
 
-    // Fire-and-forget: try to initialize write-side embedder and reranker
-    initEmbedder().catch(() => {});
+    // Fire-and-forget: try to initialize reranker (embedder already started eagerly above)
     initReranker().catch(() => {});
   }
 
@@ -1007,7 +1023,9 @@ Example: Store a screenshot for visual reference`,
     indexManager,
     entityStore,
     storage,
+    semanticBridge,
     init: ensureIndex,
+    initEmbedder,
     startRealtimeWatcher(sessionFilePath: string): RealtimeWatcher | null {
       if (!indexManager) return null; // Not available on D1 path
       if (realtimeWatcher) {
