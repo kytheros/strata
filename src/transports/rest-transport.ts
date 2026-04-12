@@ -117,6 +117,11 @@ function extractBearer(req: IncomingMessage): string {
   return authHeader.slice(7).trim();
 }
 
+/** In no-auth mode, treat all requests as having full access (no security boundary). */
+function hasAdminAccess(auth: { kind: string }): boolean {
+  return auth.kind === "admin" || auth.kind === "none";
+}
+
 /** Emit a structured audit log line for admin events. */
 function auditLog(event: string, fields: Record<string, unknown>): void {
   console.log(
@@ -268,7 +273,7 @@ export async function startRestTransport(
       // ── Admin endpoints ─────────────────────────────────────────────
       let params = matchRoute(pathname, method, "/api/players", "POST");
       if (params) {
-        if (auth.kind !== "admin") {
+        if (!hasAdminAccess(auth)) {
           json(res, 403, {
             error: "Admin endpoint requires the admin token — not a player token",
             code: 403,
@@ -295,7 +300,7 @@ export async function startRestTransport(
 
       params = matchRoute(pathname, method, "/api/players/:playerId", "GET");
       if (params) {
-        if (auth.kind !== "admin") {
+        if (!hasAdminAccess(auth)) {
           json(res, 403, {
             error: "Admin endpoint requires the admin token",
             code: 403,
@@ -320,7 +325,7 @@ export async function startRestTransport(
 
       params = matchRoute(pathname, method, "/api/players/:playerId", "DELETE");
       if (params) {
-        if (auth.kind !== "admin") {
+        if (!hasAdminAccess(auth)) {
           json(res, 403, {
             error: "Admin endpoint requires the admin token",
             code: 403,
@@ -350,7 +355,7 @@ export async function startRestTransport(
       // ── Profile endpoint (admin-write) ──────────────────────────────
       params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "PUT");
       if (params) {
-        if (auth.kind !== "admin") {
+        if (!hasAdminAccess(auth)) {
           json(res, 403, { error: "Profile write requires the admin token", code: 403 });
           return;
         }
@@ -397,7 +402,7 @@ export async function startRestTransport(
           json(res, 403, { error: "Players can only update their own character card", code: 403 });
           return;
         }
-        if (auth.kind !== "admin" && auth.kind !== "player") {
+        if (!hasAdminAccess(auth) && auth.kind !== "player") {
           json(res, 403, { error: "Character card write requires a player or admin token", code: 403 });
           return;
         }
@@ -414,7 +419,7 @@ export async function startRestTransport(
           json(res, 403, { error: "Players can only read their own character card", code: 403 });
           return;
         }
-        if (auth.kind !== "admin" && auth.kind !== "player") {
+        if (!hasAdminAccess(auth) && auth.kind !== "player") {
           json(res, 403, { error: "Character card read requires a player or admin token", code: 403 });
           return;
         }
