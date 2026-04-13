@@ -734,6 +734,145 @@ describe("REST Transport — relationships and first-contact", () => {
   });
 });
 
+describe("REST Transport — decay and anchor endpoints", () => {
+  it("GET /relationship returns anchor field (null for new relationships)", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
+    const base = getBaseUrl();
+    const res = await fetch(`${base}/api/agents/npc1/relationship`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.anchor).toBeNull();
+    expect(body.trust).toBeDefined();
+  });
+
+  it("PUT /agents/:npcId/anchor sets anchor state (no-auth mode)", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
+    const base = getBaseUrl();
+
+    // Create a relationship first
+    await fetch(`${base}/api/agents/brother/relationship/observe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "meeting", tags: ["cooperation"] }),
+    });
+
+    // Set anchor
+    const res = await fetch(`${base}/api/agents/brother/anchor`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: "friend", depth: 0.8 }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.anchor.state).toBe("friend");
+    expect(body.anchor.depth).toBe(0.8);
+
+    // Verify via GET
+    const getRes = await fetch(`${base}/api/agents/brother/relationship`);
+    const getRel = await getRes.json();
+    expect(getRel.anchor.state).toBe("friend");
+  });
+
+  it("PUT /agents/:npcId/anchor with state=none removes anchor", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
+    const base = getBaseUrl();
+
+    await fetch(`${base}/api/agents/npc2/relationship/observe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "meeting", tags: [] }),
+    });
+
+    await fetch(`${base}/api/agents/npc2/anchor`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: "friend", depth: 0.5 }),
+    });
+
+    const res = await fetch(`${base}/api/agents/npc2/anchor`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: "none", depth: 0 }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.anchor).toBeNull();
+  });
+
+  it("store with anchor-eligible tag triggers anchor processing", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
+    const base = getBaseUrl();
+
+    // Set up NPC profile with low familiarity threshold
+    await fetch(`${base}/api/agents/hero-npc/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Hero",
+        alignment: { ethical: "lawful", moral: "good" },
+        anchorConfig: { familiarityThreshold: 2, rivalThreshold: 0.3, depthIncrement: 0.15, passiveDepthCeiling: 0.3, passiveDepthRate: 0.01 },
+      }),
+    });
+
+    // Build familiarity
+    for (let i = 0; i < 3; i++) {
+      await fetch(`${base}/api/agents/hero-npc/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory: `interaction ${i} with the hero NPC`, type: "episodic", tags: ["cooperation"] }),
+      });
+    }
+
+    // Store with anchor-eligible tag
+    await fetch(`${base}/api/agents/hero-npc/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memory: "player saved the NPC from danger in the forest", type: "episodic", tags: ["saved-my-life"] }),
+    });
+
+    // Check relationship
+    const relRes = await fetch(`${base}/api/agents/hero-npc/relationship`);
+    const rel = await relRes.json();
+    expect(rel.anchor).not.toBeNull();
+    expect(rel.anchor.state).toBe("friend");
+  });
+
+  it("recall applies memory decay (fading profile returns results)", async () => {
+    const dir = makeTempDir();
+    handle = await startRestTransport({ port: 0, baseDir: dir });
+    const base = getBaseUrl();
+
+    // Set NPC to fading profile
+    await fetch(`${base}/api/agents/fading-npc/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Forgetful",
+        alignment: { ethical: "neutral", moral: "neutral" },
+        decayProfile: "fading",
+      }),
+    });
+
+    // Store a memory
+    await fetch(`${base}/api/agents/fading-npc/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memory: "The player mentioned liking swords a lot", type: "preference" }),
+    });
+
+    // Recall immediately — should have results
+    const recallRes = await fetch(`${base}/api/agents/fading-npc/recall`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ situation: "player asks about swords", limit: 5 }),
+    });
+    expect(recallRes.status).toBe(200);
+    const recalled = await recallRes.json();
+    // Memory was just stored, so decay multiplier is ~1.0
+    expect(recalled.context.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe("REST Transport — tag-rule auto-fire on /store", () => {
   const ADMIN_TOKEN = "a".repeat(32);
 

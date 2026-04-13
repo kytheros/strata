@@ -29,7 +29,8 @@ import { PlayerRegistry, type PlayerEntry } from "./player-registry.js";
 import { NpcProfileStore } from "./npc-profile-store.js";
 import { CharacterStore } from "./character-store.js";
 import { RelationshipStore } from "./relationship-store.js";
-import { computeTrustDelta, type NpcAlignment, type TagRuleOverrides } from "./tag-rule-engine.js";
+import { computeTrustDelta, computeAnchorOutcome, type NpcAlignment, type TagRuleOverrides, type ExtendedTagRule } from "./tag-rule-engine.js";
+import { resolveProfile, memoryRetention } from "./decay-engine.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -445,8 +446,8 @@ export async function startRestTransport(
         const srv = getOrCreateAgentServer(playerId, params.agentId);
         const result = await handleStore(params.agentId, body, srv);
 
-        // Tag-rule side effect (Task 8): if tags are present and an NPC profile
-        // exists, compute trust delta and record an observation automatically.
+        // Tag-rule side effect: if tags are present and an NPC profile
+        // exists, compute trust delta and anchor outcome, then record observation.
         const storeTags = Array.isArray(body.tags)
           ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
           : [];
@@ -454,7 +455,8 @@ export async function startRestTransport(
           const profile = profileStore.read(params.agentId);
           if (profile?.alignment) {
             const delta = computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined);
-            if (delta.trust !== 0) {
+            const anchorOutcome = computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined);
+            if (delta.trust !== 0 || anchorOutcome.shouldPromote || anchorOutcome.shouldBreak) {
               const character = characterStore.read(playerId);
               relationshipStore.addObservation(
                 playerId, params.agentId,
@@ -466,7 +468,8 @@ export async function startRestTransport(
                   source: "tag-rule",
                 },
                 profile,
-                character
+                character,
+                anchorOutcome
               );
             }
           }
@@ -480,7 +483,9 @@ export async function startRestTransport(
       if (params) {
         const body = await parseBody(req);
         const srv = getOrCreateAgentServer(playerId, params.agentId);
-        const result = await handleSearch(body, srv);
+        const npcProfile = profileStore.read(params.agentId);
+        const relData = relationshipStore.get(playerId, params.agentId, npcProfile, characterStore.read(playerId));
+        const result = await handleSearch(body, srv, npcProfile, relData.anchor?.depth ?? 0);
         json(res, 200, result);
         return;
       }
@@ -489,7 +494,9 @@ export async function startRestTransport(
       if (params) {
         const body = await parseBody(req);
         const srv = getOrCreateAgentServer(playerId, params.agentId);
-        const result = await handleRecall(params.agentId, body, srv);
+        const npcProfile = profileStore.read(params.agentId);
+        const relData = relationshipStore.get(playerId, params.agentId, npcProfile, characterStore.read(playerId));
+        const result = await handleRecall(params.agentId, body, srv, npcProfile, relData.anchor?.depth ?? 0);
         json(res, 200, result);
         return;
       }
@@ -525,6 +532,7 @@ export async function startRestTransport(
         const alignment: NpcAlignment = profile?.alignment ?? { ethical: "neutral" as const, moral: "neutral" as const };
 
         const delta = computeTrustDelta(tags, alignment, profile?.tagRules as TagRuleOverrides | null | undefined);
+        const anchorOutcome = computeAnchorOutcome(tags, profile?.tagRules as Record<string, ExtendedTagRule> | null | undefined);
         const observation = {
           event,
           timestamp: Date.now(),
@@ -533,7 +541,39 @@ export async function startRestTransport(
           source: "manual" as const,
         };
         const result = relationshipStore.addObservation(
-          playerId, params.agentId, observation, profile, character
+          playerId, params.agentId, observation, profile, character, anchorOutcome
+        );
+        json(res, 200, result);
+        return;
+      }
+
+      // PUT /anchor — admin-only explicit anchor control
+      params = matchRoute(pathname, method, "/api/agents/:agentId/anchor", "PUT");
+      if (params) {
+        if (!hasAdminAccess(auth)) {
+          json(res, 403, { error: "Anchor write requires the admin token", code: 403 });
+          return;
+        }
+        const body = await parseBody(req);
+        const state = typeof body.state === "string" ? body.state : "none";
+        const depth = typeof body.depth === "number" ? body.depth : 0;
+        const targetPlayer = typeof body.playerId === "string" ? body.playerId : DEFAULT_PLAYER_ID;
+
+        if (!["friend", "rival", "none"].includes(state)) {
+          json(res, 422, { error: "state must be friend, rival, or none", code: 422 });
+          return;
+        }
+
+        const pid = auth.kind === "none" ? DEFAULT_PLAYER_ID : targetPlayer;
+        const profile = profileStore.read(params.agentId);
+        const character = characterStore.read(pid);
+        const result = relationshipStore.setAnchor(
+          pid,
+          params.agentId,
+          state as "friend" | "rival" | "none",
+          depth,
+          profile,
+          character
         );
         json(res, 200, result);
         return;
@@ -629,7 +669,9 @@ async function handleStore(
 
 async function handleSearch(
   body: Record<string, unknown>,
-  srv: CreateServerResult
+  srv: CreateServerResult,
+  npcProfile?: { decayProfile?: string; decayConfig?: Record<string, number> } | null,
+  anchorDepth?: number
 ): Promise<{ results: unknown[] }> {
   const query = body.query;
   if (typeof query !== "string" || query.length === 0) {
@@ -637,42 +679,61 @@ async function handleSearch(
   }
   const limit = typeof body.limit === "number" ? Math.min(body.limit, 100) : 20;
 
+  // Resolve decay profile for memory retention scoring
+  const decayProf = npcProfile ? resolveProfile(
+    npcProfile.decayProfile,
+    npcProfile.decayConfig as Partial<import("./decay-engine.js").DecayProfile> | undefined
+  ) : resolveProfile();
+  const now = Date.now();
+  const depth = anchorDepth ?? 0;
+
   // Try hybrid retrieval (FTS5 + vector + RRF) via semanticBridge
   const bridgeResults = await srv.semanticBridge.search(query, { limit });
   if (bridgeResults && bridgeResults.length > 0) {
-    return {
-      results: bridgeResults.map((r) => ({
+    const mapped = bridgeResults.map((r) => {
+      const ts = r.timestamp ?? 0;
+      const ageDays = ts > 0 ? (now - ts) / 86_400_000 : 0;
+      const retention = memoryRetention(ageDays, 0, decayProf, depth);
+      return {
         id: "",
         text: r.text ?? "",
         type: "fact",
-        confidence: r.score ?? r.confidence ?? 1.0,
+        confidence: (r.score ?? r.confidence ?? 1.0) * retention,
         source: "hybrid",
-        timestamp: r.timestamp ?? 0,
+        timestamp: ts,
         tags: [],
-      })),
-    };
+      };
+    });
+    mapped.sort((a, b) => b.confidence - a.confidence);
+    return { results: mapped };
   }
 
   // Fallback to BM25 via KnowledgeStore
   const results = await srv.storage.knowledge.search(query);
   const limited = results.slice(0, limit);
-  return {
-    results: limited.map((r) => ({
+  const mapped = limited.map((r) => {
+    const ageDays = r.timestamp > 0 ? (now - r.timestamp) / 86_400_000 : 0;
+    const retention = memoryRetention(ageDays, 0, decayProf, depth);
+    return {
       id: r.id,
       text: r.summary,
       type: r.type,
-      confidence: 1.0,
+      confidence: 1.0 * retention,
       source: "fts5",
       timestamp: r.timestamp,
       tags: typeof r.tags === "string" ? JSON.parse(r.tags) : r.tags,
-    })),
-  };
+    };
+  });
+  mapped.sort((a, b) => b.confidence - a.confidence);
+  return { results: mapped };
 }
 
 async function handleRecall(
   _agentId: string,
   body: Record<string, unknown>,
-  srv: CreateServerResult
+  srv: CreateServerResult,
+  npcProfile?: { decayProfile?: string; decayConfig?: Record<string, number> } | null,
+  anchorDepth?: number
 ): Promise<{ context: unknown[]; summary: string }> {
   const situation = body.situation;
   if (typeof situation !== "string" || situation.length === 0) {
@@ -680,18 +741,32 @@ async function handleRecall(
   }
   const limit = typeof body.limit === "number" ? Math.min(body.limit, 50) : 10;
 
+  // Resolve decay profile for memory retention scoring
+  const decayProf = npcProfile ? resolveProfile(
+    npcProfile.decayProfile,
+    npcProfile.decayConfig as Partial<import("./decay-engine.js").DecayProfile> | undefined
+  ) : resolveProfile();
+  const now = Date.now();
+  const depth = anchorDepth ?? 0;
+
   // Try hybrid retrieval (FTS5 + vector + RRF) via semanticBridge
   const bridgeResults = await srv.semanticBridge.search(situation, { limit });
   if (bridgeResults && bridgeResults.length > 0) {
-    const context = bridgeResults.map((r) => ({
-      text: r.text ?? "",
-      type: "fact" as const,
-      confidence: r.score ?? r.confidence ?? 1.0,
-      source: "hybrid" as const,
-    }));
-    const topFacts = bridgeResults
+    const context = bridgeResults.map((r) => {
+      const ts = r.timestamp ?? 0;
+      const ageDays = ts > 0 ? (now - ts) / 86_400_000 : 0;
+      const retention = memoryRetention(ageDays, 0, decayProf, depth);
+      return {
+        text: r.text ?? "",
+        type: "fact" as const,
+        confidence: (r.score ?? r.confidence ?? 1.0) * retention,
+        source: "hybrid" as const,
+      };
+    });
+    context.sort((a, b) => b.confidence - a.confidence);
+    const topFacts = context
       .slice(0, 3)
-      .map((r) => r.text ?? "")
+      .map((r) => r.text)
       .join(". ");
     return { context, summary: topFacts || "No relevant memories found." };
   }
@@ -699,13 +774,18 @@ async function handleRecall(
   // Fallback to BM25 via KnowledgeStore
   const results = await srv.storage.knowledge.search(situation);
   const limited = results.slice(0, limit);
-  const context = limited.map((r) => ({
-    text: r.summary,
-    type: r.type,
-    confidence: 1.0,
-    source: "fts5" as const,
-  }));
-  const topFacts = limited.slice(0, 3).map((r) => r.summary).join(". ");
+  const context = limited.map((r) => {
+    const ageDays = r.timestamp > 0 ? (now - r.timestamp) / 86_400_000 : 0;
+    const retention = memoryRetention(ageDays, 0, decayProf, depth);
+    return {
+      text: r.summary,
+      type: r.type,
+      confidence: 1.0 * retention,
+      source: "fts5" as const,
+    };
+  });
+  context.sort((a, b) => b.confidence - a.confidence);
+  const topFacts = context.slice(0, 3).map((r) => r.text).join(". ");
   return { context, summary: topFacts || "No relevant memories found." };
 }
 
