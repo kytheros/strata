@@ -17,6 +17,19 @@ export interface TagRuleOverrides {
   [tag: string]: { trust: number };
 }
 
+export interface ExtendedTagRule {
+  trust: number;
+  promoteAnchor?: boolean;
+  breakAnchor?: boolean;
+  minAnchorDepth?: number;
+}
+
+export interface AnchorOutcome {
+  shouldPromote: boolean;
+  shouldBreak: boolean;
+  minAnchorDepth: number;
+}
+
 export interface TrustDelta {
   trust: number;
 }
@@ -65,6 +78,22 @@ function moralMultiplier(moral: NpcAlignment["moral"], baseDelta: number): numbe
 }
 
 /**
+ * Default anchor-eligible tags with trust deltas and anchor flags.
+ * Game developers can override per-NPC via tagRules in profile.json.
+ */
+export const DEFAULT_ANCHOR_TAGS: Record<string, ExtendedTagRule> = {
+  "saved-my-life": { trust: 0.4, promoteAnchor: true, minAnchorDepth: 0.6 },
+  "sworn-oath":    { trust: 0.2, promoteAnchor: true },
+  "family-bond":   { trust: 0.1, promoteAnchor: true, minAnchorDepth: 0.8 },
+  "sacrifice":     { trust: 0.3, promoteAnchor: true, minAnchorDepth: 0.5 },
+  "shared-trauma": { trust: 0.15, promoteAnchor: true, minAnchorDepth: 0.4 },
+  "betrayal":      { trust: -0.5, breakAnchor: true },
+  "murder":        { trust: -0.8, breakAnchor: true },
+  "atrocity":      { trust: -1.0, breakAnchor: true },
+  "oath-breaking": { trust: -0.6, breakAnchor: true },
+};
+
+/**
  * Compute the aggregate trust delta for a set of tags, given the NPC's
  * alignment and optional per-NPC tagRules override.
  *
@@ -88,10 +117,47 @@ export function computeTrustDelta(
     const ethicalWeights = DEFAULT_WEIGHTS[alignment.ethical];
     if (ethicalWeights && lower in ethicalWeights) {
       total += moralMultiplier(alignment.moral, ethicalWeights[lower]);
+      continue;
+    }
+    // Anchor tag fallback — tags like "saved-my-life" have trust deltas
+    // even if not in the alignment-based DEFAULT_WEIGHTS matrix.
+    const anchorTag = DEFAULT_ANCHOR_TAGS[lower];
+    if (anchorTag) {
+      total += moralMultiplier(alignment.moral, anchorTag.trust);
     }
     // Unknown tags produce zero delta — silently ignored
   }
   return { trust: Math.round(total * 1000) / 1000 }; // avoid float noise
+}
+
+/**
+ * Scan tags for anchor-eligible outcomes. Checks per-NPC tagRules first,
+ * then falls back to DEFAULT_ANCHOR_TAGS.
+ */
+export function computeAnchorOutcome(
+  tags: string[],
+  tagRules?: Record<string, ExtendedTagRule> | null
+): AnchorOutcome {
+  let shouldPromote = false;
+  let shouldBreak = false;
+  let minAnchorDepth = 0;
+
+  for (const tag of tags) {
+    const lower = tag.toLowerCase();
+    const rule: ExtendedTagRule | undefined =
+      (tagRules && lower in tagRules) ? tagRules[lower] : DEFAULT_ANCHOR_TAGS[lower];
+    if (!rule) continue;
+    if (rule.promoteAnchor) {
+      shouldPromote = true;
+      if (rule.minAnchorDepth !== undefined && rule.minAnchorDepth > minAnchorDepth) {
+        minAnchorDepth = rule.minAnchorDepth;
+      }
+    }
+    if (rule.breakAnchor) {
+      shouldBreak = true;
+    }
+  }
+  return { shouldPromote, shouldBreak, minAnchorDepth };
 }
 
 /** Clamp trust to [-1.0, 1.0]. */
