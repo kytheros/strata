@@ -16,6 +16,21 @@ export interface NpcAlignment {
   moral: "good" | "neutral" | "evil";
 }
 
+export interface DecayConfig {
+  lambdaBase: number;
+  lambdaTrust: number;
+  blendAlpha: number;
+  dayEquivalent: number;
+}
+
+export interface AnchorConfig {
+  familiarityThreshold: number;
+  rivalThreshold: number;
+  depthIncrement: number;
+  passiveDepthCeiling: number;
+  passiveDepthRate: number;
+}
+
 export interface NpcProfile {
   name: string;
   title?: string;
@@ -25,11 +40,15 @@ export interface NpcProfile {
   backstory: string;
   defaultTrust: number;
   factionBias: Record<string, number>;
-  tagRules?: Record<string, { trust: number }> | null;
+  tagRules?: Record<string, { trust: number; promoteAnchor?: boolean; breakAnchor?: boolean; minAnchorDepth?: number }> | null;
+  decayProfile?: "sharp" | "normal" | "fading" | "custom";
+  decayConfig?: DecayConfig;
+  anchorConfig?: AnchorConfig;
 }
 
 const VALID_ETHICAL = new Set(["lawful", "neutral", "chaotic"]);
 const VALID_MORAL = new Set(["good", "neutral", "evil"]);
+const VALID_DECAY_PROFILES = new Set(["sharp", "normal", "fading", "custom"]);
 
 export class NpcProfileStore {
   private readonly baseDir: string;
@@ -83,7 +102,7 @@ export class NpcProfileStore {
       }
     }
 
-    let tagRules: Record<string, { trust: number }> | null = null;
+    let tagRules: NpcProfile["tagRules"] = null;
     if (input.tagRules && typeof input.tagRules === "object") {
       tagRules = {};
       for (const [key, val] of Object.entries(input.tagRules as Record<string, unknown>)) {
@@ -91,8 +110,46 @@ export class NpcProfileStore {
         if (typeof entry?.trust !== "number") {
           throw new Error(`tagRules entry for "${key}" must have a numeric trust field`);
         }
-        tagRules[key] = { trust: entry.trust as number };
+        const rule: { trust: number; promoteAnchor?: boolean; breakAnchor?: boolean; minAnchorDepth?: number } = {
+          trust: entry.trust as number,
+        };
+        if (typeof entry.promoteAnchor === "boolean") rule.promoteAnchor = entry.promoteAnchor;
+        if (typeof entry.breakAnchor === "boolean") rule.breakAnchor = entry.breakAnchor;
+        if (typeof entry.minAnchorDepth === "number") rule.minAnchorDepth = entry.minAnchorDepth;
+        tagRules[key] = rule;
       }
+    }
+
+    // Decay profile
+    let decayProfile: NpcProfile["decayProfile"];
+    if (input.decayProfile !== undefined) {
+      if (!VALID_DECAY_PROFILES.has(String(input.decayProfile))) {
+        throw new Error("decayProfile must be sharp, normal, fading, or custom");
+      }
+      decayProfile = String(input.decayProfile) as NpcProfile["decayProfile"];
+    }
+
+    let decayConfig: DecayConfig | undefined;
+    if (input.decayConfig && typeof input.decayConfig === "object") {
+      const dc = input.decayConfig as Record<string, unknown>;
+      decayConfig = {
+        lambdaBase: typeof dc.lambdaBase === "number" ? dc.lambdaBase : 0.023,
+        lambdaTrust: typeof dc.lambdaTrust === "number" ? dc.lambdaTrust : 0.0116,
+        blendAlpha: typeof dc.blendAlpha === "number" ? dc.blendAlpha : 0.7,
+        dayEquivalent: typeof dc.dayEquivalent === "number" ? dc.dayEquivalent : 1.0,
+      };
+    }
+
+    let anchorConfig: AnchorConfig | undefined;
+    if (input.anchorConfig && typeof input.anchorConfig === "object") {
+      const ac = input.anchorConfig as Record<string, unknown>;
+      anchorConfig = {
+        familiarityThreshold: typeof ac.familiarityThreshold === "number" ? ac.familiarityThreshold : 20,
+        rivalThreshold: typeof ac.rivalThreshold === "number" ? ac.rivalThreshold : 0.3,
+        depthIncrement: typeof ac.depthIncrement === "number" ? ac.depthIncrement : 0.15,
+        passiveDepthCeiling: typeof ac.passiveDepthCeiling === "number" ? ac.passiveDepthCeiling : 0.3,
+        passiveDepthRate: typeof ac.passiveDepthRate === "number" ? ac.passiveDepthRate : 0.01,
+      };
     }
 
     const profile: NpcProfile = {
@@ -110,6 +167,9 @@ export class NpcProfileStore {
       defaultTrust,
       factionBias,
       tagRules,
+      decayProfile,
+      decayConfig,
+      anchorConfig,
     };
 
     const path = this.profilePath(npcId);

@@ -81,4 +81,75 @@ describe("NpcProfileStore", () => {
     store.write("goran", validProfile);
     expect(existsSync(join(baseDir, "agents", "goran", "profile.json"))).toBe(true);
   });
+
+  it("stores and reads decayProfile field", () => {
+    store.write("fading-npc", {
+      ...validProfile,
+      decayProfile: "fading",
+    });
+    const p = store.read("fading-npc")!;
+    expect(p.decayProfile).toBe("fading");
+  });
+
+  it("stores and reads custom decayConfig", () => {
+    store.write("custom-npc", {
+      ...validProfile,
+      decayProfile: "custom",
+      decayConfig: {
+        lambdaBase: 0.05,
+        lambdaTrust: 0.03,
+        blendAlpha: 0.6,
+        dayEquivalent: 1.5,
+      },
+    });
+    const p = store.read("custom-npc")!;
+    expect(p.decayProfile).toBe("custom");
+    expect(p.decayConfig!.lambdaBase).toBe(0.05);
+    expect(p.decayConfig!.blendAlpha).toBe(0.6);
+  });
+
+  it("stores and reads anchorConfig", () => {
+    store.write("anchor-npc", {
+      ...validProfile,
+      anchorConfig: {
+        familiarityThreshold: 30,
+        rivalThreshold: 0.4,
+        depthIncrement: 0.2,
+        passiveDepthCeiling: 0.4,
+        passiveDepthRate: 0.02,
+      },
+    });
+    const p = store.read("anchor-npc")!;
+    expect(p.anchorConfig!.familiarityThreshold).toBe(30);
+    expect(p.anchorConfig!.rivalThreshold).toBe(0.4);
+  });
+
+  it("defaults decayProfile to undefined when not provided", () => {
+    store.write("minimal2", { name: "Test", alignment: { ethical: "neutral", moral: "neutral" } });
+    const p = store.read("minimal2")!;
+    expect(p.decayProfile).toBeUndefined();
+    expect(p.decayConfig).toBeUndefined();
+    expect(p.anchorConfig).toBeUndefined();
+  });
+
+  it("rejects invalid decayProfile value", () => {
+    expect(() =>
+      store.write("bad", { ...validProfile, decayProfile: "invalid-name" })
+    ).toThrow(/decayProfile must be/);
+  });
+
+  it("stores extended tagRules with anchor fields", () => {
+    store.write("anchor-tags-npc", {
+      ...validProfile,
+      tagRules: {
+        "saved-my-life": { trust: 0.4, promoteAnchor: true, minAnchorDepth: 0.6 },
+        "betrayal": { trust: -0.5, breakAnchor: true },
+      },
+    });
+    const p = store.read("anchor-tags-npc")!;
+    expect(p.tagRules!["saved-my-life"].trust).toBe(0.4);
+    expect(p.tagRules!["saved-my-life"].promoteAnchor).toBe(true);
+    expect(p.tagRules!["saved-my-life"].minAnchorDepth).toBe(0.6);
+    expect(p.tagRules!["betrayal"].breakAnchor).toBe(true);
+  });
 });
