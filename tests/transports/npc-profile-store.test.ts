@@ -152,4 +152,35 @@ describe("NpcProfileStore", () => {
     expect(p.tagRules!["saved-my-life"].minAnchorDepth).toBe(0.6);
     expect(p.tagRules!["betrayal"].breakAnchor).toBe(true);
   });
+
+  it("persists propagateTags and gossipTrait", () => {
+    store.write("goran", {
+      name: "Goran",
+      alignment: { ethical: "lawful", moral: "good" },
+      propagateTags: ["rumor", "confession"],
+      gossipTrait: "gossipy",
+    });
+    const profile = store.read("goran");
+    expect(profile?.propagateTags).toEqual(["rumor", "confession"]);
+    expect(profile?.gossipTrait).toBe("gossipy");
+  });
+
+  it("defaults gossipTrait to 'normal' when absent", () => {
+    store.write("goran", {
+      name: "Goran",
+      alignment: { ethical: "neutral", moral: "neutral" },
+    });
+    const profile = store.read("goran");
+    expect(profile?.gossipTrait).toBe("normal");
+  });
+
+  it("rejects invalid gossipTrait", () => {
+    expect(() =>
+      store.write("goran", {
+        name: "Goran",
+        alignment: { ethical: "neutral", moral: "neutral" },
+        gossipTrait: "bogus",
+      })
+    ).toThrow(/gossipTrait/);
+  });
 });

@@ -31,6 +31,8 @@ export interface AnchorConfig {
   passiveDepthRate: number;
 }
 
+export type GossipTrait = "gossipy" | "discreet" | "normal";
+
 export interface NpcProfile {
   name: string;
   title?: string;
@@ -44,11 +46,14 @@ export interface NpcProfile {
   decayProfile?: "sharp" | "normal" | "fading" | "custom";
   decayConfig?: DecayConfig;
   anchorConfig?: AnchorConfig;
+  propagateTags?: string[];
+  gossipTrait: GossipTrait;
 }
 
 const VALID_ETHICAL = new Set(["lawful", "neutral", "chaotic"]);
 const VALID_MORAL = new Set(["good", "neutral", "evil"]);
 const VALID_DECAY_PROFILES = new Set(["sharp", "normal", "fading", "custom"]);
+const VALID_GOSSIP_TRAITS = new Set(["gossipy", "discreet", "normal"]);
 
 export class NpcProfileStore {
   private readonly baseDir: string;
@@ -67,7 +72,12 @@ export class NpcProfileStore {
     if (!existsSync(path)) return null;
     try {
       const raw = readFileSync(path, "utf-8");
-      return JSON.parse(raw) as NpcProfile;
+      const parsed = JSON.parse(raw) as NpcProfile;
+      // Backfill gossipTrait default for older profiles stored before this field existed.
+      if (parsed.gossipTrait === undefined) {
+        parsed.gossipTrait = "normal";
+      }
+      return parsed;
     } catch {
       return null;
     }
@@ -152,6 +162,20 @@ export class NpcProfileStore {
       };
     }
 
+    let propagateTags: string[] | undefined;
+    if (Array.isArray(input.propagateTags)) {
+      propagateTags = (input.propagateTags as unknown[])
+        .filter((t): t is string => typeof t === "string");
+    }
+
+    let gossipTrait: GossipTrait = "normal";
+    if (input.gossipTrait !== undefined) {
+      if (!VALID_GOSSIP_TRAITS.has(String(input.gossipTrait))) {
+        throw new Error("gossipTrait must be gossipy, discreet, or normal");
+      }
+      gossipTrait = String(input.gossipTrait) as GossipTrait;
+    }
+
     const profile: NpcProfile = {
       name: String(name),
       title: typeof input.title === "string" ? input.title : undefined,
@@ -170,6 +194,8 @@ export class NpcProfileStore {
       decayProfile,
       decayConfig,
       anchorConfig,
+      propagateTags,
+      gossipTrait,
     };
 
     const path = this.profilePath(npcId);
