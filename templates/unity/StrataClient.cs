@@ -201,6 +201,7 @@ public class RelationshipResult
     public int familiarity;
     public string disposition;
     public ObservationItem[] observations;
+    public AnchorState anchor;    // null if no anchor
 }
 
 [Serializable]
@@ -216,6 +217,22 @@ public class ObserveResult
     public float trust;
     public string disposition;
     public TrustDelta delta;
+}
+
+[Serializable]
+public class AnchorState
+{
+    public string state;        // "friend" | "rival"
+    public float depth;
+    public float anchorTrust;
+    public long since;
+}
+
+[Serializable]
+public class SetAnchorRequest
+{
+    public string state;
+    public float depth;
 }
 
 /// <summary>
@@ -323,6 +340,12 @@ public class StrataClient
         return await Post<ObserveResult>($"/api/agents/{agentId}/relationship/observe", req);
     }
 
+    public async Task<RelationshipResult> SetAnchor(string agentId, string state, float depth)
+    {
+        var req = new SetAnchorRequest { state = state, depth = depth };
+        return await Put<RelationshipResult>($"/api/agents/{agentId}/anchor", req);
+    }
+
     public async Task<CharacterCardResult> GetCharacter(string playerId)
     {
         return await Get<CharacterCardResult>($"/api/players/{playerId}/character");
@@ -391,6 +414,28 @@ public class StrataClient
         catch (Exception ex)
         {
             Debug.LogWarning($"[Strata] DELETE {path} failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<T> Put<T>(string path, object body) where T : class
+    {
+        try
+        {
+            var json = JsonUtility.ToJson(body);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _http.PutAsync(_baseUrl + path, content);
+            if (!response.IsSuccessStatusCode)
+            {
+                Debug.LogWarning($"[Strata] PUT {path} returned {(int)response.StatusCode}");
+                return null;
+            }
+            var responseJson = await response.Content.ReadAsStringAsync();
+            return JsonUtility.FromJson<T>(responseJson);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[Strata] PUT {path} failed: {ex.Message}");
             return null;
         }
     }
