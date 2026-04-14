@@ -652,6 +652,7 @@ export async function startRestTransport(
             const outcome = rollDisclosure({
               discloserTrait: trait,
               discloserTrustToListener: trustListener,
+              // TODO: derive from NPC subject-relationship model when that ships (v2)
               discloserTrustToSubject: 50, // no subject model in v1 — midpoint
               memoryTags: memTags,
               propagateTags,
