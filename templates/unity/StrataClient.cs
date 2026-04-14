@@ -235,6 +235,41 @@ public class SetAnchorRequest
     public float depth;
 }
 
+[Serializable]
+public class InteractionRequest
+{
+    public string npcA;
+    public string npcB;
+    public long seed;
+}
+
+[Serializable]
+public class DisclosureModifiers
+{
+    public int trait;
+    public int trustListener;
+    public int trustSubject;
+}
+
+[Serializable]
+public class Disclosure
+{
+    public string memoryId;
+    public string from;
+    public string to;
+    public int roll;
+    public int dc;
+    public DisclosureModifiers modifiers;
+    public string result; // "disclosed" or "kept"
+}
+
+[Serializable]
+public class InteractionResult
+{
+    public Disclosure[] disclosures;
+    public long seed;
+}
+
 /// <summary>
 /// Typed HTTP client for Strata's REST API. Supports both no-auth mode
 /// (construct with empty token) and player-token mode (construct
@@ -344,6 +379,19 @@ public class StrataClient
     {
         var req = new SetAnchorRequest { state = state, depth = depth };
         return await Put<RelationshipResult>($"/api/agents/{agentId}/anchor", req);
+    }
+
+    /// <summary>
+    /// Record an NPC-to-NPC interaction. The server rolls disclosure checks for
+    /// each tag-eligible memory on npcA and copies disclosed memories onto npcB
+    /// (with a "heard-from-{npcA}" tag). Pass a non-zero seed for deterministic
+    /// rolls; pass 0 to let the server generate one.
+    /// See specs/2026-04-13-npc-gossip-design.md.
+    /// </summary>
+    public async Task<InteractionResult> RecordInteraction(string npcA, string npcB, long seed = 0)
+    {
+        var req = new InteractionRequest { npcA = npcA, npcB = npcB, seed = seed };
+        return await Post<InteractionResult>("/api/interactions", req);
     }
 
     public async Task<CharacterCardResult> GetCharacter(string playerId)
