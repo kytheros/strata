@@ -80,6 +80,19 @@ describe("gossip-engine.rollDisclosure", () => {
     expect(successes).toBeLessThan(15);
   });
 
+  it("juicy + secret tags stack on DC (15 - 3 + 5 = 17)", () => {
+    const out = rollDisclosure({
+      discloserTrait: "normal",
+      discloserTrustToListener: 50,
+      discloserTrustToSubject: 50,
+      memoryTags: ["rumor", "juicy", "secret"],
+      propagateTags: ["rumor"],
+      alreadyHearsay: false,
+      seed: 7,
+    });
+    expect(out.dc).toBe(17);
+  });
+
   it("juicy tag lowers DC; secret tag raises it", () => {
     const juicy = rollDisclosure({
       discloserTrait: "normal",
