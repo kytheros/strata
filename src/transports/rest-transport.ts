@@ -596,6 +596,25 @@ export async function startRestTransport(
         return;
       }
 
+      if (pathname === "/api/interactions" && method === "POST") {
+        const body = await parseBody(req);
+        const npcA = typeof body.npcA === "string" ? body.npcA : "";
+        const npcB = typeof body.npcB === "string" ? body.npcB : "";
+        if (!npcA || !npcB) {
+          json(res, 400, { error: "npcA and npcB are required", code: 400 });
+          return;
+        }
+        if (npcA === npcB) {
+          json(res, 400, { error: "npcA and npcB must differ", code: 400 });
+          return;
+        }
+        const seed = typeof body.seed === "number" ? body.seed : Math.floor(Math.random() * 0xffffffff);
+
+        // Task 5 fills in disclosure logic here.
+        json(res, 200, { disclosures: [], seed });
+        return;
+      }
+
       json(res, 404, { error: "Not found", code: 404 });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Internal server error";
