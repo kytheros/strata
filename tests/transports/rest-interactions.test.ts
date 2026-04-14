@@ -154,16 +154,83 @@ describe("POST /api/interactions — gossip flow", () => {
     expect(ad.map((d) => d.roll)).toEqual(bd.map((d) => d.roll));
   });
 
-  it("does not re-disclose already-hearsay memories", async () => {
-    await post(transport.port, "/api/interactions", { npcA: "goran", npcB: "brynn", seed: 1 });
-    // Second run from brynn -> mira: mira has no profile so nothing happens regardless. Verifies
-    // the already-hearsay branch doesn't crash when brynn's memory carries heard-from-goran.
-    const r = await post(transport.port, "/api/interactions", {
-      npcA: "brynn",
-      npcB: "mira",
-      seed: 1,
+  it("does not re-disclose already-hearsay memories (full chain goran -> brynn -> mira)", async () => {
+    // Use a separate fixture so we have all three NPCs profiled to propagate "rumor",
+    // and a single rumor memory seeded only on Goran. Then propagate goran -> brynn,
+    // confirm brynn carries the heard-from-goran tag, then propagate brynn -> mira and
+    // assert mira never receives that second-hand entry — the alreadyHearsay guard
+    // must block it even when all conditions for re-disclosure would otherwise pass.
+    const port = transport.port;
+
+    // (Re-)profile all three as gossipy with matching propagateTags. Goran/Brynn already
+    // exist from beforeEach; we overwrite Goran to remove the "confession" memory bias and
+    // add Mira fresh.
+    for (const [npc, name] of [["goran", "Goran"], ["brynn", "Brynn"], ["mira", "Mira"]] as const) {
+      await fetch(`http://127.0.0.1:${port}/api/agents/${npc}/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          alignment: { ethical: "neutral", moral: "neutral" },
+          gossipTrait: "gossipy",
+          propagateTags: ["rumor"],
+        }),
+      });
+    }
+
+    // Distinct rumor seeded only on Goran (different text from the beforeEach confession
+    // so we can identify it unambiguously in mira's recall).
+    await fetch(`http://127.0.0.1:${port}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        memory: "The mayor was seen sneaking into the brothel district unique-marker-xyz.",
+        tags: ["rumor", "juicy"],
+      }),
     });
-    expect(r.status).toBe(200);
+
+    // Step 3: propagate goran -> brynn until disclosure happens (probabilistic).
+    let goranToBrynnDisclosed = false;
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const r = await post(port, "/api/interactions", { npcA: "goran", npcB: "brynn", seed });
+      const ds = (r.json as any).disclosures as Array<{ result: string; memoryId: string }>;
+      if (ds.some((d) => d.result === "disclosed")) {
+        goranToBrynnDisclosed = true;
+        break;
+      }
+    }
+    expect(goranToBrynnDisclosed).toBe(true);
+
+    // Sanity: brynn now carries the rumor with heard-from-goran tag.
+    const brynnSearch = await fetch(`http://127.0.0.1:${port}/api/agents/brynn/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "mayor brothel unique-marker-xyz" }),
+    });
+    const brynnBody = (await brynnSearch.json()) as { results: Array<{ text?: string; tags?: string[] }> };
+    const brynnHit = brynnBody.results.find((r) => r.text?.includes("unique-marker-xyz"));
+    expect(brynnHit).toBeDefined();
+    expect(brynnHit!.tags).toContain("heard-from-goran");
+
+    // Step 4: now propagate brynn -> mira across many seeds. The guard should block
+    // re-disclosure of the heard-from-goran entry on EVERY roll.
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const r = await post(port, "/api/interactions", { npcA: "brynn", npcB: "mira", seed });
+      const ds = (r.json as any).disclosures as Array<{ result: string; memoryId: string }>;
+      // The hearsay entry on brynn should be skipped silently (reason="already-hearsay")
+      // and therefore must not appear in the disclosures list at all.
+      expect(ds.find((d) => d.memoryId === brynnHit!["id" as never])).toBeUndefined();
+    }
+
+    // Step 5: mira must NOT have the second-hand entry.
+    const miraSearch = await fetch(`http://127.0.0.1:${port}/api/agents/mira/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "mayor brothel unique-marker-xyz" }),
+    });
+    const miraBody = (await miraSearch.json()) as { results: Array<{ text?: string; tags?: string[] }> };
+    const miraHit = miraBody.results.find((r) => r.text?.includes("unique-marker-xyz"));
+    expect(miraHit).toBeUndefined();
   });
 
   it("no disclosure when propagateTags is empty/absent", async () => {
