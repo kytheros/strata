@@ -26,7 +26,7 @@ import { buildHealthResponse } from "./health.js";
 import { createServer, type CreateServerResult } from "../server.js";
 import { KNOWLEDGE_TYPES, type KnowledgeType } from "../knowledge/knowledge-store.js";
 import { PlayerRegistry, type PlayerEntry } from "./player-registry.js";
-import { NpcProfileStore } from "./npc-profile-store.js";
+import { NpcProfileStore, type NpcProfile } from "./npc-profile-store.js";
 import { CharacterStore } from "./character-store.js";
 import { RelationshipStore } from "./relationship-store.js";
 import { computeTrustDelta, computeAnchorOutcome, type NpcAlignment, type TagRuleOverrides, type ExtendedTagRule } from "./tag-rule-engine.js";
@@ -670,7 +670,7 @@ async function handleStore(
 async function handleSearch(
   body: Record<string, unknown>,
   srv: CreateServerResult,
-  npcProfile?: { decayProfile?: string; decayConfig?: Record<string, number> } | null,
+  npcProfile?: NpcProfile | null,
   anchorDepth?: number
 ): Promise<{ results: unknown[] }> {
   const query = body.query;
@@ -732,7 +732,7 @@ async function handleRecall(
   _agentId: string,
   body: Record<string, unknown>,
   srv: CreateServerResult,
-  npcProfile?: { decayProfile?: string; decayConfig?: Record<string, number> } | null,
+  npcProfile?: NpcProfile | null,
   anchorDepth?: number
 ): Promise<{ context: unknown[]; summary: string }> {
   const situation = body.situation;
