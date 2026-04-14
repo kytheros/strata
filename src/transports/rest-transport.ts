@@ -31,6 +31,8 @@ import { CharacterStore } from "./character-store.js";
 import { RelationshipStore } from "./relationship-store.js";
 import { computeTrustDelta, computeAnchorOutcome, type NpcAlignment, type TagRuleOverrides, type ExtendedTagRule } from "./tag-rule-engine.js";
 import { resolveProfile, memoryRetention } from "./decay-engine.js";
+import { rollDisclosure, type GossipTrait } from "./gossip-engine.js";
+import { NpcAcquaintanceStore } from "./npc-acquaintance-store.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -158,6 +160,7 @@ export async function startRestTransport(
   const profileStore = new NpcProfileStore(baseDir);
   const characterStore = new CharacterStore(baseDir);
   const relationshipStore = new RelationshipStore(baseDir);
+  const acquaintanceStore = new NpcAcquaintanceStore(baseDir);
 
   // LRU cache of per-(player, npc) createServer() instances, keyed by "<playerId>:<npcId>".
   // Map iteration order = insertion order; re-inserting on access promotes to MRU.
@@ -610,8 +613,94 @@ export async function startRestTransport(
         }
         const seed = typeof body.seed === "number" ? body.seed : Math.floor(Math.random() * 0xffffffff);
 
-        // Task 5 fills in disclosure logic here.
-        json(res, 200, { disclosures: [], seed });
+        const pidForGossip = playerId;
+        const profileA = profileStore.read(npcA);
+        const profileB = profileStore.read(npcB);
+
+        if (!profileA || !profileB) {
+          json(res, 200, { disclosures: [], seed });
+          return;
+        }
+
+        const propagateTags = profileA.propagateTags ?? [];
+        const trait: GossipTrait = profileA.gossipTrait ?? "normal";
+
+        // A's acquaintance trust toward B (listener trust, for roll bonus)
+        const ack = acquaintanceStore.get(pidForGossip, npcA, npcB);
+        const trustListener = ack?.trust ?? 50;
+
+        // Update interaction counts for both directions
+        acquaintanceStore.recordInteraction(pidForGossip, npcA, npcB);
+        acquaintanceStore.recordInteraction(pidForGossip, npcB, npcA);
+
+        const disclosures: unknown[] = [];
+
+        if (propagateTags.length > 0) {
+          const srvA = getOrCreateAgentServer(pidForGossip, npcA);
+          const srvB = getOrCreateAgentServer(pidForGossip, npcB);
+          const allMemories = await srvA.storage.knowledge.getProjectEntries(npcA);
+
+          let rollSeed = seed;
+          for (const mem of allMemories) {
+            const memTags: string[] = Array.isArray(mem.tags)
+              ? mem.tags
+              : typeof mem.tags === "string"
+                ? JSON.parse(mem.tags)
+                : [];
+            const alreadyHearsay = memTags.some((t: string) => t.startsWith("heard-from-"));
+
+            const outcome = rollDisclosure({
+              discloserTrait: trait,
+              discloserTrustToListener: trustListener,
+              discloserTrustToSubject: 50, // no subject model in v1 — midpoint
+              memoryTags: memTags,
+              propagateTags,
+              alreadyHearsay,
+              seed: rollSeed,
+            });
+            // Advance the roll seed deterministically so distinct memories roll distinctly
+            // within one interaction — but the whole sequence is still reproducible.
+            rollSeed = (Math.imul(rollSeed, 1664525) + 1013904223) >>> 0;
+
+            if (outcome.reason) continue; // skip non-propagable memories silently
+
+            if (outcome.disclosed) {
+              const newTags = [...memTags, `heard-from-${npcA}`];
+              await srvB.storage.knowledge.addEntry({
+                id: randomUUID(),
+                type: mem.type,
+                project: npcB,
+                sessionId: `gossip-${Date.now()}`,
+                timestamp: Date.now(),
+                summary: mem.summary,
+                details: mem.details ?? "",
+                tags: newTags,
+                relatedFiles: [],
+              });
+              disclosures.push({
+                memoryId: mem.id,
+                from: npcA,
+                to: npcB,
+                roll: outcome.roll,
+                dc: outcome.dc,
+                modifiers: outcome.modifiers,
+                result: "disclosed",
+              });
+            } else {
+              disclosures.push({
+                memoryId: mem.id,
+                from: npcA,
+                to: npcB,
+                roll: outcome.roll,
+                dc: outcome.dc,
+                modifiers: outcome.modifiers,
+                result: "kept",
+              });
+            }
+          }
+        }
+
+        json(res, 200, { disclosures, seed });
         return;
       }
 
