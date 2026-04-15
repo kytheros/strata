@@ -1,12 +1,14 @@
 /**
- * Player character card store — read/write visible player identity at
- * {baseDir}/players/{playerId}/character.json.
+ * Player character card store — read/write player character cards against
+ * the world.db `player_characters` table.
  *
- * Spec: Section 1 (Player Character Card).
+ * Hot fields (displayName, factions, tags) are per-PC.
+ * Factions and tags are stored as JSON columns.
+ *
+ * Spec: 2026-04-15-world-scope-refactor-design.md
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import type Database from "better-sqlite3";
 
 export interface CharacterCard {
   displayName: string;
@@ -15,36 +17,41 @@ export interface CharacterCard {
 }
 
 export class CharacterStore {
-  private readonly baseDir: string;
+  private readonly db: Database.Database;
 
-  constructor(baseDir: string) {
-    this.baseDir = baseDir;
-  }
+  private readonly stmtUpsert: Database.Statement;
+  private readonly stmtGet: Database.Statement;
 
-  private cardPath(playerId: string): string {
-    return join(this.baseDir, "players", playerId, "character.json");
+  constructor(db: Database.Database) {
+    this.db = db;
+
+    this.stmtUpsert = db.prepare(`
+      INSERT INTO player_characters
+        (player_id, name, factions_json, extras_json, created_at, updated_at)
+      VALUES
+        (@player_id, @name, @factions_json, @extras_json, @now, @now)
+      ON CONFLICT(player_id) DO UPDATE SET
+        name = excluded.name,
+        factions_json = excluded.factions_json,
+        extras_json = excluded.extras_json,
+        updated_at = excluded.updated_at
+    `);
+
+    this.stmtGet = db.prepare(`
+      SELECT * FROM player_characters WHERE player_id = ?
+    `);
   }
 
   /** Read a character card. Returns default card if not found. */
   read(playerId: string): CharacterCard {
-    const path = this.cardPath(playerId);
-    if (!existsSync(path)) {
+    const row = this.stmtGet.get(playerId) as Record<string, unknown> | undefined;
+    if (!row) {
       return { displayName: "", factions: [], tags: [] };
     }
-    try {
-      const raw = readFileSync(path, "utf-8");
-      const data = JSON.parse(raw) as Partial<CharacterCard>;
-      return {
-        displayName: data.displayName ?? "",
-        factions: Array.isArray(data.factions) ? data.factions : [],
-        tags: Array.isArray(data.tags) ? data.tags : [],
-      };
-    } catch {
-      return { displayName: "", factions: [], tags: [] };
-    }
+    return this.rowToCard(row);
   }
 
-  /** Write a character card. */
+  /** Write a character card. Returns the stored card. */
   write(playerId: string, input: Record<string, unknown>): CharacterCard {
     const card: CharacterCard = {
       displayName: typeof input.displayName === "string" ? input.displayName : "",
@@ -56,11 +63,30 @@ export class CharacterStore {
         : [],
     };
 
-    const path = this.cardPath(playerId);
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, JSON.stringify(card, null, 2), "utf-8");
-    renameSync(tmp, path);
+    this.stmtUpsert.run({
+      player_id: playerId,
+      name: card.displayName,
+      factions_json: JSON.stringify(card.factions),
+      extras_json: JSON.stringify({ tags: card.tags }),
+      now: Date.now(),
+    });
+
     return card;
+  }
+
+  private rowToCard(row: Record<string, unknown>): CharacterCard {
+    const factions = row.factions_json
+      ? (JSON.parse(row.factions_json as string) as string[])
+      : [];
+    const extras = row.extras_json
+      ? (JSON.parse(row.extras_json as string) as Record<string, unknown>)
+      : {};
+    const tags = Array.isArray(extras.tags) ? (extras.tags as string[]) : [];
+
+    return {
+      displayName: (row.name as string) ?? "",
+      factions,
+      tags,
+    };
   }
 }
