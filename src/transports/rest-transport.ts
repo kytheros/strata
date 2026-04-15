@@ -36,6 +36,7 @@ import { NpcAcquaintanceStore } from "./npc-acquaintance-store.js";
 import { WorldRegistry } from "./world-registry.js";
 import { WorldPool } from "./world-pool.js";
 import { mintPlayerToken, verifyPlayerToken, type PlayerTokenClaims } from "./player-token.js";
+import { NpcMemoryEngine } from "./npc-memory-engine.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -352,6 +353,8 @@ export async function startRestTransport(
             return;
           }
           try {
+            // Close the pool handle first so the DB file is not locked when the directory is removed.
+            worldPool.closeWorld(worldParams.id);
             worldRegistry.delete(worldParams.id);
             auditLog("world.delete", { worldId: worldParams.id });
             res.writeHead(204);
@@ -470,46 +473,61 @@ export async function startRestTransport(
       }
 
       // ── Profile endpoint (admin-write) ──────────────────────────────
-      params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "PUT");
-      if (params) {
-        if (!hasAdminAccess(auth)) {
-          json(res, 403, { error: "Profile write requires the admin token", code: 403 });
+      // Admin can target a specific world via X-Strata-World header.
+      // When header is absent, falls back to "default" world for backward compat.
+      {
+        const worldHeaderRaw = req.headers["x-strata-world"];
+        const adminWorldId = typeof worldHeaderRaw === "string" ? worldHeaderRaw : "default";
+        const adminWorldEntry = worldRegistry.get(adminWorldId);
+        const adminProfileStore = adminWorldEntry
+          ? new NpcProfileStore(worldPool.open(adminWorldId))
+          : profileStore;
+
+        params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "PUT");
+        if (params) {
+          if (!hasAdminAccess(auth)) {
+            json(res, 403, { error: "Profile write requires the admin token", code: 403 });
+            return;
+          }
+          if (!adminWorldEntry) {
+            json(res, 404, { error: `Unknown world: ${adminWorldId}`, code: 404 });
+            return;
+          }
+          const body = await parseBody(req);
+          try {
+            const profile = adminProfileStore.put(params.agentId, body);
+            auditLog("profile.update", { npcId: params.agentId, worldId: adminWorldId });
+            json(res, 200, { updated: true, npcId: params.agentId, profile });
+          } catch (err) {
+            json(res, 422, { error: (err as Error).message, code: 422 });
+          }
           return;
         }
-        const body = await parseBody(req);
-        try {
-          const profile = profileStore.put(params.agentId, body);
-          auditLog("profile.update", { npcId: params.agentId });
-          json(res, 200, { updated: true, npcId: params.agentId, profile });
-        } catch (err) {
-          json(res, 422, { error: (err as Error).message, code: 422 });
-        }
-        return;
-      }
 
-      // ── Profile read (player OR admin) ──────────────────────────────
-      params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "GET");
-      if (params) {
-        const profile = profileStore.get(params.agentId);
-        let memoryCount = 0;
-        let lastInteraction: number | null = null;
-        const pid = resolvePlayerId(auth);
-        if (pid) {
-          try {
-            const srv = getOrCreateAgentServer(pid, params.agentId);
-            const all = await srv.storage.knowledge.search("");
-            memoryCount = all.length;
-            lastInteraction = all.length > 0 ? Math.max(...all.map((r) => r.timestamp)) : null;
-          } catch { /* ignore */ }
+        // ── Profile read (player OR admin) ──────────────────────────────
+        params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "GET");
+        if (params) {
+          const profile = adminProfileStore.get(params.agentId);
+          let memoryCount = 0;
+          let lastInteraction: number | null = null;
+          const pid = resolvePlayerId(auth);
+          if (pid) {
+            try {
+              const srv = getOrCreateAgentServer(pid, params.agentId);
+              const all = await srv.storage.knowledge.search("");
+              memoryCount = all.length;
+              lastInteraction = all.length > 0 ? Math.max(...all.map((r) => r.timestamp)) : null;
+            } catch { /* ignore */ }
+          }
+          json(res, 200, {
+            agent_id: params.agentId,
+            ...(profile ?? {}),
+            memory_count: memoryCount,
+            last_interaction: lastInteraction,
+          });
+          return;
         }
-        json(res, 200, {
-          agent_id: params.agentId,
-          ...(profile ?? {}),
-          memory_count: memoryCount,
-          last_interaction: lastInteraction,
-        });
-        return;
-      }
+      } // end admin-world-scoped profile block
 
       // ── Character card (player writes own, admin writes any) ─────────
       params = matchRoute(pathname, method, "/api/players/:playerId/character", "PUT");
@@ -565,6 +583,9 @@ export async function startRestTransport(
       let activeCharacterStore = characterStore;
       let activeRelationshipStore = relationshipStore;
       let activeAcquaintanceStore = acquaintanceStore;
+      // For v2 tokens, NPC memories are world-scoped (shared across all PCs in the world).
+      // null means fall back to per-player KnowledgeStore (legacy/no-auth path).
+      let activeWorldDb: import("better-sqlite3").Database | null = null;
       if (auth.kind === "player-v2") {
         const claimedWorldId = auth.v2Claims!.worldId;
         if (!worldRegistry.get(claimedWorldId)) {
@@ -572,6 +593,7 @@ export async function startRestTransport(
           return;
         }
         const worldDb = worldPool.open(claimedWorldId);
+        activeWorldDb = worldDb;
         activeProfileStore = new NpcProfileStore(worldDb);
         activeCharacterStore = new CharacterStore(worldDb);
         activeRelationshipStore = new RelationshipStore(worldDb);
@@ -581,34 +603,64 @@ export async function startRestTransport(
       params = matchRoute(pathname, method, "/api/agents/:agentId/store", "POST");
       if (params) {
         const body = await parseBody(req);
-        const srv = getOrCreateAgentServer(playerId, params.agentId);
-        const result = await handleStore(params.agentId, body, srv);
+        let result: { id: string; stored: boolean };
 
-        // Tag-rule side effect: if tags are present and an NPC profile
-        // exists, compute trust delta and anchor outcome, then record observation.
-        const storeTags = Array.isArray(body.tags)
-          ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
-          : [];
-        if (storeTags.length > 0) {
-          const profile = activeProfileStore.get(params.agentId);
-          if (profile?.alignment) {
-            const delta = computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined);
-            const anchorOutcome = computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined);
-            if (delta.trust !== 0 || anchorOutcome.shouldPromote || anchorOutcome.shouldBreak) {
-              const character = activeCharacterStore.read(playerId);
-              activeRelationshipStore.addObservation(
-                playerId, params.agentId,
-                {
-                  event: `auto:${storeTags[0]}`,
-                  timestamp: Date.now(),
-                  tags: storeTags,
-                  delta,
-                  source: "tag-rule",
-                },
-                profile,
-                character,
-                anchorOutcome
-              );
+        if (activeWorldDb !== null) {
+          // v2 world-scoped path: NPC memories live in world.db (shared across all PCs).
+          const memory = body.memory;
+          if (typeof memory !== "string" || memory.length < 5) {
+            json(res, 400, { error: "Missing required field: memory (string, min 5 chars)", code: 400 });
+            return;
+          }
+          const storeTags = Array.isArray(body.tags)
+            ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
+            : [];
+          const importance = typeof body.importance === "number" ? body.importance : 50;
+          const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
+          const id = engine.add({ content: memory, tags: storeTags, importance });
+          result = { id, stored: true };
+
+          // Tag-rule side effect: compute trust delta and record per-player observation.
+          if (storeTags.length > 0) {
+            const profile = activeProfileStore.get(params.agentId);
+            if (profile?.alignment) {
+              const delta = computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined);
+              const anchorOutcome = computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined);
+              if (delta.trust !== 0 || anchorOutcome.shouldPromote || anchorOutcome.shouldBreak) {
+                const character = activeCharacterStore.read(playerId);
+                activeRelationshipStore.addObservation(
+                  playerId, params.agentId,
+                  { event: `auto:${storeTags[0]}`, timestamp: Date.now(), tags: storeTags, delta, source: "tag-rule" },
+                  profile,
+                  character,
+                  anchorOutcome
+                );
+              }
+            }
+          }
+        } else {
+          // Legacy per-player path.
+          const srv = getOrCreateAgentServer(playerId, params.agentId);
+          result = await handleStore(params.agentId, body, srv);
+
+          const storeTags = Array.isArray(body.tags)
+            ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
+            : [];
+          if (storeTags.length > 0) {
+            const profile = activeProfileStore.get(params.agentId);
+            if (profile?.alignment) {
+              const delta = computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined);
+              const anchorOutcome = computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined);
+              if (delta.trust !== 0 || anchorOutcome.shouldPromote || anchorOutcome.shouldBreak) {
+                const character = activeCharacterStore.read(playerId);
+                activeRelationshipStore.addObservation(
+                  playerId, params.agentId,
+                  { event: `auto:${storeTags[0]}`, timestamp: Date.now(), tags: storeTags, delta, source: "tag-rule" },
+                  profile,
+                  character,
+                  anchorOutcome
+                );
+              }
             }
           }
         }
@@ -620,22 +672,70 @@ export async function startRestTransport(
       params = matchRoute(pathname, method, "/api/agents/:agentId/search", "POST");
       if (params) {
         const body = await parseBody(req);
-        const srv = getOrCreateAgentServer(playerId, params.agentId);
         const npcProfile = activeProfileStore.get(params.agentId);
-        const relData = activeRelationshipStore.get(playerId, params.agentId, npcProfile, activeCharacterStore.read(playerId));
-        const result = await handleSearch(body, srv, npcProfile, relData.anchor?.depth ?? 0);
-        json(res, 200, result);
+
+        if (activeWorldDb !== null) {
+          // v2 world-scoped path: search world.db npc_memories.
+          const query = body.query;
+          if (typeof query !== "string" || query.length === 0) {
+            json(res, 400, { error: "Missing required field: query", code: 400 });
+            return;
+          }
+          const limit = typeof body.limit === "number" ? Math.min(body.limit, 100) : 20;
+          const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
+          const memories = engine.search(query);
+          const limited = memories.slice(0, limit);
+          const results = limited.map((m) => ({
+            id: m.id,
+            text: m.content,
+            type: "fact" as const,
+            confidence: m.importance / 100,
+            source: "world-fts5" as const,
+            tags: m.tags,
+          }));
+          json(res, 200, { results });
+        } else {
+          // Legacy per-player path.
+          const relData = activeRelationshipStore.get(playerId, params.agentId, npcProfile, activeCharacterStore.read(playerId));
+          const srv = getOrCreateAgentServer(playerId, params.agentId);
+          const result = await handleSearch(body, srv, npcProfile, relData.anchor?.depth ?? 0);
+          json(res, 200, result);
+        }
         return;
       }
 
       params = matchRoute(pathname, method, "/api/agents/:agentId/recall", "POST");
       if (params) {
         const body = await parseBody(req);
-        const srv = getOrCreateAgentServer(playerId, params.agentId);
         const npcProfile = activeProfileStore.get(params.agentId);
         const relData = activeRelationshipStore.get(playerId, params.agentId, npcProfile, activeCharacterStore.read(playerId));
-        const result = await handleRecall(params.agentId, body, srv, npcProfile, relData.anchor?.depth ?? 0);
-        json(res, 200, result);
+
+        if (activeWorldDb !== null) {
+          // v2 world-scoped path: recall from world.db npc_memories (shared NPC memory).
+          const situation = body.situation;
+          if (typeof situation !== "string" || situation.length === 0) {
+            json(res, 400, { error: "Missing required field: situation", code: 400 });
+            return;
+          }
+          const limit = typeof body.limit === "number" ? Math.min(body.limit, 50) : 10;
+          const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
+          const memories = engine.search(situation);
+          const limited = memories.slice(0, limit);
+          const context = limited.map((m) => ({
+            text: m.content,
+            type: "fact" as const,
+            confidence: m.importance / 100,
+            source: "world-fts5" as const,
+            tags: m.tags,
+          }));
+          const topFacts = context.slice(0, 3).map((r) => r.text).join(". ");
+          json(res, 200, { context, summary: topFacts || "No relevant memories found." });
+        } else {
+          // Legacy per-player path.
+          const srv = getOrCreateAgentServer(playerId, params.agentId);
+          const result = await handleRecall(params.agentId, body, srv, npcProfile, relData.anchor?.depth ?? 0);
+          json(res, 200, result);
+        }
         return;
       }
 
@@ -770,17 +870,40 @@ export async function startRestTransport(
         const disclosures: unknown[] = [];
 
         if (propagateTags.length > 0) {
-          const srvA = getOrCreateAgentServer(playerId, npcA);
-          const srvB = getOrCreateAgentServer(playerId, npcB);
-          const allMemories = await srvA.storage.knowledge.getProjectEntries(npcA);
+          // v2 world-scoped path: NPC memories live in world.db (shared across PCs).
+          // Legacy path: per-player KnowledgeStore.
+          const useWorldMemory = activeWorldDb !== null;
+
+          interface MemoryLike {
+            id: string;
+            type: string;
+            content: string;
+            tags: string[];
+          }
+
+          let allMemories: MemoryLike[];
+          if (useWorldMemory) {
+            const engineA = new NpcMemoryEngine(activeWorldDb!, npcA);
+            allMemories = engineA.getAll().map((m) => ({
+              id: m.id,
+              type: "fact",
+              content: m.content,
+              tags: m.tags,
+            }));
+          } else {
+            const srvA = getOrCreateAgentServer(playerId, npcA);
+            const raw = await srvA.storage.knowledge.getProjectEntries(npcA);
+            allMemories = raw.map((m) => ({
+              id: m.id,
+              type: m.type,
+              content: m.summary,
+              tags: Array.isArray(m.tags) ? m.tags : (typeof m.tags === "string" ? JSON.parse(m.tags) : []),
+            }));
+          }
 
           let rollSeed = seed;
           for (const mem of allMemories) {
-            const memTags: string[] = Array.isArray(mem.tags)
-              ? mem.tags
-              : typeof mem.tags === "string"
-                ? JSON.parse(mem.tags)
-                : [];
+            const memTags: string[] = mem.tags;
             const alreadyHearsay = memTags.some((t: string) => t.startsWith("heard-from-"));
 
             const outcome = rollDisclosure({
@@ -801,17 +924,23 @@ export async function startRestTransport(
 
             if (outcome.disclosed) {
               const newTags = [...memTags, `heard-from-${npcA}`];
-              await srvB.storage.knowledge.addEntry({
-                id: randomUUID(),
-                type: mem.type,
-                project: npcB,
-                sessionId: `gossip-${Date.now()}`,
-                timestamp: Date.now(),
-                summary: mem.summary,
-                details: mem.details ?? "",
-                tags: newTags,
-                relatedFiles: [],
-              });
+              if (useWorldMemory) {
+                const engineB = new NpcMemoryEngine(activeWorldDb!, npcB);
+                engineB.add({ content: mem.content, tags: newTags, importance: 50 });
+              } else {
+                const srvB = getOrCreateAgentServer(playerId, npcB);
+                await srvB.storage.knowledge.addEntry({
+                  id: randomUUID(),
+                  type: "fact",
+                  project: npcB,
+                  sessionId: `gossip-${Date.now()}`,
+                  timestamp: Date.now(),
+                  summary: mem.content,
+                  details: "",
+                  tags: newTags,
+                  relatedFiles: [],
+                });
+              }
               disclosures.push({
                 memoryId: mem.id,
                 from: npcA,

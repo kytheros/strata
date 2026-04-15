@@ -47,6 +47,17 @@ export class WorldPool {
     }
   }
 
+  /** Close and evict a single world DB handle so its file can be deleted. */
+  closeWorld(worldId: string): void {
+    const h = this.handles.get(worldId);
+    if (h) {
+      h.close();
+      this.handles.delete(worldId);
+      const i = this.order.indexOf(worldId);
+      if (i >= 0) this.order.splice(i, 1);
+    }
+  }
+
   close(): void {
     for (const h of this.handles.values()) h.close();
     this.handles.clear();
