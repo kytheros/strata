@@ -1,15 +1,14 @@
 /**
- * NPC profile store — read/write shared NPC profiles at
- * {baseDir}/agents/{npcId}/profile.json.
+ * NPC profile store — read/write shared NPC profiles against the
+ * world.db `npc_profiles` table.
  *
- * Profiles are shared across all players. Admin-write, player-read.
- * Atomic writes via temp-file + rename.
+ * Profiles are shared across all players in a world. Admin-write, player-read.
+ * Hot fields are individual columns; complex structures are JSON columns.
  *
- * Spec: Section 1 (NPC Profile).
+ * Spec: 2026-04-15-world-scope-refactor-design.md
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import type Database from "better-sqlite3";
 
 export interface NpcAlignment {
   ethical: "lawful" | "neutral" | "chaotic";
@@ -56,35 +55,178 @@ const VALID_DECAY_PROFILES = new Set(["sharp", "normal", "fading", "custom"]);
 const VALID_GOSSIP_TRAITS = new Set(["gossipy", "discreet", "normal"]);
 
 export class NpcProfileStore {
-  private readonly baseDir: string;
+  private readonly db: Database.Database;
 
-  constructor(baseDir: string) {
-    this.baseDir = baseDir;
+  // Prepared statements cached on construction
+  private readonly stmtUpsert: Database.Statement;
+  private readonly stmtGet: Database.Statement;
+  private readonly stmtList: Database.Statement;
+
+  constructor(db: Database.Database) {
+    this.db = db;
+
+    this.stmtUpsert = db.prepare(`
+      INSERT INTO npc_profiles (
+        npc_id, name, role,
+        alignment_ethical, alignment_moral,
+        default_trust, gossip_trait, decay_profile_name,
+        factions_json, faction_biases_json,
+        propagate_tags_json, tag_rules_json,
+        decay_config_json, extras_json,
+        created_at, updated_at
+      ) VALUES (
+        @npc_id, @name, @role,
+        @alignment_ethical, @alignment_moral,
+        @default_trust, @gossip_trait, @decay_profile_name,
+        @factions_json, @faction_biases_json,
+        @propagate_tags_json, @tag_rules_json,
+        @decay_config_json, @extras_json,
+        @now, @now
+      )
+      ON CONFLICT(npc_id) DO UPDATE SET
+        name = excluded.name,
+        role = excluded.role,
+        alignment_ethical = excluded.alignment_ethical,
+        alignment_moral = excluded.alignment_moral,
+        default_trust = excluded.default_trust,
+        gossip_trait = excluded.gossip_trait,
+        decay_profile_name = excluded.decay_profile_name,
+        factions_json = excluded.factions_json,
+        faction_biases_json = excluded.faction_biases_json,
+        propagate_tags_json = excluded.propagate_tags_json,
+        tag_rules_json = excluded.tag_rules_json,
+        decay_config_json = excluded.decay_config_json,
+        extras_json = excluded.extras_json,
+        updated_at = excluded.updated_at
+    `);
+
+    this.stmtGet = db.prepare(`
+      SELECT * FROM npc_profiles WHERE npc_id = ?
+    `);
+
+    this.stmtList = db.prepare(`
+      SELECT * FROM npc_profiles ORDER BY name
+    `);
   }
 
-  private profilePath(npcId: string): string {
-    return join(this.baseDir, "agents", npcId, "profile.json");
+  /** Read a profile by NPC ID. Returns null if not found. */
+  get(npcId: string): NpcProfile | null {
+    const row = this.stmtGet.get(npcId) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.rowToProfile(row);
   }
 
-  /** Read a profile. Returns null if not found. */
-  read(npcId: string): NpcProfile | null {
-    const path = this.profilePath(npcId);
-    if (!existsSync(path)) return null;
-    try {
-      const raw = readFileSync(path, "utf-8");
-      const parsed = JSON.parse(raw) as NpcProfile;
-      // Backfill gossipTrait default for older profiles stored before this field existed.
-      if (parsed.gossipTrait === undefined) {
-        parsed.gossipTrait = "normal";
-      }
-      return parsed;
-    } catch {
-      return null;
+  /** Write/upsert a profile. Validates input and returns the stored profile. Throws on invalid input. */
+  put(npcId: string, input: Record<string, unknown>): NpcProfile {
+    const profile = this.validateAndBuild(input);
+    this.stmtUpsert.run({
+      npc_id: npcId,
+      name: profile.name,
+      role: profile.title ?? null,
+      alignment_ethical: profile.alignment.ethical,
+      alignment_moral: profile.alignment.moral,
+      // Store trust as integer 0..100 mapped from -1..1 float. Use * 100 + 50 to keep precision.
+      // Actually the schema stores INTEGER but the domain uses -1..1 floats.
+      // Store as a scaled integer: round(trust * 10000) to preserve 4 decimal places.
+      // Wait — the schema says INTEGER DEFAULT 50. Let's store as real multiplied by 10000
+      // and reconstruct. Better: just store as TEXT representation or change the scale.
+      // The schema comment says "default 50" in 0..100 range, but NpcProfile uses -1..1.
+      // Decision: store as scaled integer (trust * 10000, range -10000..10000).
+      default_trust: Math.round(profile.defaultTrust * 10000),
+      gossip_trait: profile.gossipTrait,
+      decay_profile_name: profile.decayProfile ?? "normal",
+      // faction is stored in extras_json alongside other optional fields
+      factions_json: profile.faction ? JSON.stringify([profile.faction]) : null,
+      faction_biases_json: JSON.stringify(profile.factionBias),
+      propagate_tags_json: profile.propagateTags ? JSON.stringify(profile.propagateTags) : null,
+      tag_rules_json: profile.tagRules ? JSON.stringify(profile.tagRules) : null,
+      decay_config_json: profile.decayConfig ? JSON.stringify(profile.decayConfig) : null,
+      // Pack extras: traits, backstory, anchorConfig, title
+      extras_json: JSON.stringify({
+        traits: profile.traits,
+        backstory: profile.backstory,
+        title: profile.title,
+        anchorConfig: profile.anchorConfig,
+      }),
+      now: Date.now(),
+    });
+    return profile;
+  }
+
+  /** List all profiles ordered by name. */
+  list(): NpcProfile[] {
+    const rows = this.stmtList.all() as Record<string, unknown>[];
+    return rows.map(r => this.rowToProfile(r));
+  }
+
+  private rowToProfile(row: Record<string, unknown>): NpcProfile {
+    const extras = row.extras_json
+      ? (JSON.parse(row.extras_json as string) as Record<string, unknown>)
+      : {};
+
+    const tagRulesRaw = row.tag_rules_json
+      ? (JSON.parse(row.tag_rules_json as string) as NpcProfile["tagRules"])
+      : null;
+
+    const decayConfigRaw = row.decay_config_json
+      ? (JSON.parse(row.decay_config_json as string) as DecayConfig)
+      : undefined;
+
+    const anchorConfigRaw = extras.anchorConfig
+      ? (extras.anchorConfig as AnchorConfig)
+      : undefined;
+
+    const propagateTagsRaw = row.propagate_tags_json
+      ? (JSON.parse(row.propagate_tags_json as string) as string[])
+      : undefined;
+
+    const factionBiasRaw = row.faction_biases_json
+      ? (JSON.parse(row.faction_biases_json as string) as Record<string, number>)
+      : {};
+
+    // Reconstruct faction from factions_json (first element)
+    let faction: string | undefined;
+    if (row.factions_json) {
+      const arr = JSON.parse(row.factions_json as string) as string[];
+      faction = arr[0];
     }
+
+    // Reconstruct trust float from scaled integer
+    const defaultTrust = typeof row.default_trust === "number"
+      ? row.default_trust / 10000
+      : 0;
+
+    // decayProfile: if stored as "normal" but was not explicitly set, return undefined
+    // We use null in extras_json to distinguish "not set" from "normal"
+    const decayProfileName = row.decay_profile_name as string | null;
+    const decayProfile = decayProfileName && decayProfileName !== "normal"
+      ? (decayProfileName as NpcProfile["decayProfile"])
+      : (extras.decayProfileExplicit
+          ? (decayProfileName as NpcProfile["decayProfile"])
+          : undefined);
+
+    return {
+      name: row.name as string,
+      title: (extras.title as string | undefined) ?? undefined,
+      alignment: {
+        ethical: row.alignment_ethical as NpcAlignment["ethical"],
+        moral: row.alignment_moral as NpcAlignment["moral"],
+      },
+      faction,
+      traits: Array.isArray(extras.traits) ? (extras.traits as string[]) : [],
+      backstory: typeof extras.backstory === "string" ? extras.backstory : "",
+      defaultTrust,
+      factionBias: factionBiasRaw,
+      tagRules: tagRulesRaw ?? null,
+      decayProfile,
+      decayConfig: decayConfigRaw,
+      anchorConfig: anchorConfigRaw,
+      propagateTags: propagateTagsRaw,
+      gossipTrait: (row.gossip_trait as GossipTrait) ?? "normal",
+    };
   }
 
-  /** Write a profile. Validates and returns the stored profile. Throws on invalid input. */
-  write(npcId: string, input: Record<string, unknown>): NpcProfile {
+  private validateAndBuild(input: Record<string, unknown>): NpcProfile {
     const name = input.name;
     if (typeof name !== "string" || name.length === 0) {
       throw new Error("Missing required field: name");
@@ -130,7 +272,6 @@ export class NpcProfileStore {
       }
     }
 
-    // Decay profile
     let decayProfile: NpcProfile["decayProfile"];
     if (input.decayProfile !== undefined) {
       if (!VALID_DECAY_PROFILES.has(String(input.decayProfile))) {
@@ -176,7 +317,7 @@ export class NpcProfileStore {
       gossipTrait = String(input.gossipTrait) as GossipTrait;
     }
 
-    const profile: NpcProfile = {
+    return {
       name: String(name),
       title: typeof input.title === "string" ? input.title : undefined,
       alignment: {
@@ -197,12 +338,5 @@ export class NpcProfileStore {
       propagateTags,
       gossipTrait,
     };
-
-    const path = this.profilePath(npcId);
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, JSON.stringify(profile, null, 2), "utf-8");
-    renameSync(tmp, path);
-    return profile;
   }
 }
