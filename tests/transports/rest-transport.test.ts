@@ -944,3 +944,114 @@ describe("REST Transport — tag-rule auto-fire on /store", () => {
     expect(rel.observations.length).toBe(0);
   });
 });
+
+describe("REST Transport — world lifecycle endpoints", () => {
+  const ADMIN_TOKEN = "a".repeat(32);
+
+  it("GET /api/worlds returns at least the default world on boot", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const res = await fetch(`${getBaseUrl()}/api/worlds`, {
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.worlds)).toBe(true);
+    expect(body.worlds.some((w: { worldId: string }) => w.worldId === "default")).toBe(true);
+  });
+
+  it("POST /api/worlds creates a new world (201)", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const res = await fetch(`${getBaseUrl()}/api/worlds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({ worldId: "story-1", name: "Story One" }),
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.worldId).toBe("story-1");
+    expect(body.name).toBe("Story One");
+  });
+
+  it("POST /api/worlds returns 409 on duplicate worldId", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const headers = { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` };
+    await fetch(`${getBaseUrl()}/api/worlds`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ worldId: "dupe", name: "First" }),
+    });
+    const res = await fetch(`${getBaseUrl()}/api/worlds`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ worldId: "dupe", name: "Second" }),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it("POST /api/worlds returns 400 on invalid worldId", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const res = await fetch(`${getBaseUrl()}/api/worlds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({ worldId: "../../evil", name: "Evil" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/worlds returns 401 without admin token", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const res = await fetch(`${getBaseUrl()}/api/worlds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ worldId: "story-2", name: "Story Two" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("DELETE /api/worlds/:id removes the world (204)", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const headers = { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` };
+    await fetch(`${getBaseUrl()}/api/worlds`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ worldId: "to-delete", name: "Temp" }),
+    });
+    const res = await fetch(`${getBaseUrl()}/api/worlds/to-delete`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    expect(res.status).toBe(204);
+
+    // Verify it's gone from the list
+    const listRes = await fetch(`${getBaseUrl()}/api/worlds`, {
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    const listBody = await listRes.json();
+    expect(listBody.worlds.some((w: { worldId: string }) => w.worldId === "to-delete")).toBe(false);
+  });
+
+  it("DELETE /api/worlds/:id returns 404 for unknown world", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const res = await fetch(`${getBaseUrl()}/api/worlds/nonexistent`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("world endpoints require admin token (player token rejected with 403)", async () => {
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+    const { playerToken } = await (await fetch(`${getBaseUrl()}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+
+    const res = await fetch(`${getBaseUrl()}/api/worlds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ worldId: "sneaky", name: "Sneaky" }),
+    });
+    expect(res.status).toBe(403);
+  });
+});

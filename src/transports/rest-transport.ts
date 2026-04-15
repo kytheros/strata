@@ -33,10 +33,16 @@ import { computeTrustDelta, computeAnchorOutcome, type NpcAlignment, type TagRul
 import { resolveProfile, memoryRetention } from "./decay-engine.js";
 import { rollDisclosure, type GossipTrait } from "./gossip-engine.js";
 import { NpcAcquaintanceStore } from "./npc-acquaintance-store.js";
+import { WorldRegistry } from "./world-registry.js";
+import { WorldPool } from "./world-pool.js";
+import { mintPlayerToken, verifyPlayerToken, type PlayerTokenClaims } from "./player-token.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
 const DEFAULT_MAX_AGENTS = 200;
+const DEFAULT_MAX_WORLDS = 16;
+/** Dev-only fallback. Always set STRATA_TOKEN_SECRET in production. */
+const DEFAULT_TOKEN_SECRET = "strata-dev-secret-not-for-production";
 
 export interface RestTransportOptions {
   port: number;
@@ -47,6 +53,8 @@ export interface RestTransportOptions {
   baseDir?: string;
   /** Max per-(player, agent) servers in the LRU cache. Defaults to 200. */
   maxAgents?: number;
+  /** Max open world DB handles in the LRU pool. Defaults to 16. */
+  maxWorlds?: number;
 }
 
 export interface RestTransportHandle {
@@ -147,6 +155,7 @@ export async function startRestTransport(
     baseDir = process.env.STRATA_DATA_DIR ||
       join(process.env.HOME || process.env.USERPROFILE || ".", ".strata"),
     maxAgents = DEFAULT_MAX_AGENTS,
+    maxWorlds = DEFAULT_MAX_WORLDS,
   } = options;
 
   if (token !== undefined && token.length < MIN_ADMIN_TOKEN_LEN) {
@@ -155,12 +164,27 @@ export async function startRestTransport(
     );
   }
 
+  const tokenSecret = process.env.STRATA_TOKEN_SECRET ?? DEFAULT_TOKEN_SECRET;
+  if (tokenSecret === DEFAULT_TOKEN_SECRET) {
+    console.warn(
+      "[strata] WARNING: STRATA_TOKEN_SECRET is not set — using insecure dev fallback. Set it in production."
+    );
+  }
+
   mkdirSync(baseDir, { recursive: true });
   const registry = new PlayerRegistry(baseDir);
-  const profileStore = new NpcProfileStore(baseDir);
-  const characterStore = new CharacterStore(baseDir);
-  const relationshipStore = new RelationshipStore(baseDir);
-  const acquaintanceStore = new NpcAcquaintanceStore(baseDir);
+
+  // World registry + pool — single instances for the lifetime of this server.
+  const worldRegistry = new WorldRegistry(baseDir);
+  worldRegistry.ensureDefault();
+  const worldPool = new WorldPool(baseDir, maxWorlds);
+
+  // Legacy (non-world-scoped) stores operate against the "default" world DB for backward compat.
+  const defaultDb = worldPool.open("default");
+  const profileStore = new NpcProfileStore(defaultDb);
+  const characterStore = new CharacterStore(defaultDb);
+  const relationshipStore = new RelationshipStore(defaultDb);
+  const acquaintanceStore = new NpcAcquaintanceStore(defaultDb);
 
   // LRU cache of per-(player, npc) createServer() instances, keyed by "<playerId>:<npcId>".
   // Map iteration order = insertion order; re-inserting on access promotes to MRU.
@@ -214,10 +238,12 @@ export async function startRestTransport(
     return Promise.all(toClose);
   }
 
-  type AuthKind = "none" | "admin" | "player";
+  type AuthKind = "none" | "admin" | "player" | "player-v2";
   interface AuthResult {
     kind: AuthKind;
     player: PlayerEntry | null;
+    /** Set when kind === "player-v2" — the verified v2 token claims. */
+    v2Claims?: PlayerTokenClaims;
   }
 
   function authenticate(req: IncomingMessage): AuthResult | null {
@@ -230,6 +256,16 @@ export async function startRestTransport(
     if (bearer === token) {
       return { kind: "admin", player: null };
     }
+    // Detect v2 HMAC token by prefix.
+    if (bearer.startsWith("strata_v2.")) {
+      try {
+        const claims = verifyPlayerToken(bearer, tokenSecret);
+        return { kind: "player-v2", player: null, v2Claims: claims };
+      } catch {
+        return null; // tampered or wrong secret
+      }
+    }
+    // Legacy pt_ token.
     const player = registry.auth(bearer);
     if (player) {
       return { kind: "player", player };
@@ -241,6 +277,7 @@ export async function startRestTransport(
   function resolvePlayerId(auth: AuthResult): string | null {
     if (auth.kind === "none") return DEFAULT_PLAYER_ID;
     if (auth.kind === "player") return auth.player!.playerId;
+    if (auth.kind === "player-v2") return auth.v2Claims!.playerId;
     return null; // admin token is not allowed on data endpoints
   }
 
@@ -274,6 +311,58 @@ export async function startRestTransport(
     }
 
     try {
+      // ── World lifecycle endpoints (admin-only) ───────────────────────
+      if (pathname === "/api/worlds" && method === "GET") {
+        if (!hasAdminAccess(auth)) {
+          json(res, 403, { error: "World listing requires the admin token", code: 403 });
+          return;
+        }
+        json(res, 200, { worlds: worldRegistry.list() });
+        return;
+      }
+
+      if (pathname === "/api/worlds" && method === "POST") {
+        if (!hasAdminAccess(auth)) {
+          json(res, 403, { error: "World creation requires the admin token", code: 403 });
+          return;
+        }
+        const body = await parseBody(req);
+        const worldId = typeof body.worldId === "string" ? body.worldId : "";
+        const name = typeof body.name === "string" ? body.name : worldId;
+        try {
+          const rec = worldRegistry.create(worldId, name);
+          auditLog("world.create", { worldId, name });
+          json(res, 201, rec);
+        } catch (err) {
+          const msg = (err as Error).message;
+          if (msg.startsWith("world exists")) {
+            json(res, 409, { error: msg, code: 409 });
+          } else {
+            json(res, 400, { error: msg, code: 400 });
+          }
+        }
+        return;
+      }
+
+      {
+        const worldParams = matchRoute(pathname, method, "/api/worlds/:id", "DELETE");
+        if (worldParams) {
+          if (!hasAdminAccess(auth)) {
+            json(res, 403, { error: "World deletion requires the admin token", code: 403 });
+            return;
+          }
+          try {
+            worldRegistry.delete(worldParams.id);
+            auditLog("world.delete", { worldId: worldParams.id });
+            res.writeHead(204);
+            res.end();
+          } catch (err) {
+            json(res, 404, { error: (err as Error).message, code: 404 });
+          }
+          return;
+        }
+      }
+
       // ── Admin endpoints ─────────────────────────────────────────────
       let params = matchRoute(pathname, method, "/api/players", "POST");
       if (params) {
@@ -286,6 +375,30 @@ export async function startRestTransport(
         }
         const body = await parseBody(req);
         const externalId = typeof body.externalId === "string" ? body.externalId : null;
+        const worldHeader = req.headers["x-strata-world"];
+        const worldId = typeof worldHeader === "string" ? worldHeader : null;
+
+        // v2 path: if X-Strata-World header present, issue HMAC token scoped to that world.
+        if (worldId !== null) {
+          if (!worldRegistry.get(worldId)) {
+            json(res, 404, { error: `Unknown world: ${worldId}`, code: 404 });
+            return;
+          }
+          const result = await registry.provision(externalId);
+          const v2Token = mintPlayerToken({ playerId: result.playerId, worldId }, tokenSecret);
+          auditLog("player.provision.v2", { playerId: result.playerId, worldId, externalId, isNew: result.isNew });
+          json(res, 200, {
+            playerId: result.playerId,
+            playerToken: v2Token,
+            worldId,
+            externalId: result.externalId,
+            createdAt: result.createdAt,
+            isNew: result.isNew,
+          });
+          return;
+        }
+
+        // Legacy path: issue pt_ token.
         const result = await registry.provision(externalId);
         auditLog("player.provision", {
           playerId: result.playerId,
@@ -365,7 +478,7 @@ export async function startRestTransport(
         }
         const body = await parseBody(req);
         try {
-          const profile = profileStore.write(params.agentId, body);
+          const profile = profileStore.put(params.agentId, body);
           auditLog("profile.update", { npcId: params.agentId });
           json(res, 200, { updated: true, npcId: params.agentId, profile });
         } catch (err) {
@@ -377,7 +490,7 @@ export async function startRestTransport(
       // ── Profile read (player OR admin) ──────────────────────────────
       params = matchRoute(pathname, method, "/api/agents/:agentId/profile", "GET");
       if (params) {
-        const profile = profileStore.read(params.agentId);
+        const profile = profileStore.get(params.agentId);
         let memoryCount = 0;
         let lastInteraction: number | null = null;
         const pid = resolvePlayerId(auth);
@@ -402,11 +515,12 @@ export async function startRestTransport(
       params = matchRoute(pathname, method, "/api/players/:playerId/character", "PUT");
       if (params) {
         const pid = resolvePlayerId(auth);
-        if (auth.kind === "player" && pid !== params.playerId) {
+        const isPlayer = auth.kind === "player" || auth.kind === "player-v2";
+        if (isPlayer && pid !== params.playerId) {
           json(res, 403, { error: "Players can only update their own character card", code: 403 });
           return;
         }
-        if (!hasAdminAccess(auth) && auth.kind !== "player") {
+        if (!hasAdminAccess(auth) && !isPlayer) {
           json(res, 403, { error: "Character card write requires a player or admin token", code: 403 });
           return;
         }
@@ -419,11 +533,12 @@ export async function startRestTransport(
       params = matchRoute(pathname, method, "/api/players/:playerId/character", "GET");
       if (params) {
         const pid = resolvePlayerId(auth);
-        if (auth.kind === "player" && pid !== params.playerId) {
+        const isPlayer = auth.kind === "player" || auth.kind === "player-v2";
+        if (isPlayer && pid !== params.playerId) {
           json(res, 403, { error: "Players can only read their own character card", code: 403 });
           return;
         }
-        if (!hasAdminAccess(auth) && auth.kind !== "player") {
+        if (!hasAdminAccess(auth) && !isPlayer) {
           json(res, 403, { error: "Character card read requires a player or admin token", code: 403 });
           return;
         }
@@ -442,6 +557,26 @@ export async function startRestTransport(
         return;
       }
       if (auth.kind === "player") registry.touch(auth.player!.playerId);
+      if (auth.kind === "player-v2") registry.touch(auth.v2Claims!.playerId);
+
+      // v2 path: resolve world-scoped stores from token's worldId claim.
+      // If the world was deleted after the token was issued → 403.
+      let activeProfileStore = profileStore;
+      let activeCharacterStore = characterStore;
+      let activeRelationshipStore = relationshipStore;
+      let activeAcquaintanceStore = acquaintanceStore;
+      if (auth.kind === "player-v2") {
+        const claimedWorldId = auth.v2Claims!.worldId;
+        if (!worldRegistry.get(claimedWorldId)) {
+          json(res, 403, { error: `World '${claimedWorldId}' no longer exists`, code: 403 });
+          return;
+        }
+        const worldDb = worldPool.open(claimedWorldId);
+        activeProfileStore = new NpcProfileStore(worldDb);
+        activeCharacterStore = new CharacterStore(worldDb);
+        activeRelationshipStore = new RelationshipStore(worldDb);
+        activeAcquaintanceStore = new NpcAcquaintanceStore(worldDb);
+      }
 
       params = matchRoute(pathname, method, "/api/agents/:agentId/store", "POST");
       if (params) {
@@ -455,13 +590,13 @@ export async function startRestTransport(
           ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
           : [];
         if (storeTags.length > 0) {
-          const profile = profileStore.read(params.agentId);
+          const profile = activeProfileStore.get(params.agentId);
           if (profile?.alignment) {
             const delta = computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined);
             const anchorOutcome = computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined);
             if (delta.trust !== 0 || anchorOutcome.shouldPromote || anchorOutcome.shouldBreak) {
-              const character = characterStore.read(playerId);
-              relationshipStore.addObservation(
+              const character = activeCharacterStore.read(playerId);
+              activeRelationshipStore.addObservation(
                 playerId, params.agentId,
                 {
                   event: `auto:${storeTags[0]}`,
@@ -486,8 +621,8 @@ export async function startRestTransport(
       if (params) {
         const body = await parseBody(req);
         const srv = getOrCreateAgentServer(playerId, params.agentId);
-        const npcProfile = profileStore.read(params.agentId);
-        const relData = relationshipStore.get(playerId, params.agentId, npcProfile, characterStore.read(playerId));
+        const npcProfile = activeProfileStore.get(params.agentId);
+        const relData = activeRelationshipStore.get(playerId, params.agentId, npcProfile, activeCharacterStore.read(playerId));
         const result = await handleSearch(body, srv, npcProfile, relData.anchor?.depth ?? 0);
         json(res, 200, result);
         return;
@@ -497,8 +632,8 @@ export async function startRestTransport(
       if (params) {
         const body = await parseBody(req);
         const srv = getOrCreateAgentServer(playerId, params.agentId);
-        const npcProfile = profileStore.read(params.agentId);
-        const relData = relationshipStore.get(playerId, params.agentId, npcProfile, characterStore.read(playerId));
+        const npcProfile = activeProfileStore.get(params.agentId);
+        const relData = activeRelationshipStore.get(playerId, params.agentId, npcProfile, activeCharacterStore.read(playerId));
         const result = await handleRecall(params.agentId, body, srv, npcProfile, relData.anchor?.depth ?? 0);
         json(res, 200, result);
         return;
@@ -515,9 +650,9 @@ export async function startRestTransport(
 
       params = matchRoute(pathname, method, "/api/agents/:agentId/relationship", "GET");
       if (params) {
-        const profile = profileStore.read(params.agentId);
-        const character = characterStore.read(playerId);
-        const result = relationshipStore.get(playerId, params.agentId, profile, character);
+        const profile = activeProfileStore.get(params.agentId);
+        const character = activeCharacterStore.read(playerId);
+        const result = activeRelationshipStore.get(playerId, params.agentId, profile, character);
         json(res, 200, result);
         return;
       }
@@ -530,8 +665,8 @@ export async function startRestTransport(
           ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
           : [];
 
-        const profile = profileStore.read(params.agentId);
-        const character = characterStore.read(playerId);
+        const profile = activeProfileStore.get(params.agentId);
+        const character = activeCharacterStore.read(playerId);
         const alignment: NpcAlignment = profile?.alignment ?? { ethical: "neutral" as const, moral: "neutral" as const };
 
         const delta = computeTrustDelta(tags, alignment, profile?.tagRules as TagRuleOverrides | null | undefined);
@@ -543,7 +678,7 @@ export async function startRestTransport(
           delta,
           source: "manual" as const,
         };
-        const result = relationshipStore.addObservation(
+        const result = activeRelationshipStore.addObservation(
           playerId, params.agentId, observation, profile, character, anchorOutcome
         );
         json(res, 200, result);
@@ -568,9 +703,9 @@ export async function startRestTransport(
         }
 
         const pid = auth.kind === "none" ? DEFAULT_PLAYER_ID : targetPlayer;
-        const profile = profileStore.read(params.agentId);
-        const character = characterStore.read(pid);
-        const result = relationshipStore.setAnchor(
+        const profile = activeProfileStore.get(params.agentId);
+        const character = activeCharacterStore.read(pid);
+        const result = activeRelationshipStore.setAnchor(
           pid,
           params.agentId,
           state as "friend" | "rival" | "none",
@@ -613,9 +748,8 @@ export async function startRestTransport(
         }
         const seed = typeof body.seed === "number" ? body.seed : Math.floor(Math.random() * 0xffffffff);
 
-        const pidForGossip = playerId;
-        const profileA = profileStore.read(npcA);
-        const profileB = profileStore.read(npcB);
+        const profileA = activeProfileStore.get(npcA);
+        const profileB = activeProfileStore.get(npcB);
 
         if (!profileA || !profileB) {
           json(res, 200, { disclosures: [], seed });
@@ -626,18 +760,18 @@ export async function startRestTransport(
         const trait: GossipTrait = profileA.gossipTrait ?? "normal";
 
         // A's acquaintance trust toward B (listener trust, for roll bonus)
-        const ack = acquaintanceStore.get(pidForGossip, npcA, npcB);
+        const ack = activeAcquaintanceStore.get(npcA, npcB);
         const trustListener = ack?.trust ?? 50;
 
         // Update interaction counts for both directions
-        acquaintanceStore.recordInteraction(pidForGossip, npcA, npcB);
-        acquaintanceStore.recordInteraction(pidForGossip, npcB, npcA);
+        activeAcquaintanceStore.recordInteraction(npcA, npcB);
+        activeAcquaintanceStore.recordInteraction(npcB, npcA);
 
         const disclosures: unknown[] = [];
 
         if (propagateTags.length > 0) {
-          const srvA = getOrCreateAgentServer(pidForGossip, npcA);
-          const srvB = getOrCreateAgentServer(pidForGossip, npcB);
+          const srvA = getOrCreateAgentServer(playerId, npcA);
+          const srvB = getOrCreateAgentServer(playerId, npcB);
           const allMemories = await srvA.storage.knowledge.getProjectEntries(npcA);
 
           let rollSeed = seed;
@@ -735,6 +869,7 @@ export async function startRestTransport(
           }
           agentCache.clear();
           registry.close();
+          worldPool.close();
           return new Promise<void>((res) => httpServer.close(() => res()));
         },
       });
