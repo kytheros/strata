@@ -1,0 +1,126 @@
+/**
+ * Task 13: Server refuses to start when legacy layout is detected.
+ *
+ * When {STRATA_DATA_DIR}/agents/ or {STRATA_DATA_DIR}/players/ exists the
+ * REST transport startup must exit(1) and print a message directing the user
+ * to `strata world-migrate`.
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const projectRoot = join(__dirname, "../..");
+const cliPath = join(projectRoot, "src/cli.ts");
+
+/** Spawn the CLI with a given STRATA_DATA_DIR and capture output synchronously. */
+function spawnCli(
+  args: string[],
+  dataDir: string,
+  timeoutMs = 8_000
+): { exitCode: number; stderr: string; stdout: string } {
+  const result = spawnSync(
+    "npx",
+    ["tsx", cliPath, ...args],
+    {
+      cwd: projectRoot,
+      timeout: timeoutMs,
+      encoding: "utf-8",
+      // shell:true is required on Windows so that `npx` resolves from PATH
+      shell: true,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        STRATA_DATA_DIR: dataDir,
+        // Suppress verbose Strata memory warnings in test output
+        NO_COLOR: "1",
+      },
+    }
+  );
+  return {
+    exitCode: result.status ?? 1,
+    stdout: (result.stdout ?? "").trim(),
+    stderr: (result.stderr ?? "").trim(),
+  };
+}
+
+let baseDir: string;
+
+beforeEach(() => {
+  baseDir = mkdtempSync(join(tmpdir(), "strata-refuse-start-"));
+});
+
+afterEach(() => {
+  // maxRetries handles EBUSY on Windows when a spawned server still holds SQLite file handles
+  rmSync(baseDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+
+describe("serve --rest: refuse-to-start on legacy layout", () => {
+  it("exits non-zero when agents/ directory exists", () => {
+    mkdirSync(join(baseDir, "agents"), { recursive: true });
+    const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir);
+    expect(result.exitCode).not.toBe(0);
+    const combined = result.stderr + result.stdout;
+    expect(combined).toMatch(/world-migrate/i);
+  });
+
+  it("exits non-zero when players/ directory exists", () => {
+    mkdirSync(join(baseDir, "players"), { recursive: true });
+    const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir);
+    expect(result.exitCode).not.toBe(0);
+    const combined = result.stderr + result.stdout;
+    expect(combined).toMatch(/world-migrate/i);
+  });
+
+  it("exits non-zero when both agents/ and players/ exist", () => {
+    mkdirSync(join(baseDir, "agents"), { recursive: true });
+    mkdirSync(join(baseDir, "players"), { recursive: true });
+    const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir);
+    expect(result.exitCode).not.toBe(0);
+  });
+
+  it("starts normally (does not exit immediately) when only worlds/ exists", () => {
+    mkdirSync(join(baseDir, "worlds"), { recursive: true });
+    // Spawn with a very short timeout — if the process exits immediately it
+    // means the guard fired; if it times out (ETIMEDOUT / status null) the
+    // server started as expected.
+    const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir, 4_000);
+    // Either timed out (null = success from our POV) or 0 (clean start+stop)
+    // It must NOT have exited with the legacy-guard error code 1
+    const combined = result.stderr + result.stdout;
+    expect(combined).not.toMatch(/world-migrate/i);
+  });
+
+  it("starts normally when data dir is empty", () => {
+    const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir, 4_000);
+    const combined = result.stderr + result.stdout;
+    expect(combined).not.toMatch(/world-migrate/i);
+  });
+});
+
+describe("world-migrate CLI command", () => {
+  it("reports success after migrating a legacy tree", () => {
+    // Seed a minimal legacy layout — just needs the directory to be present
+    mkdirSync(join(baseDir, "agents", "goran"), { recursive: true });
+    writeFileSync(join(baseDir, "agents", "goran", "profile.json"), JSON.stringify({
+      name: "Goran", alignment: { ethical: "lawful", moral: "good" },
+      defaultTrust: 0, factionBias: {}, gossipTrait: "normal", traits: [], backstory: "",
+    }));
+    const result = spawnCli(["world-migrate", "--data-dir", baseDir], baseDir);
+    // migrated=true → exits 0
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/Migration complete/i);
+  });
+
+  it("exits 1 when no legacy layout found", () => {
+    const result = spawnCli(["world-migrate", "--data-dir", baseDir], baseDir);
+    // migrated=false → exits 1
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toMatch(/No legacy layout/i);
+  });
+});

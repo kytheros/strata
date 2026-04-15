@@ -55,6 +55,7 @@ Usage:
   strata update                           Check for and install newer versions
   strata license                          Show current license status
   strata embed                            Generate embeddings for vector search
+  strata world-migrate                    Migrate legacy agents/players/ layout to world-scoped DB
   strata distill status                   Show distillation training data stats
   strata distill export-data              Export training data to JSONL
   strata distill activate                 Enable local model distillation mode
@@ -182,6 +183,8 @@ function parseArgs(argv: string[]): {
       flags["rest-token"] = argv[++i];
     } else if (arg === "--rest-max-agents" && i + 1 < argv.length) {
       flags["rest-max-agents"] = argv[++i];
+    } else if (arg === "--rest-max-worlds" && i + 1 < argv.length) {
+      flags["rest-max-worlds"] = argv[++i];
     } else if (arg === "--data-dir" && i + 1 < argv.length) {
       flags["data-dir"] = argv[++i];
     } else if (arg === "--max-dbs" && i + 1 < argv.length) {
@@ -610,6 +613,29 @@ async function runEmbed(): Promise<void> {
 async function runServe(
   flags: Record<string, string | boolean>
 ): Promise<void> {
+  // Task 13: Refuse to start REST transport if legacy FS-tree layout is present.
+  // Check early — before any server binds a port — so the error is clean.
+  if (flags["rest"]) {
+    const { existsSync } = await import("node:fs");
+    const { join: pathJoin } = await import("node:path");
+    const { getDataDir: _getDataDir } = await import("./storage/database.js");
+    const _restBaseDir = flags["data-dir"]
+      ? String(flags["data-dir"])
+      : process.env.STRATA_DATA_DIR || _getDataDir();
+    if (
+      existsSync(pathJoin(_restBaseDir, "agents")) ||
+      existsSync(pathJoin(_restBaseDir, "players"))
+    ) {
+      console.error(
+        "[strata] Legacy Strata layout detected (agents/ or players/ directory found).\n" +
+        "Please migrate your data before starting the server:\n" +
+        `  strata world-migrate --data-dir ${_restBaseDir}\n` +
+        "Then restart the server."
+      );
+      process.exit(1);
+    }
+  }
+
   const port = flags.port
     ? parseInt(String(flags.port), 10)
     : process.env.PORT
@@ -677,6 +703,9 @@ async function runServe(
     const restMaxAgents = flags["rest-max-agents"]
       ? parseInt(String(flags["rest-max-agents"]), 10)
       : undefined;
+    const restMaxWorlds = flags["rest-max-worlds"]
+      ? parseInt(String(flags["rest-max-worlds"]), 10)
+      : undefined;
 
     let restHandle;
     try {
@@ -685,6 +714,7 @@ async function runServe(
         token: restToken,
         baseDir: restBaseDir,
         maxAgents: restMaxAgents,
+        maxWorlds: restMaxWorlds,
       });
     } catch (err) {
       console.error(
@@ -933,6 +963,21 @@ async function main(): Promise<void> {
         console.log("  strata deploy gcp [--multi-tenant] [--project ID] [--region REGION]");
         process.exit(target ? 1 : 0);
       }
+      break;
+    }
+    case "world-migrate": {
+      const baseDir = flags["data-dir"]
+        ? String(flags["data-dir"])
+        : process.env.STRATA_DATA_DIR ||
+          join(process.env.HOME || process.env.USERPROFILE || ".", ".strata");
+      const { worldMigrate } = await import("./cli/world-migrate.js");
+      const result = worldMigrate({ basePath: baseDir });
+      if (result.migrated) {
+        console.log(`Migration complete: ${result.summary}`);
+      } else {
+        console.log(result.summary);
+      }
+      process.exit(result.migrated ? 0 : 1);
       break;
     }
     case "serve":
