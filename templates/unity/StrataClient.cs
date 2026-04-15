@@ -294,15 +294,18 @@ public class StrataClient
 
     /// <summary>
     /// Provision a new player (or retrieve an existing one by externalId)
-    /// using the admin token. Returns the raw player token — store it in
-    /// PlayerPrefs and use it for the client's bearer token going forward.
+    /// using the admin token. The worldId scopes the player token — pass
+    /// "default" for single-world deployments.
+    /// Returns a v2 HMAC player token (starts with "strata_v2.") — store it
+    /// in PlayerPrefs and use it for the client's bearer token going forward.
     /// </summary>
     public static async Task<string> ProvisionPlayer(
-        string baseUrl, string adminToken, string externalId = null, int timeoutSeconds = 30)
+        string baseUrl, string adminToken, string worldId, string externalId = null, int timeoutSeconds = 30)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
         http.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", adminToken);
+        http.DefaultRequestHeaders.Add("X-Strata-World", worldId);
 
         var req = new ProvisionPlayerRequest { externalId = externalId };
         var body = JsonUtility.ToJson(req);
