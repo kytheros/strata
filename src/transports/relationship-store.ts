@@ -1,16 +1,15 @@
 /**
- * Per-NPC relationship store — tracks trust, observations, and
- * disposition per player-NPC pair.
+ * Per-NPC relationship store — tracks trust, familiarity, observations,
+ * and anchor state per player-NPC pair against the world.db `relationships` table.
  *
- * File created on first observation. Before that, GET returns a
- * computed first-contact state from NPC defaultTrust + factionBias
- * matched against the player's character card.
+ * Trust is stored as a scaled integer (trust * 10000) to preserve 4 decimal places
+ * while using an INTEGER column. Complex fields (observations, anchor state) are
+ * stored in extras_json.
  *
- * Spec: Section 1 (Per-NPC Relationship + First-contact behavior).
+ * Spec: 2026-04-15-world-scope-refactor-design.md
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import type Database from "better-sqlite3";
 import { clampTrust, trustToDisposition } from "./tag-rule-engine.js";
 import type { AnchorOutcome } from "./tag-rule-engine.js";
 import type { NpcProfile } from "./npc-profile-store.js";
@@ -32,18 +31,17 @@ export interface AnchorState {
   since: number;
 }
 
-export interface RelationshipFile {
-  trust: number;
-  familiarity: number;
-  observations: Observation[];
-  anchor?: AnchorState | null;
-  lastInteraction?: number;
-}
-
 export interface RelationshipResponse {
   trust: number;
   familiarity: number;
   disposition: string;
+  observations: Observation[];
+  anchor: AnchorState | null;
+}
+
+// Internal shape stored in the DB row
+interface RelationshipExtras {
+  familiarity: number;
   observations: Observation[];
   anchor: AnchorState | null;
 }
@@ -56,41 +54,45 @@ const DEFAULT_ANCHOR_CONFIG = {
   passiveDepthRate: 0.01,
 };
 
+const TRUST_SCALE = 10000;
+
+function toScaled(trust: number): number {
+  return Math.round(trust * TRUST_SCALE);
+}
+
+function fromScaled(scaled: number): number {
+  return scaled / TRUST_SCALE;
+}
+
 export class RelationshipStore {
-  private readonly baseDir: string;
+  private readonly db: Database.Database;
 
-  constructor(baseDir: string) {
-    this.baseDir = baseDir;
-  }
+  private readonly stmtUpsert: Database.Statement;
+  private readonly stmtGet: Database.Statement;
 
-  private filePath(playerId: string, npcId: string): string {
-    return join(this.baseDir, "players", playerId, "agents", npcId, "relationship.json");
-  }
+  constructor(db: Database.Database) {
+    this.db = db;
 
-  /** Read the raw relationship file. Returns null if no file exists. */
-  private readFile(playerId: string, npcId: string): RelationshipFile | null {
-    const path = this.filePath(playerId, npcId);
-    if (!existsSync(path)) return null;
-    try {
-      const raw = readFileSync(path, "utf-8");
-      return JSON.parse(raw) as RelationshipFile;
-    } catch {
-      return null;
-    }
-  }
+    this.stmtUpsert = db.prepare(`
+      INSERT INTO relationships
+        (player_id, npc_id, trust, anchor_depth, anchor_type, last_trust_update, extras_json)
+      VALUES
+        (@player_id, @npc_id, @trust, @anchor_depth, @anchor_type, @now, @extras_json)
+      ON CONFLICT(player_id, npc_id) DO UPDATE SET
+        trust = excluded.trust,
+        anchor_depth = excluded.anchor_depth,
+        anchor_type = excluded.anchor_type,
+        last_trust_update = excluded.last_trust_update,
+        extras_json = excluded.extras_json
+    `);
 
-  /** Write the relationship file atomically. */
-  private writeFile(playerId: string, npcId: string, data: RelationshipFile): void {
-    const path = this.filePath(playerId, npcId);
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
-    renameSync(tmp, path);
+    this.stmtGet = db.prepare(`
+      SELECT * FROM relationships WHERE player_id = ? AND npc_id = ?
+    `);
   }
 
   /**
    * Compute first-contact trust from NPC profile + player character card.
-   * initialTrust = clamp(defaultTrust + sum(matched factionBiases))
    */
   computeFirstContactTrust(
     profile: NpcProfile | null,
@@ -108,39 +110,38 @@ export class RelationshipStore {
     return clampTrust(defaultTrust + biasSum);
   }
 
-  /**
-   * Get the relationship state. If no file exists, computes first-contact
-   * from the NPC profile and player character card.
-   * Trust decay is applied at read time based on the NPC's decay profile.
-   */
+  /** Get relationship state with decay applied at read time. */
   get(
     playerId: string,
     npcId: string,
     profile: NpcProfile | null,
     character: CharacterCard
   ): RelationshipResponse {
-    const file = this.readFile(playerId, npcId);
-    if (file) {
-      const decayProf = resolveProfile(profile?.decayProfile, profile?.decayConfig);
-      const lastInteraction = file.lastInteraction ?? Date.now();
-      const daysSince = (Date.now() - lastInteraction) / 86_400_000;
+    const row = this.stmtGet.get(playerId, npcId) as Record<string, unknown> | undefined;
 
-      // Resting trust: anchor trust if anchored, first-contact trust otherwise
-      const restingTrust = file.anchor
-        ? file.anchor.anchorTrust
+    if (row) {
+      const extras = JSON.parse(row.extras_json as string) as RelationshipExtras;
+      const trust = fromScaled(row.trust as number);
+      const lastTrustUpdate = row.last_trust_update as number;
+      const decayProf = resolveProfile(profile?.decayProfile, profile?.decayConfig);
+      const daysSince = (Date.now() - lastTrustUpdate) / 86_400_000;
+
+      const restingTrust = extras.anchor
+        ? extras.anchor.anchorTrust
         : this.computeFirstContactTrust(profile, character);
 
-      const effectiveTrust = trustDecay(file.trust, restingTrust, daysSince, decayProf);
+      const effectiveTrust = trustDecay(trust, restingTrust, daysSince, decayProf);
 
       return {
         trust: Math.round(effectiveTrust * 1000) / 1000,
-        familiarity: file.familiarity,
+        familiarity: extras.familiarity,
         disposition: trustToDisposition(effectiveTrust),
-        observations: file.observations,
-        anchor: file.anchor ?? null,
+        observations: extras.observations,
+        anchor: extras.anchor,
       };
     }
-    // First contact — compute from profile + character card
+
+    // First contact
     const trust = this.computeFirstContactTrust(profile, character);
     return {
       trust,
@@ -151,11 +152,7 @@ export class RelationshipStore {
     };
   }
 
-  /**
-   * Add an observation. Creates the relationship file if it doesn't exist.
-   * Returns the new trust, disposition, delta, and anchor state.
-   * When anchorOutcome is provided, processes anchor promotion/breaking.
-   */
+  /** Add an observation. Creates the row if it doesn't exist. */
   addObservation(
     playerId: string,
     npcId: string,
@@ -164,45 +161,49 @@ export class RelationshipStore {
     character: CharacterCard,
     anchorOutcome?: AnchorOutcome
   ): { trust: number; disposition: string; delta: { trust: number }; anchor: AnchorState | null } {
-    let file = this.readFile(playerId, npcId);
-    if (!file) {
-      // First observation — initialize from first-contact trust
-      const initialTrust = this.computeFirstContactTrust(profile, character);
-      file = { trust: initialTrust, familiarity: 0, observations: [] };
+    const row = this.stmtGet.get(playerId, npcId) as Record<string, unknown> | undefined;
+
+    let trust: number;
+    let extras: RelationshipExtras;
+
+    if (row) {
+      trust = fromScaled(row.trust as number);
+      extras = JSON.parse(row.extras_json as string) as RelationshipExtras;
+    } else {
+      trust = this.computeFirstContactTrust(profile, character);
+      extras = { familiarity: 0, observations: [], anchor: null };
     }
 
     // Amplify delta if anchored
     let effectiveDelta = observation.delta.trust;
-    if (file.anchor) {
-      effectiveDelta = amplifyDelta(effectiveDelta, file.anchor.depth);
+    if (extras.anchor) {
+      effectiveDelta = amplifyDelta(effectiveDelta, extras.anchor.depth);
     }
 
-    file.trust = clampTrust(file.trust + effectiveDelta);
-    file.familiarity += 1;
-    file.lastInteraction = Date.now();
-    file.observations.push({
+    trust = clampTrust(trust + effectiveDelta);
+    extras.familiarity += 1;
+
+    extras.observations.push({
       ...observation,
       delta: { trust: effectiveDelta },
     });
 
     const anchorCfg = profile?.anchorConfig ?? DEFAULT_ANCHOR_CONFIG;
 
-    // Anchor break check (before promote — break takes priority)
-    if (anchorOutcome?.shouldBreak && file.trust < -anchorCfg.rivalThreshold) {
-      if (file.anchor?.state === "friend") {
-        // Friend -> rival flip (depth preserved)
-        file.anchor = {
+    // Anchor break check
+    if (anchorOutcome?.shouldBreak && trust < -anchorCfg.rivalThreshold) {
+      if (extras.anchor?.state === "friend") {
+        extras.anchor = {
           state: "rival",
-          depth: file.anchor.depth,
-          anchorTrust: file.trust,
+          depth: extras.anchor.depth,
+          anchorTrust: trust,
           since: Date.now(),
         };
-      } else if (!file.anchor) {
-        // Direct to rival (no prior anchor)
-        file.anchor = {
+      } else if (!extras.anchor) {
+        extras.anchor = {
           state: "rival",
           depth: anchorCfg.depthIncrement,
-          anchorTrust: file.trust,
+          anchorTrust: trust,
           since: Date.now(),
         };
       }
@@ -210,48 +211,52 @@ export class RelationshipStore {
     // Anchor promote check
     else if (
       anchorOutcome?.shouldPromote &&
-      file.familiarity >= anchorCfg.familiarityThreshold &&
-      (!file.anchor || file.anchor.state !== "rival") // don't promote if already rival
+      extras.familiarity >= anchorCfg.familiarityThreshold &&
+      (!extras.anchor || extras.anchor.state !== "rival")
     ) {
       const newDepth = Math.max(
-        file.anchor?.depth ?? 0,
+        extras.anchor?.depth ?? 0,
         anchorOutcome.minAnchorDepth || anchorCfg.depthIncrement
       );
-      file.anchor = {
+      extras.anchor = {
         state: "friend",
         depth: Math.min(newDepth, 1.0),
-        anchorTrust: file.trust,
-        since: file.anchor?.since ?? Date.now(),
+        anchorTrust: trust,
+        since: extras.anchor?.since ?? Date.now(),
       };
     }
 
-    // Passive depth accrual (if anchored and below ceiling)
+    // Passive depth accrual
     if (
-      file.anchor &&
-      file.familiarity > anchorCfg.familiarityThreshold &&
-      file.anchor.depth < anchorCfg.passiveDepthCeiling
+      extras.anchor &&
+      extras.familiarity > anchorCfg.familiarityThreshold &&
+      extras.anchor.depth < anchorCfg.passiveDepthCeiling
     ) {
-      file.anchor.depth = Math.min(
-        file.anchor.depth + anchorCfg.passiveDepthRate,
+      extras.anchor.depth = Math.min(
+        extras.anchor.depth + anchorCfg.passiveDepthRate,
         anchorCfg.passiveDepthCeiling
       );
     }
 
-    this.writeFile(playerId, npcId, file);
+    this.stmtUpsert.run({
+      player_id: playerId,
+      npc_id: npcId,
+      trust: toScaled(trust),
+      anchor_depth: extras.anchor ? Math.round(extras.anchor.depth * 10000) : 0,
+      anchor_type: extras.anchor ? extras.anchor.state : null,
+      now: Date.now(),
+      extras_json: JSON.stringify(extras),
+    });
 
     return {
-      trust: file.trust,
-      disposition: trustToDisposition(file.trust),
+      trust,
+      disposition: trustToDisposition(trust),
       delta: { trust: effectiveDelta },
-      anchor: file.anchor ?? null,
+      anchor: extras.anchor,
     };
   }
 
-  /**
-   * Explicitly set or reset anchor state for a player-NPC relationship.
-   * Used for declaring family bonds at game start, breaking anchors via
-   * game mechanics, and debug tooling.
-   */
+  /** Explicitly set or reset anchor state. */
   setAnchor(
     playerId: string,
     npcId: string,
@@ -260,24 +265,40 @@ export class RelationshipStore {
     profile: NpcProfile | null,
     character: CharacterCard
   ): RelationshipResponse {
-    let file = this.readFile(playerId, npcId);
-    if (!file) {
-      const initialTrust = this.computeFirstContactTrust(profile, character);
-      file = { trust: initialTrust, familiarity: 0, observations: [] };
+    const row = this.stmtGet.get(playerId, npcId) as Record<string, unknown> | undefined;
+
+    let trust: number;
+    let extras: RelationshipExtras;
+
+    if (row) {
+      trust = fromScaled(row.trust as number);
+      extras = JSON.parse(row.extras_json as string) as RelationshipExtras;
+    } else {
+      trust = this.computeFirstContactTrust(profile, character);
+      extras = { familiarity: 0, observations: [], anchor: null };
     }
 
     if (state === "none") {
-      file.anchor = null;
+      extras.anchor = null;
     } else {
-      file.anchor = {
+      extras.anchor = {
         state,
         depth: Math.max(0, Math.min(depth, 1.0)),
-        anchorTrust: file.trust,
+        anchorTrust: trust,
         since: Date.now(),
       };
     }
 
-    this.writeFile(playerId, npcId, file);
+    this.stmtUpsert.run({
+      player_id: playerId,
+      npc_id: npcId,
+      trust: toScaled(trust),
+      anchor_depth: extras.anchor ? Math.round(extras.anchor.depth * 10000) : 0,
+      anchor_type: extras.anchor ? extras.anchor.state : null,
+      now: Date.now(),
+      extras_json: JSON.stringify(extras),
+    });
+
     return this.get(playerId, npcId, profile, character);
   }
 }

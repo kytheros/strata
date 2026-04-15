@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import Database from "better-sqlite3";
+import { applySchema } from "../../src/transports/world-schema.js";
 import { RelationshipStore } from "../../src/transports/relationship-store.js";
 import type { NpcProfile } from "../../src/transports/npc-profile-store.js";
 import type { CharacterCard } from "../../src/transports/character-store.js";
 import type { AnchorOutcome } from "../../src/transports/tag-rule-engine.js";
 
-let baseDir: string;
+let db: Database.Database;
 let store: RelationshipStore;
 
 const goranProfile: NpcProfile = {
@@ -18,6 +17,7 @@ const goranProfile: NpcProfile = {
   backstory: "Runs the forge.",
   defaultTrust: -0.1,
   factionBias: { "millhaven-merchants": 0.3, "thieves-guild": -0.4 },
+  gossipTrait: "normal",
 };
 
 const merchantPlayer: CharacterCard = {
@@ -39,15 +39,16 @@ const thiefPlayer: CharacterCard = {
 };
 
 beforeEach(() => {
-  baseDir = mkdtempSync(join(tmpdir(), "strata-relationship-test-"));
-  store = new RelationshipStore(baseDir);
+  db = new Database(":memory:");
+  applySchema(db);
+  store = new RelationshipStore(db);
 });
 
 afterEach(() => {
-  rmSync(baseDir, { recursive: true, force: true });
+  db.close();
 });
 
-describe("RelationshipStore — first-contact computation", () => {
+describe("RelationshipStore (SQL) — first-contact computation", () => {
   it("merchant player gets positive bias from Goran", () => {
     const result = store.get("player1", "goran", goranProfile, merchantPlayer);
     expect(result.trust).toBeCloseTo(0.2); // -0.1 + 0.3
@@ -64,8 +65,7 @@ describe("RelationshipStore — first-contact computation", () => {
 
   it("thief player gets negative bias from Goran", () => {
     const result = store.get("player1", "goran", goranProfile, thiefPlayer);
-    expect(result.trust).toBeCloseTo(-0.5); // -0.1 + (-0.4)
-    // -0.5 is the boundary: hostile is trust < -0.5 (exclusive), so -0.5 is "suspicious"
+    expect(result.trust).toBeCloseTo(-0.5);
     expect(result.disposition).toBe("suspicious");
   });
 
@@ -82,12 +82,12 @@ describe("RelationshipStore — first-contact computation", () => {
       factionBias: { "thieves-guild": -0.5 },
     };
     const result = store.get("p1", "extreme", extremeProfile, thiefPlayer);
-    expect(result.trust).toBe(-1.0); // clamped from -1.3
+    expect(result.trust).toBe(-1.0);
   });
 });
 
-describe("RelationshipStore — addObservation", () => {
-  it("creates file on first observation", () => {
+describe("RelationshipStore (SQL) — addObservation", () => {
+  it("creates row on first observation", () => {
     const result = store.addObservation(
       "player1", "goran",
       {
@@ -153,12 +153,11 @@ describe("RelationshipStore — addObservation", () => {
   });
 });
 
-// Profile with decay and anchor config for anchor/decay tests
 const goranProfileWithDecay: NpcProfile = {
   ...goranProfile,
   decayProfile: "normal",
   anchorConfig: {
-    familiarityThreshold: 5,  // low for testing
+    familiarityThreshold: 5,
     rivalThreshold: 0.3,
     depthIncrement: 0.15,
     passiveDepthCeiling: 0.3,
@@ -166,19 +165,14 @@ const goranProfileWithDecay: NpcProfile = {
   },
 };
 
-describe("RelationshipStore — trust decay at GET time", () => {
+describe("RelationshipStore (SQL) — trust decay at GET time", () => {
   it("applies trust decay based on time since last interaction", () => {
-    // Set up a relationship with a known lastInteraction in the past
     store.addObservation("player1", "goran-decay", {
-      event: "trade", timestamp: Date.now() - 60 * 86400_000, // 60 days ago
+      event: "trade", timestamp: Date.now() - 60 * 86400_000,
       tags: ["trade"], delta: { trust: 0.3 }, source: "manual",
     }, goranProfileWithDecay, merchantPlayer);
 
     const rel = store.get("player1", "goran-decay", goranProfileWithDecay, merchantPlayer);
-    // Trust should have decayed from 0.5 (0.2 first-contact + 0.3) toward resting (0.2)
-    // The lastInteraction was just set by addObservation (Date.now()),
-    // so daysSince ~ 0 and trust decay is minimal.
-    // The trust in the file is 0.5, and with ~0 days since interaction it stays ~0.5.
     expect(rel.trust).toBeCloseTo(0.5, 1);
   });
 
@@ -190,7 +184,7 @@ describe("RelationshipStore — trust decay at GET time", () => {
     }, sharpProfile, merchantPlayer);
 
     const rel = store.get("player1", "sharp-npc", sharpProfile, merchantPlayer);
-    expect(rel.trust).toBeCloseTo(0.5, 1); // no decay
+    expect(rel.trust).toBeCloseTo(0.5, 1);
   });
 
   it("first-contact response includes anchor: null", () => {
@@ -199,16 +193,14 @@ describe("RelationshipStore — trust decay at GET time", () => {
   });
 });
 
-describe("RelationshipStore — anchor promotion", () => {
+describe("RelationshipStore (SQL) — anchor promotion", () => {
   it("promotes to friend anchor when familiarity threshold met + promote tag", () => {
-    // Build familiarity to threshold (5)
     for (let i = 0; i < 5; i++) {
       store.addObservation("player1", "promote-npc", {
         event: `trade-${i}`, timestamp: Date.now(), tags: ["trade"],
         delta: { trust: 0.05 }, source: "manual",
       }, goranProfileWithDecay, merchantPlayer);
     }
-    // Now trigger with a promote-eligible event
     const promoteOutcome: AnchorOutcome = { shouldPromote: true, shouldBreak: false, minAnchorDepth: 0.6 };
     const result = store.addObservation("player1", "promote-npc", {
       event: "saved-my-life", timestamp: Date.now(), tags: ["saved-my-life"],
@@ -227,14 +219,12 @@ describe("RelationshipStore — anchor promotion", () => {
       delta: { trust: 0.4 }, source: "manual",
     }, goranProfileWithDecay, merchantPlayer, promoteOutcome);
 
-    // familiarity is only 1 (this is the first interaction), threshold is 5
     expect(result.anchor).toBeNull();
   });
 });
 
-describe("RelationshipStore — anchor breaking (friend to rival)", () => {
+describe("RelationshipStore (SQL) — anchor breaking", () => {
   it("flips from friend to rival on break event with deep negative trust", () => {
-    // Build up a friend anchor
     for (let i = 0; i < 5; i++) {
       store.addObservation("player1", "brother", {
         event: `bond-${i}`, timestamp: Date.now(), tags: ["trade"],
@@ -247,11 +237,9 @@ describe("RelationshipStore — anchor breaking (friend to rival)", () => {
       delta: { trust: 0.2 }, source: "manual",
     }, goranProfileWithDecay, merchantPlayer, promoteOutcome);
 
-    // Verify friend anchor exists
     let rel = store.get("player1", "brother", goranProfileWithDecay, merchantPlayer);
     expect(rel.anchor!.state).toBe("friend");
 
-    // Now betray — trust will drop hard (amplified by anchor depth)
     const breakOutcome: AnchorOutcome = { shouldPromote: false, shouldBreak: true, minAnchorDepth: 0 };
     const result = store.addObservation("player1", "brother", {
       event: "betrayal", timestamp: Date.now(), tags: ["betrayal"],
@@ -259,14 +247,13 @@ describe("RelationshipStore — anchor breaking (friend to rival)", () => {
     }, goranProfileWithDecay, merchantPlayer, breakOutcome);
 
     expect(result.anchor!.state).toBe("rival");
-    expect(result.anchor!.depth).toBeGreaterThanOrEqual(0.8); // depth preserved
-    expect(result.trust).toBeLessThan(-0.3); // rivalThreshold
+    expect(result.anchor!.depth).toBeGreaterThanOrEqual(0.8);
+    expect(result.trust).toBeLessThan(-0.3);
   });
 });
 
-describe("RelationshipStore — event amplification", () => {
+describe("RelationshipStore (SQL) — event amplification", () => {
   it("amplifies trust deltas for anchored relationships", () => {
-    // Build a friend anchor
     for (let i = 0; i < 5; i++) {
       store.addObservation("player1", "amp-npc", {
         event: `trade-${i}`, timestamp: Date.now(), tags: ["trade"],
@@ -279,20 +266,17 @@ describe("RelationshipStore — event amplification", () => {
       delta: { trust: 0.1 }, source: "manual",
     }, goranProfileWithDecay, merchantPlayer, promoteOutcome);
 
-    // Now do a normal trade — delta should be amplified by anchor depth
     const result = store.addObservation("player1", "amp-npc", {
       event: "big-trade", timestamp: Date.now(), tags: ["trade"],
       delta: { trust: 0.1 }, source: "manual",
     }, goranProfileWithDecay, merchantPlayer);
 
-    // Original delta 0.1, amplified by (1 + 0.5 * 1.5) = 1.75x = 0.175
     expect(result.delta.trust).toBeCloseTo(0.175, 2);
   });
 });
 
-describe("RelationshipStore — setAnchor (explicit)", () => {
+describe("RelationshipStore (SQL) — setAnchor (explicit)", () => {
   it("explicitly sets friend anchor", () => {
-    // Create a relationship first
     store.addObservation("player1", "explicit-npc", {
       event: "meeting", timestamp: Date.now(), tags: [],
       delta: { trust: 0.3 }, source: "manual",
@@ -314,5 +298,23 @@ describe("RelationshipStore — setAnchor (explicit)", () => {
     store.setAnchor("player1", "reset-npc", "none", 0, goranProfileWithDecay, merchantPlayer);
     const rel = store.get("player1", "reset-npc", goranProfileWithDecay, merchantPlayer);
     expect(rel.anchor).toBeNull();
+  });
+});
+
+describe("RelationshipStore (SQL) — two-player shared world", () => {
+  it("two players have independent relationships with the same NPC", () => {
+    store.addObservation("player1", "goran", {
+      event: "helped", timestamp: Date.now(), tags: ["cooperation"], delta: { trust: 0.3 }, source: "manual",
+    }, goranProfile, merchantPlayer);
+
+    store.addObservation("player2", "goran", {
+      event: "theft", timestamp: Date.now(), tags: ["crime"], delta: { trust: -0.4 }, source: "manual",
+    }, goranProfile, unknownPlayer);
+
+    const rel1 = store.get("player1", "goran", goranProfile, merchantPlayer);
+    const rel2 = store.get("player2", "goran", goranProfile, unknownPlayer);
+
+    expect(rel1.trust).toBeCloseTo(0.5, 1);  // 0.2 + 0.3
+    expect(rel2.trust).toBeCloseTo(-0.5, 1); // -0.1 + (-0.4)
   });
 });
