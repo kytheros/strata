@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export function applySchema(db: Database.Database): void {
   db.exec(`
@@ -43,6 +43,21 @@ export function applySchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memories_npc ON npc_memories(npc_id);
     CREATE VIRTUAL TABLE IF NOT EXISTS npc_memories_fts
       USING fts5(content, content='npc_memories', content_rowid='rowid');
+
+    -- FTS5 triggers to keep npc_memories_fts in sync with npc_memories
+    CREATE TRIGGER IF NOT EXISTS npc_memories_ai
+      AFTER INSERT ON npc_memories BEGIN
+        INSERT INTO npc_memories_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
+    CREATE TRIGGER IF NOT EXISTS npc_memories_ad
+      AFTER DELETE ON npc_memories BEGIN
+        INSERT INTO npc_memories_fts(npc_memories_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+      END;
+    CREATE TRIGGER IF NOT EXISTS npc_memories_au
+      AFTER UPDATE ON npc_memories BEGIN
+        INSERT INTO npc_memories_fts(npc_memories_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+        INSERT INTO npc_memories_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
 
     CREATE TABLE IF NOT EXISTS npc_acquaintances (
       npc_id            TEXT NOT NULL,
