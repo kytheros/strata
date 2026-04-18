@@ -943,6 +943,38 @@ describe("REST Transport — tag-rule auto-fire on /store", () => {
     const rel = await relRes.json();
     expect(rel.observations.length).toBe(0);
   });
+
+  it("dialogue-tagged store increments familiarity even when trust delta is zero", async () => {
+    // Regression: stores with tags that produce delta.trust=0 (e.g. "dialogue")
+    // must still record an observation so familiarity accumulates across turns.
+    handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+
+    // No NPC profile configured — dialogue-only NPC has no tag rules
+    // so computeTrustDelta returns {trust:0} and computeAnchorOutcome returns no-op.
+
+    const { playerToken } = await (await fetch(`${getBaseUrl()}/api/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+      body: JSON.stringify({}),
+    })).json();
+
+    // Store a memory with "dialogue" tag — no trust delta expected
+    const storeRes = await fetch(`${getBaseUrl()}/api/agents/test-npc/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ memory: "Player greeted the NPC warmly", type: "fact", tags: ["dialogue"] }),
+    });
+    expect(storeRes.status).toBe(200);
+
+    // Familiarity must be 1 and observation must be recorded
+    const relRes = await fetch(`${getBaseUrl()}/api/agents/test-npc/relationship`, {
+      headers: { Authorization: `Bearer ${playerToken}` },
+    });
+    const rel = await relRes.json();
+    expect(rel.familiarity).toBe(1);
+    expect(rel.observations.length).toBe(1);
+    expect(rel.observations[0].tags).toContain("dialogue");
+  });
 });
 
 describe("REST Transport — world lifecycle endpoints", () => {

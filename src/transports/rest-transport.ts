@@ -621,22 +621,25 @@ export async function startRestTransport(
           result = { id, stored: true };
 
           // Tag-rule side effect: compute trust delta and record per-player observation.
+          // Always record when tags are present — familiarity is an interaction count,
+          // not a trust-change count. Even dialogue-tagged stores (delta.trust=0) must
+          // increment familiarity so returning players are recognised across restarts.
           if (storeTags.length > 0) {
             const profile = activeProfileStore.get(params.agentId);
-            if (profile?.alignment) {
-              const delta = computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined);
-              const anchorOutcome = computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined);
-              if (delta.trust !== 0 || anchorOutcome.shouldPromote || anchorOutcome.shouldBreak) {
-                const character = activeCharacterStore.read(playerId);
-                activeRelationshipStore.addObservation(
-                  playerId, params.agentId,
-                  { event: `auto:${storeTags[0]}`, timestamp: Date.now(), tags: storeTags, delta, source: "tag-rule" },
-                  profile,
-                  character,
-                  anchorOutcome
-                );
-              }
-            }
+            const delta = profile?.alignment
+              ? computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined)
+              : { trust: 0 };
+            const anchorOutcome = profile?.alignment
+              ? computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined)
+              : { shouldPromote: false, shouldBreak: false, minAnchorDepth: 0 };
+            const character = activeCharacterStore.read(playerId);
+            activeRelationshipStore.addObservation(
+              playerId, params.agentId,
+              { event: `auto:${storeTags[0]}`, timestamp: Date.now(), tags: storeTags, delta, source: "tag-rule" },
+              profile ?? null,
+              character,
+              anchorOutcome
+            );
           }
         } else {
           // Legacy per-player path.
@@ -646,22 +649,24 @@ export async function startRestTransport(
           const storeTags = Array.isArray(body.tags)
             ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
             : [];
+          // Always record when tags are present — familiarity is an interaction count,
+          // not a trust-change count.
           if (storeTags.length > 0) {
             const profile = activeProfileStore.get(params.agentId);
-            if (profile?.alignment) {
-              const delta = computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined);
-              const anchorOutcome = computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined);
-              if (delta.trust !== 0 || anchorOutcome.shouldPromote || anchorOutcome.shouldBreak) {
-                const character = activeCharacterStore.read(playerId);
-                activeRelationshipStore.addObservation(
-                  playerId, params.agentId,
-                  { event: `auto:${storeTags[0]}`, timestamp: Date.now(), tags: storeTags, delta, source: "tag-rule" },
-                  profile,
-                  character,
-                  anchorOutcome
-                );
-              }
-            }
+            const delta = profile?.alignment
+              ? computeTrustDelta(storeTags, profile.alignment, profile.tagRules as TagRuleOverrides | null | undefined)
+              : { trust: 0 };
+            const anchorOutcome = profile?.alignment
+              ? computeAnchorOutcome(storeTags, profile.tagRules as Record<string, ExtendedTagRule> | null | undefined)
+              : { shouldPromote: false, shouldBreak: false, minAnchorDepth: 0 };
+            const character = activeCharacterStore.read(playerId);
+            activeRelationshipStore.addObservation(
+              playerId, params.agentId,
+              { event: `auto:${storeTags[0]}`, timestamp: Date.now(), tags: storeTags, delta, source: "tag-rule" },
+              profile ?? null,
+              character,
+              anchorOutcome
+            );
           }
         }
 
