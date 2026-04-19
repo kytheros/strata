@@ -1,9 +1,9 @@
 /**
  * Task 13: Server refuses to start when legacy layout is detected.
  *
- * When {STRATA_DATA_DIR}/agents/ or {STRATA_DATA_DIR}/players/ exists the
- * REST transport startup must exit(1) and print a message directing the user
- * to `strata world-migrate`.
+ * The guard now uses JSON-marker heuristics (profile.json, character.json,
+ * relationship.json) rather than bare directory existence, so post-refactor
+ * no-auth layouts with a `players/` directory are no longer blocked.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -61,27 +61,57 @@ afterEach(() => {
 });
 
 describe("serve --rest: refuse-to-start on legacy layout", () => {
-  it("exits non-zero when agents/ directory exists", () => {
-    mkdirSync(join(baseDir, "agents"), { recursive: true });
+  it("exits non-zero when agents/{npcId}/profile.json exists (pre-refactor marker)", () => {
+    mkdirSync(join(baseDir, "agents", "goran"), { recursive: true });
+    writeFileSync(join(baseDir, "agents", "goran", "profile.json"), JSON.stringify({
+      name: "Goran", alignment: { ethical: "lawful", moral: "good" },
+      defaultTrust: 0, factionBias: {}, gossipTrait: "normal", traits: [], backstory: "",
+    }));
     const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir);
     expect(result.exitCode).not.toBe(0);
     const combined = result.stderr + result.stdout;
     expect(combined).toMatch(/world-migrate/i);
   });
 
-  it("exits non-zero when players/ directory exists", () => {
-    mkdirSync(join(baseDir, "players"), { recursive: true });
+  it("exits non-zero when players/{playerId}/character.json exists (pre-refactor marker)", () => {
+    mkdirSync(join(baseDir, "players", "player-1"), { recursive: true });
+    writeFileSync(join(baseDir, "players", "player-1", "character.json"), JSON.stringify({
+      name: "Aethelred", class: "warrior",
+    }));
     const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir);
     expect(result.exitCode).not.toBe(0);
     const combined = result.stderr + result.stdout;
     expect(combined).toMatch(/world-migrate/i);
   });
 
-  it("exits non-zero when both agents/ and players/ exist", () => {
-    mkdirSync(join(baseDir, "agents"), { recursive: true });
-    mkdirSync(join(baseDir, "players"), { recursive: true });
+  it("exits non-zero when players/{playerId}/agents/{npcId}/relationship.json exists (pre-refactor marker)", () => {
+    const relDir = join(baseDir, "players", "player-1", "agents", "goran");
+    mkdirSync(relDir, { recursive: true });
+    writeFileSync(join(relDir, "relationship.json"), JSON.stringify({ trust: 50 }));
     const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir);
     expect(result.exitCode).not.toBe(0);
+    const combined = result.stderr + result.stdout;
+    expect(combined).toMatch(/world-migrate/i);
+  });
+
+  it("starts normally when players/ exists but contains only post-refactor strata.db files", () => {
+    // This is the scenario that was wrongly blocked before the fix.
+    // players/default/agents/goran-blacksmith/strata.db is the current no-auth layout.
+    const npcDir = join(baseDir, "players", "default", "agents", "goran-blacksmith");
+    mkdirSync(npcDir, { recursive: true });
+    writeFileSync(join(npcDir, "strata.db"), "");
+    const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir, 4_000);
+    const combined = result.stderr + result.stdout;
+    expect(combined).not.toMatch(/world-migrate/i);
+  });
+
+  it("starts normally when agents/ exists but contains no profile.json files", () => {
+    // Bare agents/ dir without JSON markers must not block
+    mkdirSync(join(baseDir, "agents", "goran"), { recursive: true });
+    writeFileSync(join(baseDir, "agents", "goran", "strata.db"), "");
+    const result = spawnCli(["serve", "--rest", "--rest-port", "0"], baseDir, 4_000);
+    const combined = result.stderr + result.stdout;
+    expect(combined).not.toMatch(/world-migrate/i);
   });
 
   it("starts normally (does not exit immediately) when only worlds/ exists", () => {

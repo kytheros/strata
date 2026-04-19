@@ -616,18 +616,14 @@ async function runServe(
   // Task 13: Refuse to start REST transport if legacy FS-tree layout is present.
   // Check early — before any server binds a port — so the error is clean.
   if (flags["rest"]) {
-    const { existsSync } = await import("node:fs");
-    const { join: pathJoin } = await import("node:path");
     const { getDataDir: _getDataDir } = await import("./storage/database.js");
+    const { hasLegacyLayout } = await import("./storage/legacy-layout.js");
     const _restBaseDir = flags["data-dir"]
       ? String(flags["data-dir"])
       : process.env.STRATA_DATA_DIR || _getDataDir();
-    if (
-      existsSync(pathJoin(_restBaseDir, "agents")) ||
-      existsSync(pathJoin(_restBaseDir, "players"))
-    ) {
+    if (hasLegacyLayout(_restBaseDir)) {
       console.error(
-        "[strata] Legacy Strata layout detected (agents/ or players/ directory found).\n" +
+        "[strata] Legacy Strata layout detected (pre-refactor JSON files found).\n" +
         "Please migrate your data before starting the server:\n" +
         `  strata world-migrate --data-dir ${_restBaseDir}\n` +
         "Then restart the server."
