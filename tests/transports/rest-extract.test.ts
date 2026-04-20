@@ -160,4 +160,25 @@ describe("POST /store extract:true", () => {
       else process.env.STRATA_REST_EXTRACT_MAX_ITEMS = original;
     }
   });
+
+  it("falls back to getExtractionProvider() when no override is supplied", async () => {
+    // With no GEMINI_API_KEY and no distill config, getExtractionProvider() returns null.
+    // The handler must still accept extract:true without throwing, and must return extractedCount:0.
+    const originalKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    try {
+      handle = await startRestTransport({ port: 0, baseDir: tempDir() });
+      const res = await fetch(`${baseUrl()}/api/agents/goran/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory: "I am a paladin named Alex", extract: true }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.stored).toBe(true);
+      expect(body.extractedCount).toBe(0);
+    } finally {
+      if (originalKey !== undefined) process.env.GEMINI_API_KEY = originalKey;
+    }
+  });
 });

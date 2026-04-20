@@ -38,6 +38,7 @@ import { WorldPool } from "./world-pool.js";
 import { mintPlayerToken, verifyPlayerToken, type PlayerTokenClaims } from "./player-token.js";
 import { NpcMemoryEngine } from "./npc-memory-engine.js";
 import { extractAtomicFacts, type AtomicFact } from "../extensions/llm-extraction/utterance-extractor.js";
+import { getExtractionProvider } from "../extensions/llm-extraction/provider-factory.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -179,9 +180,18 @@ export async function startRestTransport(
     );
   }
 
-  // Resolve extraction provider once per server instance.
-  // Injected providers (from tests) take precedence over the lazy default.
-  const extractionProviderOverride = options.extractionProvider;
+  // Provider resolution: override (from tests) takes precedence, else lazy-load
+  // via getExtractionProvider() on first /store+extract request and cache the
+  // result for the lifetime of this server instance. null means "unavailable"
+  // (no GEMINI_API_KEY and no distill config) — treated as a no-op.
+  let cachedExtractionProvider: import("../extensions/llm-extraction/llm-provider.js").LlmProvider | null | undefined;
+  async function resolveExtractionProvider(): Promise<import("../extensions/llm-extraction/llm-provider.js").LlmProvider | null> {
+    if (options.extractionProvider !== undefined) return options.extractionProvider;
+    if (cachedExtractionProvider === undefined) {
+      cachedExtractionProvider = await getExtractionProvider();
+    }
+    return cachedExtractionProvider;
+  }
 
   mkdirSync(baseDir, { recursive: true });
   const registry = new PlayerRegistry(baseDir);
@@ -685,7 +695,7 @@ export async function startRestTransport(
         let extractedCount = 0;
         const extractEnabled = process.env.STRATA_REST_EXTRACT_ENABLED !== "false";
         if (extractEnabled && body.extract === true) {
-          const provider = extractionProviderOverride;
+          const provider = await resolveExtractionProvider();
           if (provider) {
             try {
               const timeoutMs = Number(process.env.STRATA_REST_EXTRACT_TIMEOUT_MS ?? 10000);
