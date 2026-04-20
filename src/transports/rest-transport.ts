@@ -37,6 +37,7 @@ import { WorldRegistry } from "./world-registry.js";
 import { WorldPool } from "./world-pool.js";
 import { mintPlayerToken, verifyPlayerToken, type PlayerTokenClaims } from "./player-token.js";
 import { NpcMemoryEngine } from "./npc-memory-engine.js";
+import { extractAtomicFacts, type AtomicFact } from "../extensions/llm-extraction/utterance-extractor.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -680,7 +681,53 @@ export async function startRestTransport(
           }
         }
 
-        json(res, 200, result);
+        // Extraction pass — opt-in via body.extract === true.
+        let extractedCount = 0;
+        const extractEnabled = process.env.STRATA_REST_EXTRACT_ENABLED !== "false";
+        if (extractEnabled && body.extract === true) {
+          const provider = extractionProviderOverride;
+          if (provider) {
+            try {
+              const timeoutMs = Number(process.env.STRATA_REST_EXTRACT_TIMEOUT_MS ?? 10000);
+              const maxItems = Number(process.env.STRATA_REST_EXTRACT_MAX_ITEMS ?? 5);
+              const userTags = Array.isArray(body.tags)
+                ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
+                : [];
+              const memoryStr = typeof body.memory === "string" ? body.memory : "";
+              const facts: AtomicFact[] = await extractAtomicFacts(memoryStr, {
+                provider, timeoutMs, maxItems,
+              });
+              for (const f of facts) {
+                const factTags = [...userTags, "extracted", f.type];
+                const factImportance = typeof f.importance === "number" ? f.importance : 70;
+                if (activeWorldDb !== null) {
+                  const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
+                  engine.add({ content: f.text, tags: factTags, importance: factImportance });
+                } else {
+                  const srv = getOrCreateAgentServer(playerId, params.agentId);
+                  const factId = randomUUID();
+                  await srv.storage.knowledge.addEntry({
+                    id: factId,
+                    type: "fact",
+                    project: params.agentId,
+                    sessionId: `rest-extract-${Date.now()}`,
+                    timestamp: Date.now(),
+                    summary: f.text,
+                    details: "",
+                    tags: factTags,
+                    importance: factImportance,
+                    relatedFiles: [],
+                  });
+                }
+                extractedCount++;
+              }
+            } catch (err) {
+              console.warn(`[rest-extract] extraction failed for agent ${params.agentId}:`, err instanceof Error ? err.message : err);
+            }
+          }
+        }
+
+        json(res, 200, { ...result, extractedCount });
         return;
       }
 
