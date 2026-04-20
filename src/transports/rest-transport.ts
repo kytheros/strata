@@ -37,6 +37,7 @@ import { WorldRegistry } from "./world-registry.js";
 import { WorldPool } from "./world-pool.js";
 import { mintPlayerToken, verifyPlayerToken, type PlayerTokenClaims } from "./player-token.js";
 import { NpcMemoryEngine } from "./npc-memory-engine.js";
+import type { LlmProvider } from "../extensions/llm-extraction/llm-provider.js";
 import { extractAtomicFacts, type AtomicFact } from "../extensions/llm-extraction/utterance-extractor.js";
 import { getExtractionProvider } from "../extensions/llm-extraction/provider-factory.js";
 
@@ -63,7 +64,7 @@ export interface RestTransportOptions {
    * In production this is left undefined and the handler lazy-loads via
    * getExtractionProvider(). Tests inject a fake provider here.
    */
-  extractionProvider?: import("../extensions/llm-extraction/llm-provider.js").LlmProvider;
+  extractionProvider?: LlmProvider;
 }
 
 export interface RestTransportHandle {
@@ -184,8 +185,8 @@ export async function startRestTransport(
   // via getExtractionProvider() on first /store+extract request and cache the
   // result for the lifetime of this server instance. null means "unavailable"
   // (no GEMINI_API_KEY and no distill config) — treated as a no-op.
-  let cachedExtractionProvider: import("../extensions/llm-extraction/llm-provider.js").LlmProvider | null | undefined;
-  async function resolveExtractionProvider(): Promise<import("../extensions/llm-extraction/llm-provider.js").LlmProvider | null> {
+  let cachedExtractionProvider: LlmProvider | null | undefined;
+  async function resolveExtractionProvider(): Promise<LlmProvider | null> {
     if (options.extractionProvider !== undefined) return options.extractionProvider;
     if (cachedExtractionProvider === undefined) {
       cachedExtractionProvider = await getExtractionProvider();
@@ -707,12 +708,14 @@ export async function startRestTransport(
               const facts: AtomicFact[] = await extractAtomicFacts(memoryStr, {
                 provider, timeoutMs, maxItems,
               });
+              const extractEngine = activeWorldDb !== null
+                ? new NpcMemoryEngine(activeWorldDb, params.agentId)
+                : null;
               for (const f of facts) {
                 const factTags = [...userTags, "extracted", f.type];
                 const factImportance = typeof f.importance === "number" ? f.importance : 70;
-                if (activeWorldDb !== null) {
-                  const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
-                  engine.add({ content: f.text, tags: factTags, importance: factImportance });
+                if (extractEngine !== null) {
+                  extractEngine.add({ content: f.text, tags: factTags, importance: factImportance });
                 } else {
                   const srv = getOrCreateAgentServer(playerId, params.agentId);
                   const factId = randomUUID();
