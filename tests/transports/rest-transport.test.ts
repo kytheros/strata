@@ -1087,3 +1087,21 @@ describe("REST Transport — world lifecycle endpoints", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("REST Transport — extractionProvider option", () => {
+  it("accepts an optional extractionProvider in options", async () => {
+    const calls: string[] = [];
+    handle = await startRestTransport({
+      port: 0,
+      baseDir: makeTempDir(),
+      extractionProvider: {
+        name: "test-mock",
+        complete: async (prompt: string) => { calls.push(prompt); return '{"facts":[]}'; },
+      },
+    });
+    const res = await fetch(`${getBaseUrl()}/api/health`);
+    expect(res.status).toBe(200);
+    // Provider is accepted but not invoked on a health check.
+    expect(calls).toHaveLength(0);
+  });
+});

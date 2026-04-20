@@ -56,6 +56,12 @@ export interface RestTransportOptions {
   maxAgents?: number;
   /** Max open world DB handles in the LRU pool. Defaults to 16. */
   maxWorlds?: number;
+  /**
+   * Optional LLM provider used by the /store route when body.extract === true.
+   * In production this is left undefined and the handler lazy-loads via
+   * getExtractionProvider(). Tests inject a fake provider here.
+   */
+  extractionProvider?: import("../extensions/llm-extraction/llm-provider.js").LlmProvider;
 }
 
 export interface RestTransportHandle {
@@ -171,6 +177,10 @@ export async function startRestTransport(
       "[strata] WARNING: STRATA_TOKEN_SECRET is not set — using insecure dev fallback. Set it in production."
     );
   }
+
+  // Resolve extraction provider once per server instance.
+  // Injected providers (from tests) take precedence over the lazy default.
+  const extractionProviderOverride = options.extractionProvider;
 
   mkdirSync(baseDir, { recursive: true });
   const registry = new PlayerRegistry(baseDir);
