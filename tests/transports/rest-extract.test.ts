@@ -164,6 +164,7 @@ describe("POST /store extract:true", () => {
   it("falls back to getExtractionProvider() when no override is supplied", async () => {
     // With no GEMINI_API_KEY and no distill config, getExtractionProvider() returns null.
     // The handler must still accept extract:true without throwing, and must return extractedCount:0.
+    // NOTE: assumes no distill config on the test runner — CI is clean.
     const originalKey = process.env.GEMINI_API_KEY;
     delete process.env.GEMINI_API_KEY;
     try {
