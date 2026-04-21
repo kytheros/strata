@@ -401,12 +401,40 @@ export interface DistillSetupOptions {
 }
 
 /**
+ * Print platform-specific instructions for setting OLLAMA_NUM_PARALLEL=2.
+ * Does not execute any system commands — guidance only.
+ */
+function trySetOllamaParallel(): void {
+  if (process.platform === "win32") {
+    console.log(
+      "[distill setup] On Windows: set OLLAMA_NUM_PARALLEL=2 via System Environment Variables, " +
+      "then restart the Ollama service. Required so dialogue + extraction share the model.",
+    );
+    return;
+  }
+  if (process.platform === "linux") {
+    console.log(
+      "[distill setup] On Linux: add 'Environment=OLLAMA_NUM_PARALLEL=2' to " +
+      "/etc/systemd/system/ollama.service under [Service], then 'systemctl daemon-reload && systemctl restart ollama'.",
+    );
+    return;
+  }
+  if (process.platform === "darwin") {
+    console.log(
+      "[distill setup] On macOS: run 'launchctl setenv OLLAMA_NUM_PARALLEL 2', then restart Ollama.",
+    );
+    return;
+  }
+}
+
+/**
  * Run the `strata distill setup` command.
  *
  * One-step onboarding for local inference:
  *  1. Probe Ollama /api/tags
- *  2. Pull gemma4:e4b and gemma4:e2b (skippable via --skip-pull)
+ *  2. Pull gemma3:4b (default) + gemma3:1b + gemma4:e2b + gemma4:e4b (skippable via --skip-pull)
  *  3. Write distillation block to ~/.strata/config.json
+ *  4. Print OLLAMA_NUM_PARALLEL guidance for the current platform
  */
 export async function runDistillSetup(options: DistillSetupOptions = {}): Promise<void> {
   const ollamaUrl = options.ollamaUrl || "http://localhost:11434";
@@ -434,13 +462,18 @@ export async function runDistillSetup(options: DistillSetupOptions = {}): Promis
   }
 
   // Step 2: Pull models
-  const modelsToPull = ["gemma4:e4b", "gemma4:e2b"];
+  const MODELS_TO_PULL = [
+    "gemma3:4b",    // new default extraction model (3.3 GB, 63.3% baseline)
+    "gemma3:1b",    // future distillation base (815 MB)
+    "gemma4:e2b",   // opt-in higher quality (7.2 GB)
+    "gemma4:e4b",   // opt-in ceiling quality (9.6 GB)
+  ];
   if (options.skipPull) {
     console.log("[2/3] Skipping model pulls (--skip-pull).");
   } else {
-    console.log("[2/3] Pulling Gemma 4 models...");
+    console.log("[2/3] Pulling Gemma models...");
     const { execSync } = await import("child_process");
-    for (const model of modelsToPull) {
+    for (const model of MODELS_TO_PULL) {
       if (availableModels.includes(model)) {
         console.log(`  OK  ${model} already present`);
         continue;
@@ -465,7 +498,7 @@ export async function runDistillSetup(options: DistillSetupOptions = {}): Promis
     distillation: {
       enabled: true,
       localUrl: ollamaUrl,
-      extractionModel: "gemma4:e4b",
+      extractionModel: "gemma3:4b",
       summarizationModel: "gemma4:e4b",
       conflictResolutionModel: "gemma4:e2b",
       fallback: "gemini",
@@ -473,12 +506,15 @@ export async function runDistillSetup(options: DistillSetupOptions = {}): Promis
   };
   writeConfig(merged);
   console.log("  OK  distillation.enabled = true");
-  console.log("  OK  extractionModel = gemma4:e4b");
+  console.log("  OK  extractionModel = gemma3:4b");
   console.log("  OK  summarizationModel = gemma4:e4b");
   console.log("  OK  conflictResolutionModel = gemma4:e2b");
   console.log("");
   console.log("Setup complete. Test with:");
   console.log("  strata distill test");
+
+  // Print OLLAMA_NUM_PARALLEL guidance
+  trySetOllamaParallel();
 }
 
 /**
@@ -580,11 +616,49 @@ export async function runDistillTest(): Promise<void> {
     anyFailures = true;
   }
 
+  // Parallelism probe
+  await probeParallelism();
+
   console.log("");
   if (anyFailures) {
     console.log("Some checks failed. See output above.");
   } else {
     console.log("All checks passed. Local inference is ready.");
+  }
+}
+
+/**
+ * Probe whether Ollama is serving requests in parallel.
+ * Makes one sequential call and two simultaneous calls, then compares wall times.
+ * If the parallel pair takes >1.6x the single call, Ollama is likely serializing.
+ */
+async function probeParallelism(): Promise<void> {
+  console.log("[distill test] Parallelism probe (OLLAMA_NUM_PARALLEL)...");
+  const { OllamaProvider } = await import("../extensions/llm-extraction/llm-provider.js");
+  const p = new OllamaProvider("gemma3:4b");
+  const prompt = "Say hi in exactly one word.";
+
+  const t0 = Date.now();
+  await p.complete(prompt, { maxTokens: 4, timeoutMs: 30_000 });
+  const singleMs = Date.now() - t0;
+
+  const t1 = Date.now();
+  await Promise.all([
+    p.complete(prompt, { maxTokens: 4, timeoutMs: 30_000 }),
+    p.complete(prompt, { maxTokens: 4, timeoutMs: 30_000 }),
+  ]);
+  const parallelMs = Date.now() - t1;
+
+  const overhead = parallelMs / singleMs;
+  console.log(`[distill test]   single call: ${singleMs}ms`);
+  console.log(`[distill test]   two parallel calls: ${parallelMs}ms (${overhead.toFixed(2)}x single)`);
+  if (overhead > 1.6) {
+    console.warn(
+      "[distill test] ⚠ Parallelism appears serial (two calls ≈ 2× one). " +
+      "Set OLLAMA_NUM_PARALLEL>=2 and restart Ollama, or NPC dialogue will block on extraction.",
+    );
+  } else {
+    console.log("[distill test] ✓ Ollama is serving requests in parallel.");
   }
 }
 
