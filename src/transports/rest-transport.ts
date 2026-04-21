@@ -38,8 +38,10 @@ import { WorldPool } from "./world-pool.js";
 import { mintPlayerToken, verifyPlayerToken, type PlayerTokenClaims } from "./player-token.js";
 import { NpcMemoryEngine } from "./npc-memory-engine.js";
 import type { LlmProvider } from "../extensions/llm-extraction/llm-provider.js";
-import { extractAtomicFacts, type AtomicFact } from "../extensions/llm-extraction/utterance-extractor.js";
 import { getExtractionProvider } from "../extensions/llm-extraction/provider-factory.js";
+import { ExtractionQueueStore } from "../extensions/extraction-queue/queue-store.js";
+import { ExtractionWorker } from "../extensions/extraction-queue/extraction-worker.js";
+import { CompositeTenantResolver } from "../extensions/extraction-queue/tenant-db-resolver.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -208,6 +210,54 @@ export async function startRestTransport(
   const characterStore = new CharacterStore(defaultDb);
   const relationshipStore = new RelationshipStore(defaultDb);
   const acquaintanceStore = new NpcAcquaintanceStore(defaultDb);
+
+  // ─── Extraction queue + worker ─────────────────────────────────────────
+  const queuePath = join(baseDir, "_queue.db");
+  const queueStore = new ExtractionQueueStore(queuePath);
+
+  const tenantResolver = new CompositeTenantResolver({
+    v2: async (worldId, _agentId, fn) => {
+      const worldDb = worldPool.open(worldId);
+      return fn({ kind: "v2", worldDb, agentId: _agentId });
+    },
+    legacy: async (playerId, agentId, fn) => {
+      const srv = getOrCreateAgentServer(playerId, agentId);
+      return fn({
+        kind: "legacy",
+        agentId,
+        addEntry: async (text, tags, importance) => {
+          const factId = randomUUID();
+          await srv.storage.knowledge.addEntry({
+            id: factId,
+            type: "fact",
+            project: agentId,
+            sessionId: `rest-extract-${Date.now()}`,
+            timestamp: Date.now(),
+            summary: text,
+            details: "",
+            tags,
+            importance,
+            relatedFiles: [],
+          });
+          return factId;
+        },
+      });
+    },
+  });
+
+  const extractionProvider = options.extractionProvider ?? (await getExtractionProvider());
+  const extractionWorker = extractionProvider
+    ? new ExtractionWorker({
+        queue: queueStore,
+        provider: extractionProvider,
+        tenantResolver,
+        logger: (m) => console.warn(m),
+      })
+    : null;
+
+  if (extractionWorker && process.env.STRATA_EXTRACTION_WORKER !== "0") {
+    extractionWorker.start();
+  }
 
   // LRU cache of per-(player, npc) createServer() instances, keyed by "<playerId>:<npcId>".
   // Map iteration order = insertion order; re-inserting on access promotes to MRU.
@@ -693,54 +743,29 @@ export async function startRestTransport(
         }
 
         // Extraction pass — opt-in via body.extract === true.
-        let extractedCount = 0;
+        // Enqueues job; worker processes async. Returns in <100ms.
         const extractEnabled = process.env.STRATA_REST_EXTRACT_ENABLED !== "false";
-        if (extractEnabled && body.extract === true) {
-          const provider = await resolveExtractionProvider();
-          if (provider) {
-            try {
-              const timeoutMs = Number(process.env.STRATA_REST_EXTRACT_TIMEOUT_MS ?? 10000);
-              const maxItems = Number(process.env.STRATA_REST_EXTRACT_MAX_ITEMS ?? 5);
-              const userTags = Array.isArray(body.tags)
-                ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
-                : [];
-              const memoryStr = typeof body.memory === "string" ? body.memory : "";
-              const facts: AtomicFact[] = await extractAtomicFacts(memoryStr, {
-                provider, timeoutMs, maxItems,
-              });
-              const extractEngine = activeWorldDb !== null
-                ? new NpcMemoryEngine(activeWorldDb, params.agentId)
-                : null;
-              for (const f of facts) {
-                const factTags = [...userTags, "extracted", f.type];
-                const factImportance = typeof f.importance === "number" ? f.importance : 70;
-                if (extractEngine !== null) {
-                  extractEngine.add({ content: f.text, tags: factTags, importance: factImportance });
-                } else {
-                  const srv = getOrCreateAgentServer(playerId, params.agentId);
-                  const factId = randomUUID();
-                  await srv.storage.knowledge.addEntry({
-                    id: factId,
-                    type: "fact",
-                    project: params.agentId,
-                    sessionId: `rest-extract-${Date.now()}`,
-                    timestamp: Date.now(),
-                    summary: f.text,
-                    details: "",
-                    tags: factTags,
-                    importance: factImportance,
-                    relatedFiles: [],
-                  });
-                }
-                extractedCount++;
-              }
-            } catch (err) {
-              console.warn(`[rest-extract] extraction failed for agent ${params.agentId}:`, err instanceof Error ? err.message : err);
-            }
-          }
+        if (extractEnabled && body.extract === true && extractionWorker !== null) {
+          const userTags = Array.isArray(body.tags)
+            ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
+            : [];
+          const memoryStr = typeof body.memory === "string" ? body.memory : "";
+          const tenantId = activeWorldDb !== null
+            ? `v2:${auth.v2Claims!.worldId}`
+            : `legacy:${playerId}`;
+          queueStore.enqueue({
+            tenantId,
+            agentId: params.agentId,
+            memoryId: result.id,
+            text: memoryStr,
+            userTags,
+            importance: typeof body.importance === "number" ? body.importance : undefined,
+          });
+          json(res, 200, { ...result, extractionQueued: true });
+          return;
         }
 
-        json(res, 200, { ...result, extractedCount });
+        json(res, 200, result);
         return;
       }
 
@@ -1064,6 +1089,8 @@ export async function startRestTransport(
         server: httpServer,
         port: actualPort,
         close: async () => {
+          if (extractionWorker) await extractionWorker.stop();
+          queueStore.close();
           for (const [, entry] of agentCache) {
             try {
               await entry.srv.storage.close();
