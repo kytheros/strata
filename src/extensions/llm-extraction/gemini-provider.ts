@@ -8,6 +8,7 @@
 
 import type { CompletionOptions, LlmProvider } from "./llm-provider.js";
 import { LlmError } from "./llm-provider.js";
+import { loadGeminiApiKeyFromConfig } from "../embeddings/gemini-embedder.js";
 
 /** Gemini API response shape */
 interface GeminiResponse {
@@ -125,13 +126,14 @@ let cachedProvider: LlmProvider | null | undefined;
 
 /**
  * Get a cached Gemini provider instance.
- * Returns a GeminiProvider when GEMINI_API_KEY is set, null otherwise.
- * Probes once, caches the result.
+ * Resolves the key from GEMINI_API_KEY env or ~/.strata/config.json (same
+ * priority as the embedder) — so CLI users who activated via `strata activate`
+ * don't need to re-export the key to get local-first extraction.
  */
 export async function getCachedGeminiProvider(): Promise<LlmProvider | null> {
   if (cachedProvider !== undefined) return cachedProvider;
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = loadGeminiApiKeyFromConfig();
   if (!apiKey) {
     cachedProvider = null;
     return null;

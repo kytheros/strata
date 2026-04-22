@@ -257,6 +257,13 @@ export async function startRestTransport(
 
   if (extractionWorker && process.env.STRATA_EXTRACTION_WORKER !== "0") {
     extractionWorker.start();
+    console.warn("[strata] Extraction worker: active");
+  } else if (!extractionProvider) {
+    console.warn(
+      "[strata] Extraction worker: disabled (no LLM provider). " +
+        "Set GEMINI_API_KEY or run `strata activate <key>`; " +
+        "`extract: true` store requests will be accepted but not processed.",
+    );
   }
 
   // LRU cache of per-(player, npc) createServer() instances, keyed by "<playerId>:<npcId>".
