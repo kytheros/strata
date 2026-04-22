@@ -32,8 +32,7 @@ afterEach(async () => {
 
 describe("HTTP Transport", () => {
   it("should start on the specified port", async () => {
-    const server = createTestServer();
-    handle = await startHttpTransport(server, { port: 0 }); // port 0 = random free port
+    handle = await startHttpTransport({ port: 0, serverFactory: () => ({ server: createTestServer() }) }); // port 0 = random free port
     expect(handle.port).toBe(0);
     // The actual port is assigned by the OS
     const addr = handle.server.address();
@@ -44,8 +43,7 @@ describe("HTTP Transport", () => {
   });
 
   it("should return 200 with JSON from /health", async () => {
-    const server = createTestServer();
-    handle = await startHttpTransport(server, { port: 0 });
+    handle = await startHttpTransport({ port: 0, serverFactory: () => ({ server: createTestServer() }) });
     const addr = handle.server.address();
     if (typeof addr !== "object" || addr === null) throw new Error("No address");
 
@@ -59,8 +57,7 @@ describe("HTTP Transport", () => {
   });
 
   it("should return 404 for unknown paths", async () => {
-    const server = createTestServer();
-    handle = await startHttpTransport(server, { port: 0 });
+    handle = await startHttpTransport({ port: 0, serverFactory: () => ({ server: createTestServer() }) });
     const addr = handle.server.address();
     if (typeof addr !== "object" || addr === null) throw new Error("No address");
 
@@ -69,8 +66,7 @@ describe("HTTP Transport", () => {
   });
 
   it("should handle MCP initialize via HTTP POST", async () => {
-    const server = createTestServer();
-    handle = await startHttpTransport(server, { port: 0 });
+    handle = await startHttpTransport({ port: 0, serverFactory: () => ({ server: createTestServer() }) });
     const addr = handle.server.address();
     if (typeof addr !== "object" || addr === null) throw new Error("No address");
 
@@ -103,8 +99,7 @@ describe("HTTP Transport", () => {
   });
 
   it("should reject POST without session ID when not initializing", async () => {
-    const server = createTestServer();
-    handle = await startHttpTransport(server, { port: 0 });
+    handle = await startHttpTransport({ port: 0, serverFactory: () => ({ server: createTestServer() }) });
     const addr = handle.server.address();
     if (typeof addr !== "object" || addr === null) throw new Error("No address");
 
@@ -124,8 +119,7 @@ describe("HTTP Transport", () => {
   });
 
   it("should return 405 for unsupported methods", async () => {
-    const server = createTestServer();
-    handle = await startHttpTransport(server, { port: 0 });
+    handle = await startHttpTransport({ port: 0, serverFactory: () => ({ server: createTestServer() }) });
     const addr = handle.server.address();
     if (typeof addr !== "object" || addr === null) throw new Error("No address");
 
@@ -140,8 +134,7 @@ describe("HTTP Transport", () => {
   });
 
   it("should complete tools/list after initialize", async () => {
-    const server = createTestServer();
-    handle = await startHttpTransport(server, { port: 0 });
+    handle = await startHttpTransport({ port: 0, serverFactory: () => ({ server: createTestServer() }) });
     const addr = handle.server.address();
     if (typeof addr !== "object" || addr === null) throw new Error("No address");
 
@@ -204,8 +197,7 @@ describe("HTTP Transport", () => {
   });
 
   it("should shut down gracefully", async () => {
-    const server = createTestServer();
-    handle = await startHttpTransport(server, { port: 0 });
+    handle = await startHttpTransport({ port: 0, serverFactory: () => ({ server: createTestServer() }) });
 
     await handle.close();
 

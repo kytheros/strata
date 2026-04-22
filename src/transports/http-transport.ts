@@ -11,10 +11,13 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { handleHealthRequest } from "./health.js";
+import { createServer } from "../server.js";
 
 export interface HttpTransportOptions {
   port: number;
   host?: string;
+  /** Factory to create a fresh McpServer per session. Defaults to community createServer(). */
+  serverFactory?: () => { server: McpServer };
 }
 
 export interface HttpTransportHandle {
@@ -33,10 +36,9 @@ export interface HttpTransportHandle {
  *   DELETE /mcp   -> session termination
  */
 export async function startHttpTransport(
-  mcpServer: McpServer,
   options: HttpTransportOptions
 ): Promise<HttpTransportHandle> {
-  const { port, host = "0.0.0.0" } = options;
+  const { port, host = "0.0.0.0", serverFactory = createServer } = options;
 
   // Map of session ID -> transport
   const transports = new Map<string, StreamableHTTPServerTransport>();
@@ -53,7 +55,7 @@ export async function startHttpTransport(
     // MCP endpoint
     if (url.pathname === "/mcp") {
       try {
-        await handleMcpRequest(req, res, mcpServer, transports);
+        await handleMcpRequest(req, res, transports, serverFactory);
       } catch (error) {
         console.error("Error handling MCP request:", error instanceof Error ? error.message : "unknown error");
         if (!res.headersSent) {
@@ -119,8 +121,8 @@ export async function startHttpTransport(
 async function handleMcpRequest(
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
-  mcpServer: McpServer,
-  transports: Map<string, StreamableHTTPServerTransport>
+  transports: Map<string, StreamableHTTPServerTransport>,
+  serverFactory: () => { server: McpServer },
 ): Promise<void> {
   const method = req.method?.toUpperCase();
 
@@ -146,7 +148,10 @@ async function handleMcpRequest(
     }
 
     if (!sessionId && isInitializeRequest(parsed)) {
-      // New session
+      // New session — create a fresh MCP server per session.
+      // The MCP SDK only allows one transport per Server instance,
+      // matching the canonical pattern from the SDK docs.
+      const { server: sessionServer } = serverFactory();
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sid) => {
@@ -159,7 +164,7 @@ async function handleMcpRequest(
         if (sid) transports.delete(sid);
       };
 
-      await mcpServer.connect(transport);
+      await sessionServer.connect(transport);
       await transport.handleRequest(req, res, parsed);
       return;
     }
