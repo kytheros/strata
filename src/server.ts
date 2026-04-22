@@ -307,6 +307,10 @@ Example: Browse all sessions from the last 7 days — query: "", after_date: "7d
         before_date: z.string().optional().describe("Filter results before this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
         model: z.string().optional().describe("Consuming model name for retrieval optimization (e.g., 'gemini-2.0-flash', 'gpt-4o')"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -350,6 +354,10 @@ Example: Find which project has the most conversation sessions`,
         format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
         user: z.string().optional().describe("Filter to a specific user scope (omit to list all)"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -391,6 +399,10 @@ Example: Search for solutions to TypeScript type inference issues`,
         user: z.string().optional().describe("Filter results to a specific user scope (omit to search all users)"),
         max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -442,6 +454,10 @@ Example: Search for database optimization approaches in a specific project`,
         user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
         max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -538,6 +554,10 @@ Example: What did I work on today?`,
         project: z.string().optional().describe("Project name or path — returns most recent session"),
         user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -579,6 +599,10 @@ Example: What do you know about my React project?`,
         depth: z.enum(["brief", "normal", "detailed"]).optional().describe("Detail level (default: normal)"),
         user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -635,6 +659,10 @@ Example: Show my expertise profile for this project`,
         project: z.string().optional().describe("Project name or path (omit for cross-project profile)"),
         user: z.string().optional().describe("Filter to a specific user scope"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -677,6 +705,10 @@ Example: Analyze workflow patterns across all projects`,
         type: z.enum(["topics", "workflows", "issues", "all"]).optional().describe("Type of patterns to find (default: all)"),
         user: z.string().optional().describe("Filter to a specific user scope (omit to search all users)"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -720,6 +752,10 @@ Example: Store a fact like "API rate limit is 100/min"`,
         project: z.string().optional().describe("Project context (default: global)"),
         user: z.string().optional().describe("User scope (default: STRATA_DEFAULT_USER env var or 'default')"),
       }).strict(),
+      annotations: {
+        destructiveHint: false,
+        idempotentHint: false,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -789,6 +825,10 @@ Example: Store insights from a company AI readiness assessment PDF`,
         project: z.string().optional().describe("Project context (default: global)"),
         user: z.string().optional().describe("User scope"),
       }).strict(),
+      annotations: {
+        destructiveHint: false,
+        idempotentHint: false,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -818,6 +858,10 @@ Example: Search for events related to cooking or restaurants`,
         limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
         user: z.string().optional().describe("Filter to a specific user scope"),
       }).strict(),
+      annotations: {
+        readOnlyHint: true,
+        idempotentHint: true,
+      },
     },
     async (args) => {
       const start = Date.now();
@@ -1001,6 +1045,10 @@ Example: Store a screenshot for visual reference`,
         project: z.string().optional().describe("Project scope (default: global)"),
         user: z.string().optional().describe("User scope for multi-tenant isolation"),
       }).strict(),
+      annotations: {
+        destructiveHint: false,
+        idempotentHint: false,
+      },
     },
     async (args) => {
       const start = Date.now();
