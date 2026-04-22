@@ -25,6 +25,35 @@ export interface IndexerKnowledgeStore extends SynthesisStore {
   save?(): unknown;
   getGlobalLearnings(project?: string): Promise<KnowledgeEntry[]>;
 }
+/**
+ * Build the projectDir slug for a parsed session, mirroring the conventions
+ * each parser uses inside its own `discover()` method. The file watcher does
+ * not have the rich directory context the parsers build up during discovery,
+ * so this helper centralizes the parser-specific slug format to keep
+ * full-index and incremental-index paths consistent.
+ */
+function resolveProjectDir(parserId: string, filename: string, targetDir: string): string {
+  const normalized = filename.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  switch (parserId) {
+    case "cline":
+      // tasks/<taskId>/api_conversation_history.json → cline/<taskId>
+      return parts.length > 0 ? `cline/${parts[0]}` : "cline";
+    case "codex":
+      // <year>/<month>/<day>/<session>.jsonl → codex/<year>/<month>/<day>
+      if (parts.length >= 4) return `codex/${parts[0]}/${parts[1]}/${parts[2]}`;
+      return parts.length > 0 ? `codex/${parts.slice(0, -1).join("/")}` : "codex";
+    case "gemini-cli":
+      // <projectHash>/.../session.json → gemini/<projectHash>
+      return parts.length > 0 ? `gemini/${parts[0]}` : "gemini";
+    case "aider":
+      // <projectName>/.aider.chat.history.md → <projectName>
+      return parts.length > 0 ? parts[0] : basename(targetDir);
+    default:
+      return basename(targetDir);
+  }
+}
+
 import {
   summarizeSession,
   cacheSummary,
@@ -115,7 +144,7 @@ export class IncrementalIndexer {
     const sessionId = basename(filename).replace(/\.[^.]+$/, "");
     const fileInfo: SessionFileInfo = {
       filePath,
-      projectDir: basename(target.dir),
+      projectDir: resolveProjectDir(parserId, filename, target.dir),
       sessionId,
       mtime: stat.mtimeMs,
       size: stat.size,
