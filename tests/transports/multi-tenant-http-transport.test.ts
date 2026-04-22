@@ -239,25 +239,103 @@ describe.skipIf(process.platform === "win32")(
       expect(body.pool.maxOpen).toBe(10);
     });
 
-    it("should return admin pool details", async () => {
-      baseDir = makeTempDir();
-      handle = await startMultiTenantHttpTransport({
-        port: 0,
-        baseDir,
-        maxDbs: 10,
-      });
-      const addr = handle.server.address();
-      if (typeof addr !== "object" || addr === null)
-        throw new Error("No address");
-      const baseUrl = `http://127.0.0.1:${addr.port}`;
+    it("should return admin pool details when authenticated", async () => {
+      const ADMIN_TOKEN = "test-admin-token";
+      const prevToken = process.env.STRATA_ADMIN_TOKEN;
+      process.env.STRATA_ADMIN_TOKEN = ADMIN_TOKEN;
+      try {
+        baseDir = makeTempDir();
+        handle = await startMultiTenantHttpTransport({
+          port: 0,
+          baseDir,
+          maxDbs: 10,
+        });
+        const addr = handle.server.address();
+        if (typeof addr !== "object" || addr === null)
+          throw new Error("No address");
+        const baseUrl = `http://127.0.0.1:${addr.port}`;
 
-      const res = await fetch(`${baseUrl}/admin/pool`);
-      expect(res.status).toBe(200);
+        const res = await fetch(`${baseUrl}/admin/pool`, {
+          headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+        });
+        expect(res.status).toBe(200);
 
-      const body = await res.json();
-      expect(body.entries).toBeDefined();
-      expect(Array.isArray(body.entries)).toBe(true);
-      expect(body.entries.length).toBe(0);
+        const body = await res.json();
+        expect(body.entries).toBeDefined();
+        expect(Array.isArray(body.entries)).toBe(true);
+        expect(body.entries.length).toBe(0);
+      } finally {
+        if (prevToken === undefined) delete process.env.STRATA_ADMIN_TOKEN;
+        else process.env.STRATA_ADMIN_TOKEN = prevToken;
+      }
+    });
+
+    it("should reject admin pool access without Authorization header", async () => {
+      const ADMIN_TOKEN = "test-admin-token";
+      const prevToken = process.env.STRATA_ADMIN_TOKEN;
+      process.env.STRATA_ADMIN_TOKEN = ADMIN_TOKEN;
+      try {
+        baseDir = makeTempDir();
+        handle = await startMultiTenantHttpTransport({
+          port: 0,
+          baseDir,
+          maxDbs: 10,
+        });
+        const addr = handle.server.address();
+        if (typeof addr !== "object" || addr === null)
+          throw new Error("No address");
+
+        const res = await fetch(`http://127.0.0.1:${addr.port}/admin/pool`);
+        expect(res.status).toBe(401);
+      } finally {
+        if (prevToken === undefined) delete process.env.STRATA_ADMIN_TOKEN;
+        else process.env.STRATA_ADMIN_TOKEN = prevToken;
+      }
+    });
+
+    it("should reject admin pool access with wrong Bearer token", async () => {
+      const prevToken = process.env.STRATA_ADMIN_TOKEN;
+      process.env.STRATA_ADMIN_TOKEN = "test-admin-token";
+      try {
+        baseDir = makeTempDir();
+        handle = await startMultiTenantHttpTransport({
+          port: 0,
+          baseDir,
+          maxDbs: 10,
+        });
+        const addr = handle.server.address();
+        if (typeof addr !== "object" || addr === null)
+          throw new Error("No address");
+
+        const res = await fetch(`http://127.0.0.1:${addr.port}/admin/pool`, {
+          headers: { Authorization: "Bearer wrong-token" },
+        });
+        expect(res.status).toBe(403);
+      } finally {
+        if (prevToken === undefined) delete process.env.STRATA_ADMIN_TOKEN;
+        else process.env.STRATA_ADMIN_TOKEN = prevToken;
+      }
+    });
+
+    it("should return 404 for admin/pool when STRATA_ADMIN_TOKEN is unset", async () => {
+      const prevToken = process.env.STRATA_ADMIN_TOKEN;
+      delete process.env.STRATA_ADMIN_TOKEN;
+      try {
+        baseDir = makeTempDir();
+        handle = await startMultiTenantHttpTransport({
+          port: 0,
+          baseDir,
+          maxDbs: 10,
+        });
+        const addr = handle.server.address();
+        if (typeof addr !== "object" || addr === null)
+          throw new Error("No address");
+
+        const res = await fetch(`http://127.0.0.1:${addr.port}/admin/pool`);
+        expect(res.status).toBe(404);
+      } finally {
+        if (prevToken !== undefined) process.env.STRATA_ADMIN_TOKEN = prevToken;
+      }
     });
 
     it("should return 404 for unknown paths", async () => {
