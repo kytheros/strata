@@ -87,6 +87,7 @@ export async function enhancedExtract(
       maxTokens: 4096,
       temperature: 0.1,
       timeoutMs: 30000,
+      jsonMode: true,
     });
 
     const parsed = parseExtractionResponse(raw);
