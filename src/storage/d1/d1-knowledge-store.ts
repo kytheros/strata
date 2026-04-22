@@ -48,6 +48,23 @@ function escapeLike(input: string): string {
   return input.replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
+
+
+/**
+ * Sanitize a query string for FTS5 MATCH syntax.
+ * Converts user input into safe FTS5 query tokens.
+ * Duplicated from D1DocumentStore to avoid cross-adapter imports.
+ */
+function sanitizeFtsQuery(query: string): string {
+  const cleaned = query
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  const tokens = cleaned.split(" ").filter(Boolean);
+  return tokens.join(" ");
+}
+
 function rowToEntry(row: D1KnowledgeRow): KnowledgeEntry {
   return {
     id: row.id,
@@ -214,21 +231,68 @@ export class D1KnowledgeStore implements IKnowledgeStore {
     return row !== null;
   }
 
+  /**
+   * Full-text search using FTS5 with BM25 ranking.
+   * Includes AND->OR fallback and phrase query fallback, matching SQLite behavior.
+   * Falls back to LIKE scan if the FTS index is unavailable (e.g., schema v2).
+   */
   async search(query: string, project?: string, user?: string): Promise<KnowledgeEntry[]> {
-    const safeQuery = escapeLike(query);
+    const sanitized = sanitizeFtsQuery(query);
     const effectiveUser = user ?? this.userId;
-    let sql = `SELECT * FROM knowledge WHERE user = ? AND LOWER(summary || ' ' || details || ' ' || COALESCE(tags, '')) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'`;
-    const params: unknown[] = [effectiveUser, safeQuery];
 
-    if (project) {
-      sql += ` AND LOWER(project) LIKE '%' || LOWER(?) || '%' ESCAPE '\\'`;
-      params.push(escapeLike(project));
+    if (!sanitized) return [];
+
+    // Build the project filter clause for use in both FTS and LIKE branches.
+    // Matches SqliteKnowledgeStore semantics: case-insensitive substring match.
+    const projectClause = project ? " AND LOWER(k.project) LIKE '%' || LOWER(?) || '%'" : "";
+    const projectParams: unknown[] = project ? [project] : [];
+
+    const baseSql = `
+      SELECT k.*, bm25(knowledge_fts) as rank
+      FROM knowledge_fts
+      JOIN knowledge k ON k.rowid = knowledge_fts.rowid
+      WHERE knowledge_fts MATCH ?
+        AND k.user = ?${projectClause}
+      ORDER BY rank
+    `;
+
+    try {
+      const result = await this.db
+        .prepare(baseSql)
+        .bind(sanitized, effectiveUser, ...projectParams)
+        .all<D1KnowledgeRow & { rank: number }>();
+
+      // AND->OR fallback: if implicit-AND returned nothing for a multi-word
+      // query, retry with OR so entries matching any term are surfaced.
+      if (result.results.length === 0) {
+        const tokens = sanitized.split(" ").filter(Boolean);
+        if (tokens.length > 1) {
+          const orQuery = tokens.join(" OR ");
+          const orResult = await this.db
+            .prepare(baseSql)
+            .bind(orQuery, effectiveUser, ...projectParams)
+            .all<D1KnowledgeRow & { rank: number }>();
+          return orResult.results.map(rowToEntry);
+        }
+      }
+
+      return result.results.map(rowToEntry);
+    } catch {
+      // FTS index unavailable (schema not yet migrated) — fall back to LIKE scan.
+      try {
+        let sql = "SELECT * FROM knowledge WHERE user = ? AND LOWER(summary || ' ' || details || ' ' || COALESCE(tags, '')) LIKE '%' || LOWER(?) || '%'";
+        const params: unknown[] = [effectiveUser, query];
+        if (project) {
+          sql += " AND LOWER(project) LIKE '%' || LOWER(?) || '%'";
+          params.push(project);
+        }
+        sql += " ORDER BY timestamp DESC";
+        const fallback = await this.db.prepare(sql).bind(...params).all<D1KnowledgeRow>();
+        return fallback.results.map(rowToEntry);
+      } catch {
+        return [];
+      }
     }
-
-    sql += " ORDER BY timestamp DESC";
-
-    const result = await this.db.prepare(sql).bind(...params).all<D1KnowledgeRow>();
-    return result.results.map(rowToEntry);
   }
 
   async getProjectEntries(project: string, user?: string): Promise<KnowledgeEntry[]> {

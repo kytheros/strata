@@ -75,6 +75,28 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_type ON knowledge(type);
 CREATE INDEX IF NOT EXISTS idx_knowledge_user ON knowledge(user);
 CREATE INDEX IF NOT EXISTS idx_knowledge_timestamp ON knowledge(timestamp);
 
+-- FTS5 full-text search on knowledge entries
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+  summary,
+  details,
+  tags,
+  content=knowledge,
+  content_rowid=rowid,
+  tokenize='porter'
+);
+
+-- FTS5 sync triggers
+CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge BEGIN
+  INSERT INTO knowledge_fts(rowid, summary, details, tags) VALUES (new.rowid, new.summary, new.details, COALESCE(new.tags, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge BEGIN
+  INSERT INTO knowledge_fts(knowledge_fts, rowid, summary, details, tags) VALUES ('delete', old.rowid, old.summary, old.details, COALESCE(old.tags, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge BEGIN
+  INSERT INTO knowledge_fts(knowledge_fts, rowid, summary, details, tags) VALUES ('delete', old.rowid, old.summary, old.details, COALESCE(old.tags, ''));
+  INSERT INTO knowledge_fts(rowid, summary, details, tags) VALUES (new.rowid, new.summary, new.details, COALESCE(new.tags, ''));
+END;
+
 -- Knowledge mutation history (audit trail)
 CREATE TABLE IF NOT EXISTS knowledge_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,4 +222,4 @@ CREATE TABLE IF NOT EXISTS migration_state (
 `;
 
 /** Schema version for tracking migrations. */
-export const D1_SCHEMA_VERSION = "2";
+export const D1_SCHEMA_VERSION = "3";
