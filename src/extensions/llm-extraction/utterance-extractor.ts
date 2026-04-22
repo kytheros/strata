@@ -17,6 +17,10 @@ export interface AtomicFact {
   type: "semantic" | "episodic";
   /** Optional. REST handler defaults to 70 when absent. */
   importance?: number;
+  /** Optional. Set by LLM when source is a hedge; hedge-filter also sets based on source regex. */
+  hearsay?: boolean;
+  /** Optional. Tags applied by post-filters (hedge-filter, self-utterance). */
+  tags?: string[];
 }
 
 export interface ExtractOptions {
