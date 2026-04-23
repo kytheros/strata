@@ -1,0 +1,15 @@
+{
+  "name": "self-utterance-grounding",
+  "description": "An NPC-improvised fact is stored with self-utterance tag and halved importance.",
+  "agentId": "mira-herbalist",
+  "seed": [
+    { "text": "Mira is the village herbalist.", "tags": ["profile", "seed", "self"], "importance": 90 }
+  ],
+  "turns": [
+    { "role": "npc-self", "text": "I said: 'Foxglove grows wild along the river bank.'", "tags": ["dialogue", "self"] }
+  ],
+  "assertions": [
+    { "kind": "selfUtterancePenalty", "weight": 5 },
+    { "kind": "importanceCeil", "substring": "foxglove", "max": 50, "weight": 5 }
+  ]
+}

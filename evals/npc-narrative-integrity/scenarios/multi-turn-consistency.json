@@ -1,0 +1,16 @@
+{
+  "name": "multi-turn-consistency",
+  "description": "Hedge tag persists across turns so hearsay-marked facts surface with the right shape.",
+  "agentId": "brynn-innkeeper",
+  "seed": [
+    { "text": "Brynn runs the Wayfarer's Rest.", "tags": ["profile", "seed", "self"], "importance": 90 }
+  ],
+  "turns": [
+    { "role": "npc-self", "text": "There's talk of bandits near Blackwood Forest.", "tags": ["dialogue", "self"] },
+    { "role": "player", "text": "What else do you know about the bandits?", "tags": ["dialogue"] }
+  ],
+  "assertions": [
+    { "kind": "hearsayTagPresent", "substring": "bandit", "weight": 5 },
+    { "kind": "noConfidentHearsay", "weight": 5 }
+  ]
+}
