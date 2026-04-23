@@ -1,5 +1,6 @@
 import type { LlmProvider } from "../llm-extraction/llm-provider.js";
 import { extractAtomicFacts } from "../llm-extraction/utterance-extractor.js";
+import { applyHedgeFilter } from "../llm-extraction/hedge-filter.js";
 import type { ExtractionQueueStore, Job } from "./queue-store.js";
 import type { TenantDbResolver } from "./tenant-db-resolver.js";
 
@@ -92,7 +93,6 @@ export class ExtractionWorker {
         maxItems: this.maxItems,
       });
 
-      const { applyHedgeFilter } = await import("../llm-extraction/hedge-filter.js");
       const hedgeFiltered = applyHedgeFilter(rawFacts, job.text);
       const finalFacts = applySelfUtteranceProvenance(hedgeFiltered, job.userTags);
 
@@ -142,6 +142,11 @@ function applySelfUtteranceProvenance(
   facts: import("../llm-extraction/utterance-extractor.js").AtomicFact[],
   baseTags: string[],
 ): import("../llm-extraction/utterance-extractor.js").AtomicFact[] {
+  // Row-level scoping: if the source row is tagged `self`, every fact
+  // extracted from it gets the penalty. This matches the production
+  // caller (NPCController posts self-tagged rows for `I said: "..."`);
+  // if the `self` tag is ever reused for non-NPC-speech contexts, the
+  // penalty will apply there too.
   if (!baseTags.includes("self")) return facts;
   const raw = Number(process.env.STRATA_SELF_UTTERANCE_MULTIPLIER);
   const multiplier = Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.5;

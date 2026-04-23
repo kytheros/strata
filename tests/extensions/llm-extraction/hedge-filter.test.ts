@@ -70,6 +70,10 @@ describe("detectHedge", () => {
 });
 
 describe("rewriteAsRumor", () => {
+  test("empty string passes through", () => {
+    expect(rewriteAsRumor("")).toBe("");
+    expect(rewriteAsRumor("   ")).toBe("");
+  });
   test("prepends rumor framing to plain text", () => {
     expect(rewriteAsRumor("bandits are near Blackwood")).toBe(
       "it is rumored that bandits are near Blackwood",

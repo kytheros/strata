@@ -62,6 +62,7 @@ export function detectHedge(sentence: string): boolean {
 
 export function rewriteAsRumor(text: string): string {
   const trimmed = text.trim();
+  if (!trimmed) return trimmed;
   const lower = trimmed.toLowerCase();
   for (const prefix of RUMOR_PREFIXES) {
     if (lower.startsWith(prefix)) return trimmed;
@@ -84,6 +85,9 @@ export function applyHedgeFilter(
   const sourceIsHedge = detectHedge(sourceText);
   const ceil = getImportanceCeil();
   return facts.map((fact) => {
+    // Spec's three-arm check includes detectHedge(fact.sourceSentence), but
+    // AtomicFact has no sourceSentence field — callers pass raw job.text,
+    // which is the full pre-sanitization source and covers the practical case.
     const fromHedge = fact.hearsay === true || sourceIsHedge;
     if (!fromHedge) return fact;
     const nextTags = Array.from(new Set([...(fact.tags ?? []), "hearsay"]));

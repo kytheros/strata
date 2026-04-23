@@ -42,8 +42,8 @@ interface Row { text: string; tags: string[]; importance: number }
 
 async function runScenario(scenario: Scenario, provider: LlmProvider): Promise<number> {
   const tmp = mkdtempSync(join(tmpdir(), "npc-eval-"));
+  const queue = new ExtractionQueueStore(join(tmp, "queue.db"));
   try {
-    const queue = new ExtractionQueueStore(join(tmp, "queue.db"));
     const written: Row[] = [...scenario.seed];
     const resolver: TenantDbResolver = {
       async withTenantDb(_tenant, _agent, fn) {
@@ -75,9 +75,9 @@ async function runScenario(scenario: Scenario, provider: LlmProvider): Promise<n
     }
     const ratio = possible === 0 ? 0 : gained / possible;
     console.log(`  ${scenario.name}: ${gained}/${possible} (${(ratio * 100).toFixed(1)}%)`);
-    queue.close();
     return ratio;
   } finally {
+    queue.close();
     rmSync(tmp, { recursive: true, force: true });
   }
 }
