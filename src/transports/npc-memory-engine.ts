@@ -38,6 +38,7 @@ export class NpcMemoryEngine {
   private readonly stmtGetById: Database.Statement;
   private readonly stmtGetAll: Database.Statement;
   private readonly stmtDelete: Database.Statement;
+  private readonly stmtDeleteAll: Database.Statement;
   private readonly stmtRecordAccess: Database.Statement;
   private readonly stmtCount: Database.Statement;
 
@@ -64,6 +65,10 @@ export class NpcMemoryEngine {
 
     this.stmtDelete = db.prepare(`
       DELETE FROM npc_memories WHERE memory_id = ? AND npc_id = ?
+    `);
+
+    this.stmtDeleteAll = db.prepare(`
+      DELETE FROM npc_memories WHERE npc_id = ?
     `);
 
     this.stmtRecordAccess = db.prepare(`
@@ -124,6 +129,12 @@ export class NpcMemoryEngine {
   /** Delete a memory by ID. No-op if not found. */
   delete(id: string): void {
     this.stmtDelete.run(id, this.npcId);
+  }
+
+  /** Delete all memories for this NPC. Returns the number of rows removed. */
+  deleteAll(): number {
+    const result = this.stmtDeleteAll.run(this.npcId);
+    return Number(result.changes);
   }
 
   /** Increment access count and update last_accessed timestamp. */

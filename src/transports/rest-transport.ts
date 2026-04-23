@@ -932,6 +932,24 @@ export async function startRestTransport(
         return;
       }
 
+      params = matchRoute(pathname, method, "/api/agents/:agentId/memories", "DELETE");
+      if (params) {
+        if (activeWorldDb !== null) {
+          const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
+          const deleted = engine.deleteAll();
+          json(res, 200, { deleted, agentId: params.agentId });
+          return;
+        }
+        const srv = getOrCreateAgentServer(playerId, params.agentId);
+        const entries = await srv.storage.knowledge.getAllEntries();
+        let deleted = 0;
+        for (const entry of entries) {
+          if (await srv.storage.knowledge.deleteEntry(entry.id)) deleted++;
+        }
+        json(res, 200, { deleted, agentId: params.agentId });
+        return;
+      }
+
       params = matchRoute(pathname, method, "/api/agents/:agentId/training", "POST");
       if (params) {
         const body = await parseBody(req);

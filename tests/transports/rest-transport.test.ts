@@ -180,6 +180,62 @@ describe("REST Transport — store + search + delete", () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it("DELETE /api/agents/:agentId/memories deletes all memories for that agent", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
+    const base = getBaseUrl();
+
+    // Arrange: 3 memories on goran, 2 on brynn
+    for (const memory of ["A memory one", "A memory two", "A memory three"]) {
+      await fetch(`${base}/api/agents/goran/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory, importance: 50 }),
+      });
+    }
+    for (const memory of ["X memory one", "Y memory two"]) {
+      await fetch(`${base}/api/agents/brynn/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory, importance: 50 }),
+      });
+    }
+
+    // Act: bulk-delete goran's memories
+    const res = await fetch(`${base}/api/agents/goran/memories`, { method: "DELETE" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.deleted).toBe(3);
+    expect(body.agentId).toBe("goran");
+
+    // Assert: goran empty, brynn untouched
+    const goranSearch = await fetch(`${base}/api/agents/goran/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "memory", limit: 10 }),
+    });
+    const goranSearched = await goranSearch.json();
+    expect(goranSearched.results.length).toBe(0);
+
+    const brynnSearch = await fetch(`${base}/api/agents/brynn/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "memory", limit: 10 }),
+    });
+    const brynnSearched = await brynnSearch.json();
+    expect(brynnSearched.results.length).toBe(2);
+  });
+
+  it("DELETE /api/agents/:agentId/memories returns deleted=0 when no memories exist", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
+    const base = getBaseUrl();
+
+    const res = await fetch(`${base}/api/agents/empty-npc/memories`, { method: "DELETE" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.deleted).toBe(0);
+    expect(body.agentId).toBe("empty-npc");
+  });
 });
 
 describe("REST Transport — training endpoint", () => {
