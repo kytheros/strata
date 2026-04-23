@@ -86,25 +86,38 @@ export class ExtractionWorker {
 
   private async processJob(job: Job): Promise<void> {
     try {
-      const facts = await extractAtomicFacts(job.text, {
+      const rawFacts = await extractAtomicFacts(job.text, {
         provider: this.opts.provider,
         timeoutMs: this.extractTimeoutMs,
         maxItems: this.maxItems,
       });
+
+      const { applyHedgeFilter } = await import("../llm-extraction/hedge-filter.js");
+      const hedgeFiltered = applyHedgeFilter(rawFacts, job.text);
+      const finalFacts = applySelfUtteranceProvenance(hedgeFiltered, job.userTags);
+
       await this.opts.tenantResolver.withTenantDb(
         job.tenantId,
         job.agentId,
         async (target) => {
-          for (const f of facts) {
-            const tags = [...job.userTags, "extracted", f.type];
-            const importance = typeof f.importance === "number" ? f.importance : job.importance ?? 70;
+          for (const f of finalFacts) {
+            const tags = [
+              ...job.userTags,
+              "extracted",
+              f.type,
+              ...(f.tags ?? []),
+            ];
+            const dedupedTags = Array.from(new Set(tags));
+            const importance = typeof f.importance === "number"
+              ? f.importance
+              : job.importance ?? 70;
             if (target.kind === "v2") {
               // Dynamic import to avoid top-level coupling with transports/.
               const { NpcMemoryEngine } = await import("../../transports/npc-memory-engine.js");
               const engine = new NpcMemoryEngine(target.worldDb, target.agentId);
-              engine.add({ content: f.text, tags, importance });
+              engine.add({ content: f.text, tags: dedupedTags, importance });
             } else {
-              await target.addEntry(f.text, tags, importance);
+              await target.addEntry(f.text, dedupedTags, importance);
             }
           }
         },
@@ -123,4 +136,19 @@ export class ExtractionWorker {
       }
     }
   }
+}
+
+function applySelfUtteranceProvenance(
+  facts: import("../llm-extraction/utterance-extractor.js").AtomicFact[],
+  baseTags: string[],
+): import("../llm-extraction/utterance-extractor.js").AtomicFact[] {
+  if (!baseTags.includes("self")) return facts;
+  const raw = Number(process.env.STRATA_SELF_UTTERANCE_MULTIPLIER);
+  const multiplier = Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.5;
+  return facts.map((fact) => {
+    const nextTags = Array.from(new Set([...(fact.tags ?? []), "self-utterance"]));
+    const baseImportance = typeof fact.importance === "number" ? fact.importance : 70;
+    const nextImportance = Math.round(baseImportance * multiplier);
+    return { ...fact, tags: nextTags, importance: nextImportance };
+  });
 }
