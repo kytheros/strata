@@ -1,0 +1,16 @@
+{
+  "name": "hallucination-containment",
+  "description": "Goran-daughter: with no seeded family context, a player question must not produce invented family members in the stored knowledge.",
+  "agentId": "goran-blacksmith",
+  "seed": [
+    { "text": "Goran has run the village forge for twenty years.", "tags": ["profile", "seed", "self"], "importance": 90 }
+  ],
+  "turns": [
+    { "role": "player", "text": "Do you have any children?", "tags": ["dialogue"] },
+    { "role": "npc-self", "text": "I said: 'My forge opens at dawn every day.'", "tags": ["dialogue", "self"] }
+  ],
+  "assertions": [
+    { "kind": "noInventedEntity", "forbidden": ["daughter", "son"], "weight": 10 },
+    { "kind": "selfUtterancePenalty", "weight": 5 }
+  ]
+}

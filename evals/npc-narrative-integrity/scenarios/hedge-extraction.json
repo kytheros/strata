@@ -1,0 +1,20 @@
+{
+  "name": "hedge-extraction",
+  "description": "Brynn-bandits: a hedged NPC line must not produce a confident atomic fact.",
+  "agentId": "brynn-innkeeper",
+  "seed": [
+    { "text": "Brynn runs the Wayfarer's Rest.", "tags": ["profile", "seed", "self"], "importance": 90 }
+  ],
+  "turns": [
+    {
+      "role": "npc-self",
+      "text": "I said: 'I've heard bandits are camped at Blackwood Forest.'",
+      "tags": ["dialogue", "self"]
+    }
+  ],
+  "assertions": [
+    { "kind": "noConfidentHearsay", "weight": 10 },
+    { "kind": "hearsayTagPresent", "substring": "bandit", "weight": 5 },
+    { "kind": "importanceCeil", "substring": "bandit", "max": 40, "weight": 5 }
+  ]
+}
