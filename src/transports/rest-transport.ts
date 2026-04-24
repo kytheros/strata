@@ -1396,15 +1396,6 @@ async function handleIngest(
   return { document_id: docId, chunks: 1, indexed: true };
 }
 
-async function handleProfile(
-  agentId: string,
-  srv: CreateServerResult
-): Promise<{ agent_id: string; memory_count: number; last_interaction: number | null }> {
-  const all = await srv.storage.knowledge.search("");
-  const latest = all.length > 0 ? Math.max(...all.map((r) => r.timestamp)) : null;
-  return { agent_id: agentId, memory_count: all.length, last_interaction: latest };
-}
-
 async function handleDelete(
   memoryId: string,
   srv: CreateServerResult
