@@ -154,12 +154,55 @@ function matchRoute(
   return params;
 }
 
-/** Parse JSON body from request */
+/**
+ * Max request body size for REST endpoints — 1MB matches
+ * multi-tenant-http-transport.ts. Game-client telemetry rows fit
+ * comfortably under this cap.
+ */
+const MAX_BODY_BYTES = 1_048_576;
+
+/** Thrown when the request body exceeds MAX_BODY_BYTES. */
+class BodyTooLargeError extends Error {
+  constructor() {
+    super(`Request body exceeds ${MAX_BODY_BYTES} bytes`);
+    this.name = "BodyTooLargeError";
+  }
+}
+
+/**
+ * Parse JSON body from request, enforcing the 1MB cap.
+ *
+ * Uses Content-Length as the fast-path check when available (every
+ * well-behaved client sets it). Falls back to streaming byte-count for
+ * chunked uploads. On overflow the body stream is drained to /dev/null
+ * so the top-level handler can still send a 413 response — destroying
+ * the socket before response-send would give the client a connection
+ * reset instead of the proper HTTP status.
+ */
 async function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const declared = Number(req.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    // Drain and discard so the socket can be reused / response sent cleanly.
+    req.resume();
+    throw new BodyTooLargeError();
+  }
+
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let total = 0;
+    let overflowed = false;
+    req.on("data", (chunk: Buffer) => {
+      if (overflowed) return; // Drain remaining bytes without buffering.
+      total += chunk.length;
+      if (total > MAX_BODY_BYTES) {
+        overflowed = true;
+        reject(new BodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => {
+      if (overflowed) return; // Rejection already settled.
       try {
         const text = Buffer.concat(chunks).toString("utf-8");
         resolve(text ? JSON.parse(text) : {});
@@ -1130,6 +1173,10 @@ export async function startRestTransport(
     } catch (err) {
       const message = err instanceof Error ? err.message : "Internal server error";
       console.error(`[REST] ${method} ${pathname}: ${message}`);
+      if (err instanceof BodyTooLargeError) {
+        json(res, 413, { error: message, code: 413 });
+        return;
+      }
       const isClientError = message.includes("Missing required") || message.includes("Invalid");
       json(res, isClientError ? 400 : 500, {
         error: message,

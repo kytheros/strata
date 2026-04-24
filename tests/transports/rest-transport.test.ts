@@ -61,6 +61,23 @@ describe("REST Transport — token secret enforcement", () => {
   });
 });
 
+describe("REST Transport — body size cap", () => {
+  it("rejects POST bodies larger than 1MB with 413", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
+    // Build a >1MB JSON payload (a single string field padded with 'a's)
+    const padding = "a".repeat(1_100_000);
+    const body = JSON.stringify({ memory: padding, tags: [] });
+    const res = await fetch(`${getBaseUrl()}/api/agents/npc1/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    expect(res.status).toBe(413);
+    const payload = await res.json();
+    expect(payload.error).toMatch(/exceeds/);
+  });
+});
+
 describe("REST Transport — health and auth", () => {
   it("GET /api/health returns 200 with status ok", async () => {
     handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
