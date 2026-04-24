@@ -226,11 +226,27 @@ function extractAiderTools(text: string): string[] {
   return [...new Set(tools)];
 }
 
+/** Max subdirectory depth for findAiderFiles. Root = depth 0. */
+const AIDER_MAX_DEPTH = 3;
+
+/** Directories that are never worth scanning for aider history files. */
+const AIDER_SKIP_DIRS = new Set([
+  "node_modules", ".git", ".hg", ".svn", "vendor", "dist", "build",
+  "__pycache__", ".cache", ".npm", ".yarn", "Library", "AppData",
+  "Application Data", ".Trash", "$RECYCLE.BIN",
+]);
+
 /**
- * Find .aider.chat.history.md files in a directory (one level deep).
- * Skips node_modules, .git, and other large/irrelevant directories.
+ * Find .aider.chat.history.md files under `dir`, recursing up to
+ * AIDER_MAX_DEPTH subdirectory levels. Skips large/irrelevant trees.
+ *
+ * Depth of 3 covers the common case of home → workspace/ → project/ and
+ * home → code/ → org/ → repo/ without descending into deeply nested vendor
+ * trees. Raising it further has diminishing returns and meaningful I/O cost
+ * on Windows filesystems.
  */
-function findAiderFiles(dir: string): string[] {
+function findAiderFiles(dir: string, depth: number = 0): string[] {
+  if (depth > AIDER_MAX_DEPTH) return [];
   if (!existsSync(dir)) return [];
 
   const results: string[] = [];
@@ -241,16 +257,9 @@ function findAiderFiles(dir: string): string[] {
     results.push(directFile);
   }
 
-  // Scan one level of subdirectories (skip large/irrelevant dirs)
-  const SKIP_DIRS = new Set([
-    "node_modules", ".git", ".hg", ".svn", "vendor", "dist", "build",
-    "__pycache__", ".cache", ".npm", ".yarn", "Library", "AppData",
-    "Application Data", ".Trash", "$RECYCLE.BIN",
-  ]);
-
   try {
     for (const entry of readdirSync(dir)) {
-      if (SKIP_DIRS.has(entry)) continue;
+      if (AIDER_SKIP_DIRS.has(entry)) continue;
       // Skip hidden dirs (but not .aider files themselves)
       if (entry.startsWith(".") && !entry.startsWith(".aider")) continue;
 
@@ -261,10 +270,9 @@ function findAiderFiles(dir: string): string[] {
         continue;
       }
 
-      const subFile = join(subDir, HISTORY_FILENAME);
-      if (existsSync(subFile)) {
-        results.push(subFile);
-      }
+      // Recurse into subdirectory (depth-first)
+      const nested = findAiderFiles(subDir, depth + 1);
+      if (nested.length > 0) results.push(...nested);
     }
   } catch {
     // Directory not readable
