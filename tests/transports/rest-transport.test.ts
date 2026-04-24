@@ -27,6 +27,40 @@ function getBaseUrl(): string {
   throw new Error("No address");
 }
 
+describe("REST Transport — token secret enforcement", () => {
+  it("refuses to start when STRATA_TOKEN_SECRET is unset and no dev opt-in", async () => {
+    const prevSecret = process.env.STRATA_TOKEN_SECRET;
+    const prevOptIn = process.env.STRATA_ALLOW_INSECURE_DEV_SECRET;
+    delete process.env.STRATA_TOKEN_SECRET;
+    delete process.env.STRATA_ALLOW_INSECURE_DEV_SECRET;
+    try {
+      await expect(
+        startRestTransport({ port: 0, baseDir: makeTempDir() })
+      ).rejects.toThrow(/STRATA_TOKEN_SECRET is not set/);
+    } finally {
+      if (prevSecret !== undefined) process.env.STRATA_TOKEN_SECRET = prevSecret;
+      if (prevOptIn !== undefined) process.env.STRATA_ALLOW_INSECURE_DEV_SECRET = prevOptIn;
+    }
+  });
+
+  it("starts with the insecure fallback when STRATA_ALLOW_INSECURE_DEV_SECRET=1", async () => {
+    const prevSecret = process.env.STRATA_TOKEN_SECRET;
+    const prevOptIn = process.env.STRATA_ALLOW_INSECURE_DEV_SECRET;
+    delete process.env.STRATA_TOKEN_SECRET;
+    process.env.STRATA_ALLOW_INSECURE_DEV_SECRET = "1";
+    try {
+      handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
+      const res = await fetch(`${getBaseUrl()}/api/health`);
+      expect(res.status).toBe(200);
+    } finally {
+      if (prevSecret !== undefined) process.env.STRATA_TOKEN_SECRET = prevSecret;
+      else delete process.env.STRATA_TOKEN_SECRET;
+      if (prevOptIn !== undefined) process.env.STRATA_ALLOW_INSECURE_DEV_SECRET = prevOptIn;
+      else delete process.env.STRATA_ALLOW_INSECURE_DEV_SECRET;
+    }
+  });
+});
+
 describe("REST Transport — health and auth", () => {
   it("GET /api/health returns 200 with status ok", async () => {
     handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });

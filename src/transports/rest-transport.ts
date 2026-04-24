@@ -47,8 +47,15 @@ const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
 const DEFAULT_MAX_AGENTS = 200;
 const DEFAULT_MAX_WORLDS = 16;
-/** Dev-only fallback. Always set STRATA_TOKEN_SECRET in production. */
-const DEFAULT_TOKEN_SECRET = "strata-dev-secret-not-for-production";
+/**
+ * Dev-only fallback token secret. Used ONLY when STRATA_TOKEN_SECRET is
+ * unset and the operator has explicitly opted in via
+ * STRATA_ALLOW_INSECURE_DEV_SECRET=1. Without that opt-in the REST
+ * transport refuses to start with an unset secret, so production
+ * misconfigurations fail loud instead of silently signing forgeable
+ * tokens with a publicly-known constant.
+ */
+const INSECURE_DEV_TOKEN_SECRET = "strata-dev-secret-not-for-production";
 
 export interface RestTransportOptions {
   port: number;
@@ -81,6 +88,37 @@ interface CacheEntry {
   npcId: string;
   srv: CreateServerResult;
   lastAccess: number;
+}
+
+/**
+ * Resolve the HMAC token-signing secret.
+ *
+ * Precedence:
+ *   1. STRATA_TOKEN_SECRET — production path, silently accepted.
+ *   2. STRATA_ALLOW_INSECURE_DEV_SECRET=1 → use INSECURE_DEV_TOKEN_SECRET
+ *      and warn loudly. Intended for local dev convenience only.
+ *   3. Otherwise throw to abort startup. A production deploy that forgets
+ *      to set the secret fails loud instead of silently issuing HMAC
+ *      tokens signed with a publicly-known constant.
+ */
+function resolveTokenSecret(): string {
+  const fromEnv = process.env.STRATA_TOKEN_SECRET;
+  if (fromEnv && fromEnv.length > 0) return fromEnv;
+
+  if (process.env.STRATA_ALLOW_INSECURE_DEV_SECRET === "1") {
+    console.warn(
+      "[strata] WARNING: STRATA_TOKEN_SECRET is not set — using insecure dev fallback " +
+      "(STRATA_ALLOW_INSECURE_DEV_SECRET=1). Do not use in production."
+    );
+    return INSECURE_DEV_TOKEN_SECRET;
+  }
+
+  throw new Error(
+    "STRATA_TOKEN_SECRET is not set. Set it to a strong random value " +
+    "(e.g. `openssl rand -hex 32`) before starting the REST transport. " +
+    "For local development, set STRATA_ALLOW_INSECURE_DEV_SECRET=1 to opt " +
+    "into the publicly-known fallback secret."
+  );
 }
 
 /** Compose a composite cache key from playerId and npcId. */
@@ -176,12 +214,7 @@ export async function startRestTransport(
     );
   }
 
-  const tokenSecret = process.env.STRATA_TOKEN_SECRET ?? DEFAULT_TOKEN_SECRET;
-  if (tokenSecret === DEFAULT_TOKEN_SECRET) {
-    console.warn(
-      "[strata] WARNING: STRATA_TOKEN_SECRET is not set — using insecure dev fallback. Set it in production."
-    );
-  }
+  const tokenSecret = resolveTokenSecret();
 
   // Provider resolution: override (from tests) takes precedence, else lazy-load
   // via getExtractionProvider() on first /store+extract request and cache the
