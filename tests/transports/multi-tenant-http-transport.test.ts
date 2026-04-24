@@ -469,5 +469,122 @@ describe.skipIf(process.platform === "win32")(
       expect(handle.server.listening).toBe(false);
       handle = undefined; // already closed
     });
+
+    // ── Auth-proxy sentinel (STRATA_REQUIRE_AUTH_PROXY=1) ────────────
+
+    describe("verified-proxy enforcement", () => {
+      const AUTH_TOKEN = "a".repeat(40); // >= 32 chars
+      const validUser = "11111111-2222-3333-4444-555555555555";
+
+      function withAuthEnv<T>(fn: () => Promise<T>, overrides?: { token?: string; required?: boolean }): Promise<T> {
+        const prevRequired = process.env.STRATA_REQUIRE_AUTH_PROXY;
+        const prevToken = process.env.STRATA_AUTH_PROXY_TOKEN;
+        process.env.STRATA_REQUIRE_AUTH_PROXY = overrides?.required === false ? "0" : "1";
+        process.env.STRATA_AUTH_PROXY_TOKEN = overrides?.token ?? AUTH_TOKEN;
+        return fn().finally(() => {
+          if (prevRequired === undefined) delete process.env.STRATA_REQUIRE_AUTH_PROXY;
+          else process.env.STRATA_REQUIRE_AUTH_PROXY = prevRequired;
+          if (prevToken === undefined) delete process.env.STRATA_AUTH_PROXY_TOKEN;
+          else process.env.STRATA_AUTH_PROXY_TOKEN = prevToken;
+        });
+      }
+
+      it("refuses to start when required but STRATA_AUTH_PROXY_TOKEN is unset", async () => {
+        await withAuthEnv(async () => {
+          baseDir = makeTempDir();
+          await expect(
+            startMultiTenantHttpTransport({ port: 0, baseDir, maxDbs: 10 })
+          ).rejects.toThrow(/STRATA_AUTH_PROXY_TOKEN is unset/);
+        }, { token: "" });
+      });
+
+      it("refuses to start when token is shorter than 32 chars", async () => {
+        await withAuthEnv(async () => {
+          baseDir = makeTempDir();
+          await expect(
+            startMultiTenantHttpTransport({ port: 0, baseDir, maxDbs: 10 })
+          ).rejects.toThrow(/at least 32 characters/);
+        }, { token: "short" });
+      });
+
+      it("rejects /mcp without X-Strata-Verified header", async () => {
+        await withAuthEnv(async () => {
+          baseDir = makeTempDir();
+          handle = await startMultiTenantHttpTransport({ port: 0, baseDir, maxDbs: 10 });
+          const addr = handle.server.address();
+          if (typeof addr !== "object" || addr === null) throw new Error("No address");
+
+          const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream, application/json",
+              "X-Strata-User": validUser,
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+          });
+
+          expect(res.status).toBe(401);
+          const body = await res.json();
+          expect(body.error.message).toContain("X-Strata-Verified");
+        });
+      });
+
+      it("rejects /mcp with wrong X-Strata-Verified value", async () => {
+        await withAuthEnv(async () => {
+          baseDir = makeTempDir();
+          handle = await startMultiTenantHttpTransport({ port: 0, baseDir, maxDbs: 10 });
+          const addr = handle.server.address();
+          if (typeof addr !== "object" || addr === null) throw new Error("No address");
+
+          const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream, application/json",
+              "X-Strata-User": validUser,
+              "X-Strata-Verified": "wrong-token-same-length-as-auth-token--",
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+          });
+
+          expect(res.status).toBe(401);
+        });
+      });
+
+      it("accepts /mcp with a matching X-Strata-Verified header", async () => {
+        await withAuthEnv(async () => {
+          baseDir = makeTempDir();
+          handle = await startMultiTenantHttpTransport({ port: 0, baseDir, maxDbs: 10 });
+          const addr = handle.server.address();
+          if (typeof addr !== "object" || addr === null) throw new Error("No address");
+
+          const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream, application/json",
+              "X-Strata-User": validUser,
+              "X-Strata-Verified": AUTH_TOKEN,
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-03-26",
+                capabilities: {},
+                clientInfo: { name: "test", version: "1.0" },
+              },
+            }),
+          });
+
+          // Past the auth gate — any 2xx or the existing 400/sessionId path
+          // is acceptable. We only assert that the 401 auth-proxy gate did
+          // not reject us.
+          expect(res.status).not.toBe(401);
+        });
+      });
+    });
   }
 );

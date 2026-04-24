@@ -62,12 +62,43 @@ Shared-process model for SaaS deployments. One Node.js process handles all users
 
 User scope comes from the `X-Strata-User` HTTP header (must be UUID format). Routes: `POST/GET/DELETE /mcp`, `GET /health` (pool stats), `GET /admin/pool` (per-user details).
 
+**Multi-tenant deployments MUST run behind a verified auth proxy.**
+`X-Strata-User` alone is a trust-the-header identifier — the backend has no
+way to prove the caller owns the UUID they claim. For any deployment where
+untrusted clients can reach the port, set:
+
+| Env Var | Purpose |
+|---------|---------|
+| `STRATA_REQUIRE_AUTH_PROXY=1` | Require an `X-Strata-Verified` header on every `/mcp` request. |
+| `STRATA_AUTH_PROXY_TOKEN=<random>` | Shared secret (≥32 chars). Set the upstream proxy to send this as `X-Strata-Verified` after it has verified the caller's identity and resolved their `X-Strata-User` UUID. |
+
+The upstream proxy (Cloudflare Worker, Kong, Envoy, nginx+auth_request, etc.)
+is responsible for: (1) authenticating the caller (JWT/session/mTLS/etc.),
+(2) mapping them to a Strata user UUID, (3) setting `X-Strata-User` to that
+UUID, and (4) setting `X-Strata-Verified: <token>`. Strata verifies the
+sentinel in constant time and rejects any request missing or mismatching it.
+
+For local dev and single-user self-hosted deployments, leave the flag unset;
+the backend is then trusted to be behind a private network boundary.
+
 Key files:
 - `src/transports/http-transport.ts` — single-tenant HTTP transport
 - `src/transports/multi-tenant-http-transport.ts` — multi-tenant HTTP transport
 - `src/storage/database-pool.ts` — LRU database connection pool
 
 `createServer()` in `src/server.ts` accepts an optional `{ dataDir }` parameter to override the database location. In multi-tenant mode, each user gets their own `createServer()` instance with isolated caches, IndexManager, and database. Watchers (RealtimeWatcher, IncrementalIndexer) are not started in multi-tenant mode.
+
+### REST transport token secret
+
+The REST transport (`strata serve --rest`) signs player bearer tokens with
+HMAC. It refuses to start unless one of the following is set:
+
+| Env Var | Purpose |
+|---------|---------|
+| `STRATA_TOKEN_SECRET=<random>` | The signing key. Use `openssl rand -hex 32`. Required for any production deployment. |
+| `STRATA_ALLOW_INSECURE_DEV_SECRET=1` | Opt into a publicly-known dev fallback secret. Warns loudly. Local dev only. |
+
+Setting neither aborts startup with a diagnostic pointing at both paths.
 
 ## Security Scanning
 

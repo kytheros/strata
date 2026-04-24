@@ -15,7 +15,8 @@
  */
 
 import { createServer as createHttpServer, type Server } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { join } from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -27,6 +28,56 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Max concurrent MCP sessions per user — prevents session accumulation DoS */
 const MAX_SESSIONS_PER_USER = 10;
+
+/**
+ * Auth-proxy configuration. When STRATA_REQUIRE_AUTH_PROXY=1, every MCP
+ * request must carry an X-Strata-Verified header whose value matches
+ * STRATA_AUTH_PROXY_TOKEN. The upstream proxy is expected to set this
+ * sentinel only after verifying the caller's identity and setting
+ * X-Strata-User to the verified user id.
+ *
+ * Without this enforcement, X-Strata-User is a trust-the-header identifier —
+ * anyone who knows or guesses another user's UUID reads that user's database.
+ * This flag is the code-side half of the SaaS deployment contract; the other
+ * half is operator-configured at the reverse proxy (Cloudflare Worker, Kong,
+ * Envoy, nginx+auth_request, etc.).
+ */
+interface AuthProxyConfig {
+  /** When false, the verified-proxy check is skipped entirely (dev/local). */
+  required: boolean;
+  /** Shared secret that the upstream proxy sends as X-Strata-Verified. */
+  token: string | null;
+}
+
+function resolveAuthProxyConfig(): AuthProxyConfig {
+  const required = process.env.STRATA_REQUIRE_AUTH_PROXY === "1";
+  if (!required) return { required: false, token: null };
+
+  const token = process.env.STRATA_AUTH_PROXY_TOKEN ?? "";
+  if (!token) {
+    throw new Error(
+      "STRATA_REQUIRE_AUTH_PROXY=1 but STRATA_AUTH_PROXY_TOKEN is unset. " +
+      "Set STRATA_AUTH_PROXY_TOKEN to a strong random value (e.g. `openssl rand -hex 32`) " +
+      "and configure the upstream proxy to send it as the X-Strata-Verified header " +
+      "on every request after authenticating the user."
+    );
+  }
+  if (token.length < 32) {
+    throw new Error(
+      "STRATA_AUTH_PROXY_TOKEN must be at least 32 characters for useful entropy."
+    );
+  }
+  return { required: true, token };
+}
+
+/** Constant-time comparison to avoid leaking the token via response timing. */
+function verifiedHeaderMatches(header: string | undefined, token: string): boolean {
+  if (!header) return false;
+  const a = Buffer.from(header);
+  const b = Buffer.from(token);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 export interface MultiTenantHttpTransportOptions {
   port: number;
@@ -77,6 +128,10 @@ export async function startMultiTenantHttpTransport(
     maxDbs = 200,
     idleTimeoutMs = 300_000,
   } = options;
+
+  // Resolve auth-proxy config once at startup. Fails loud if the operator
+  // opted into STRATA_REQUIRE_AUTH_PROXY but forgot the shared-secret.
+  const authProxy = resolveAuthProxyConfig();
 
   // ── User server pool (LRU) ──────────────────────────────────────────
   // Map iteration order = insertion order. Re-insertion on access promotes to MRU.
@@ -303,6 +358,29 @@ export async function startMultiTenantHttpTransport(
     req: import("node:http").IncomingMessage,
     res: import("node:http").ServerResponse
   ): Promise<void> {
+    // ── Auth-proxy gate ───────────────────────────────────────────────
+    // When enabled, every MCP request must carry an X-Strata-Verified
+    // header matching the shared secret. This closes the trust-the-header
+    // gap on X-Strata-User: without the sentinel, identity claims are
+    // rejected before any per-user state is touched.
+    if (authProxy.required) {
+      const presented = req.headers["x-strata-verified"] as string | undefined;
+      if (!verifiedHeaderMatches(presented, authProxy.token!)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            error: {
+              code: -32000,
+              message: "Missing or invalid X-Strata-Verified header",
+            },
+            id: null,
+          })
+        );
+        return;
+      }
+    }
+
     const method = req.method?.toUpperCase();
 
     if (method === "POST") {
