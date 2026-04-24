@@ -409,4 +409,161 @@ describe("GeminiParser", () => {
     expect(result!.messages[0].text).toContain("And check the results.");
     expect(result!.messages[0].toolNames).toEqual(["execute_command"]);
   });
+
+  // --- cwd population (regression: was hardcoded to "") ---
+
+  it("parse() populates cwd from projectDir for v1 sessions", () => {
+    const chatsDir = join(tempDir, "strata-1", "chats");
+    mkdirSync(chatsDir, { recursive: true });
+    const filePath = join(chatsDir, "checkpoint-a.json");
+    writeFileSync(filePath, JSON.stringify([
+      { role: "user", parts: [{ text: "hello" }] },
+    ]));
+
+    const result = parser.parse({
+      filePath,
+      projectDir: "gemini/strata-1",
+      sessionId: "strata-1-a",
+      mtime: Date.now(),
+      size: 100,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.cwd).toBe("strata-1");
+  });
+
+  // --- v2 format (session-*.json with {sessionId, messages}) ---
+
+  it("discover() finds session-*.json v2 files", () => {
+    const chatsDir = join(tempDir, "strata-mcp-server", "chats");
+    mkdirSync(chatsDir, { recursive: true });
+    writeFileSync(
+      join(chatsDir, "session-2026-03-17T19-21-e720385f.json"),
+      JSON.stringify({ sessionId: "e720385f", messages: [] }),
+    );
+    // v1 alongside v2 should both be discovered
+    writeFileSync(join(chatsDir, "checkpoint-legacy.json"), "[]");
+
+    const files = parser.discover();
+    expect(files).toHaveLength(2);
+    const ids = files.map((f) => f.sessionId).sort();
+    expect(ids).toContain("strata-mcp-server-2026-03-17T19-21-e720385f");
+    expect(ids).toContain("strata-mcp-server-legacy");
+  });
+
+  it("parse() parses v2 session with user + gemini messages", () => {
+    const chatsDir = join(tempDir, "strata-mcp-server", "chats");
+    mkdirSync(chatsDir, { recursive: true });
+    const filePath = join(chatsDir, "session-abc.json");
+
+    writeFileSync(filePath, JSON.stringify({
+      sessionId: "e720385f-6f45-498e-bfc6-fdb0d8d00129",
+      messages: [
+        {
+          type: "user",
+          content: "What can you tell me about the project?",
+          timestamp: "2026-03-17T19:22:44.395Z",
+        },
+        {
+          type: "gemini",
+          content: [{ text: "It's a knowledge layer for agents." }],
+          timestamp: "2026-03-17T19:22:46.100Z",
+        },
+      ],
+    }));
+
+    const result = parser.parse({
+      filePath,
+      projectDir: "gemini/strata-mcp-server",
+      sessionId: "strata-mcp-server-abc",
+      mtime: Date.now(),
+      size: 200,
+    });
+
+    expect(result).not.toBeNull();
+    // Uses the session.sessionId when present
+    expect(result!.sessionId).toBe("e720385f-6f45-498e-bfc6-fdb0d8d00129");
+    expect(result!.cwd).toBe("strata-mcp-server");
+    expect(result!.messages).toHaveLength(2);
+    expect(result!.messages[0].role).toBe("user");
+    expect(result!.messages[1].role).toBe("assistant");
+    expect(result!.messages[1].text).toContain("knowledge layer");
+    // Timestamps from the messages become the session bounds
+    expect(result!.startTime).toBe(new Date("2026-03-17T19:22:44.395Z").getTime());
+    expect(result!.endTime).toBe(new Date("2026-03-17T19:22:46.100Z").getTime());
+  });
+
+  it("parse() extracts v2 toolCalls into toolNames", () => {
+    const chatsDir = join(tempDir, "strata", "chats");
+    mkdirSync(chatsDir, { recursive: true });
+    const filePath = join(chatsDir, "session-tools.json");
+
+    writeFileSync(filePath, JSON.stringify({
+      sessionId: "s1",
+      messages: [
+        {
+          type: "gemini",
+          content: "Running tool.",
+          toolCalls: [
+            { name: "run_shell_command", args: { command: "ls" } },
+          ],
+        },
+      ],
+    }));
+
+    const result = parser.parse({
+      filePath,
+      projectDir: "gemini/strata",
+      sessionId: "strata-tools",
+      mtime: Date.now(),
+      size: 100,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.messages[0].toolNames).toEqual(["run_shell_command"]);
+    expect(result!.messages[0].text).toContain("[tool: run_shell_command]");
+  });
+
+  it("parse() returns null for v2 session with no messages array", () => {
+    const chatsDir = join(tempDir, "strata", "chats");
+    mkdirSync(chatsDir, { recursive: true });
+    const filePath = join(chatsDir, "session-empty.json");
+    writeFileSync(filePath, JSON.stringify({ sessionId: "x", messages: "not-an-array" }));
+
+    const result = parser.parse({
+      filePath,
+      projectDir: "gemini/strata",
+      sessionId: "strata-empty",
+      mtime: Date.now(),
+      size: 50,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("parse() falls back to file mtime when v2 messages have no timestamps", () => {
+    const chatsDir = join(tempDir, "strata", "chats");
+    mkdirSync(chatsDir, { recursive: true });
+    const filePath = join(chatsDir, "session-nots.json");
+
+    writeFileSync(filePath, JSON.stringify({
+      sessionId: "s1",
+      messages: [
+        { type: "user", content: "hi" },
+        { type: "gemini", content: "hello" },
+      ],
+    }));
+
+    const mtime = 1_700_000_000_000;
+    const result = parser.parse({
+      filePath,
+      projectDir: "gemini/strata",
+      sessionId: "strata-nots",
+      mtime,
+      size: 50,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.endTime).toBe(mtime);
+  });
 });

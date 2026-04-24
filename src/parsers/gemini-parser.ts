@@ -113,6 +113,22 @@ export class GeminiParser implements ConversationParser {
 
   // ── v1: Legacy checkpoint format (array of {role, parts}) ───────────
 
+  /**
+   * Extract the project name portion of `file.projectDir`.
+   * The indexer sets projectDir to `gemini/<projectName>`; return `<projectName>`
+   * so parsed sessions carry a non-empty cwd for recall and display.
+   *
+   * Gemini CLI derives projectName from path.basename(cwd) with collision
+   * suffixes (e.g. "strata", "strata-1"), so this is the best proxy for the
+   * original working directory without an authoritative reverse mapping.
+   */
+  private extractProjectName(file: SessionFileInfo): string {
+    if (!file.projectDir) return "";
+    const normalized = file.projectDir.replace(/\\/g, "/");
+    if (normalized.startsWith("gemini/")) return normalized.slice("gemini/".length);
+    return normalized;
+  }
+
   private parseV1(rawMessages: unknown[], file: SessionFileInfo): ParsedSession | null {
     const messages: SessionMessage[] = [];
     const createTimes: number[] = [];
@@ -197,7 +213,7 @@ export class GeminiParser implements ConversationParser {
     return {
       sessionId: file.sessionId,
       project: file.projectDir,
-      cwd: "",
+      cwd: this.extractProjectName(file),
       gitBranch: "",
       messages,
       startTime,
@@ -294,7 +310,7 @@ export class GeminiParser implements ConversationParser {
     return {
       sessionId: session.sessionId || file.sessionId,
       project: file.projectDir,
-      cwd: "",
+      cwd: this.extractProjectName(file),
       gitBranch: "",
       messages,
       startTime,
