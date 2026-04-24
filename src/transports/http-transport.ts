@@ -207,10 +207,22 @@ async function handleMcpRequest(
   res.end(JSON.stringify({ error: "Method not allowed" }));
 }
 
+/** Max request body size — matches multi-tenant-http-transport.ts. */
+const MAX_BODY_BYTES = 1_048_576; // 1 MB
+
 function readBody(req: import("node:http").IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let total = 0;
+    req.on("data", (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > MAX_BODY_BYTES) {
+        reject(new Error("Request body exceeds 1MB limit"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
     req.on("error", reject);
   });
