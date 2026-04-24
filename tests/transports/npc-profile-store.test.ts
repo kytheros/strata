@@ -179,4 +179,52 @@ describe("NpcProfileStore (SQL)", () => {
     expect(p.decayConfig).toBeUndefined();
     expect(p.anchorConfig).toBeUndefined();
   });
+
+  it("accepts refusalStyle enum + refusalExample and roundtrips both", () => {
+    store.put("goran", {
+      ...validProfileInput,
+      refusalStyle: "gruff",
+      refusalExample: "Not your business. *turns back to the forge*",
+    });
+    const fetched = store.get("goran")!;
+    expect(fetched.refusalStyle).toBe("gruff");
+    expect(fetched.refusalExample).toBe("Not your business. *turns back to the forge*");
+  });
+
+  it("defaults refusalStyle to 'evasive' when omitted", () => {
+    store.put("mira", validProfileInput);
+    const fetched = store.get("mira")!;
+    expect(fetched.refusalStyle).toBe("evasive");
+  });
+
+  it("rejects invalid refusalStyle value", () => {
+    expect(() => {
+      store.put("bad", { ...validProfileInput, refusalStyle: "angry" });
+    }).toThrow(/refusalStyle must be gruff\|evasive\|apologetic\|silent/);
+  });
+
+  it("accepts omitted refusalExample (optional)", () => {
+    store.put("silent-npc", { ...validProfileInput, refusalStyle: "silent" });
+    const fetched = store.get("silent-npc")!;
+    expect(fetched.refusalStyle).toBe("silent");
+    expect(fetched.refusalExample).toBeUndefined();
+  });
+
+  it("round-trips explicit decayProfile='normal' distinct from undefined", () => {
+    store.put("explicit-normal", { ...validProfileInput, decayProfile: "normal" });
+    const explicit = store.get("explicit-normal")!;
+    expect(explicit.decayProfile).toBe("normal");
+
+    store.put("implicit", validProfileInput);
+    const implicit = store.get("implicit")!;
+    expect(implicit.decayProfile).toBeUndefined();
+  });
+
+  it("round-trips decayProfile='sharp' and decayProfile='fading'", () => {
+    store.put("sharp-npc", { ...validProfileInput, decayProfile: "sharp" });
+    expect(store.get("sharp-npc")!.decayProfile).toBe("sharp");
+
+    store.put("fading-npc", { ...validProfileInput, decayProfile: "fading" });
+    expect(store.get("fading-npc")!.decayProfile).toBe("fading");
+  });
 });

@@ -32,6 +32,8 @@ export interface AnchorConfig {
 
 export type GossipTrait = "gossipy" | "discreet" | "normal";
 
+export type RefusalStyle = "gruff" | "evasive" | "apologetic" | "silent";
+
 export interface NpcProfile {
   name: string;
   title?: string;
@@ -47,12 +49,15 @@ export interface NpcProfile {
   anchorConfig?: AnchorConfig;
   propagateTags?: string[];
   gossipTrait: GossipTrait;
+  refusalStyle: RefusalStyle;
+  refusalExample?: string;
 }
 
 const VALID_ETHICAL = new Set(["lawful", "neutral", "chaotic"]);
 const VALID_MORAL = new Set(["good", "neutral", "evil"]);
 const VALID_DECAY_PROFILES = new Set(["sharp", "normal", "fading", "custom"]);
 const VALID_GOSSIP_TRAITS = new Set(["gossipy", "discreet", "normal"]);
+const VALID_REFUSAL_STYLES = new Set<RefusalStyle>(["gruff", "evasive", "apologetic", "silent"]);
 
 export class NpcProfileStore {
   private readonly db: Database.Database;
@@ -141,12 +146,17 @@ export class NpcProfileStore {
       propagate_tags_json: profile.propagateTags ? JSON.stringify(profile.propagateTags) : null,
       tag_rules_json: profile.tagRules ? JSON.stringify(profile.tagRules) : null,
       decay_config_json: profile.decayConfig ? JSON.stringify(profile.decayConfig) : null,
-      // Pack extras: traits, backstory, anchorConfig, title
+      // Pack extras. `decayProfileExplicit` is a sentinel: the decay_profile_name
+      // column stores "normal" for both "user explicitly selected normal" and
+      // "user left it unset" — this flag disambiguates so the former round-trips.
       extras_json: JSON.stringify({
         traits: profile.traits,
         backstory: profile.backstory,
         title: profile.title,
         anchorConfig: profile.anchorConfig,
+        refusalStyle: profile.refusalStyle,
+        refusalExample: profile.refusalExample,
+        decayProfileExplicit: profile.decayProfile !== undefined,
       }),
       now: Date.now(),
     });
@@ -205,6 +215,15 @@ export class NpcProfileStore {
           ? (decayProfileName as NpcProfile["decayProfile"])
           : undefined);
 
+    const refusalStyle: RefusalStyle = VALID_REFUSAL_STYLES.has(extras.refusalStyle as RefusalStyle)
+      ? (extras.refusalStyle as RefusalStyle)
+      : "evasive";
+
+    const refusalExample: string | undefined =
+      typeof extras.refusalExample === "string" && extras.refusalExample.length > 0
+        ? extras.refusalExample
+        : undefined;
+
     return {
       name: row.name as string,
       title: (extras.title as string | undefined) ?? undefined,
@@ -223,6 +242,8 @@ export class NpcProfileStore {
       anchorConfig: anchorConfigRaw,
       propagateTags: propagateTagsRaw,
       gossipTrait: (row.gossip_trait as GossipTrait) ?? "normal",
+      refusalStyle,
+      refusalExample,
     };
   }
 
@@ -317,6 +338,19 @@ export class NpcProfileStore {
       gossipTrait = String(input.gossipTrait) as GossipTrait;
     }
 
+    let refusalStyle: RefusalStyle = "evasive";
+    if (input.refusalStyle !== undefined) {
+      if (!VALID_REFUSAL_STYLES.has(String(input.refusalStyle) as RefusalStyle)) {
+        throw new Error("refusalStyle must be gruff|evasive|apologetic|silent");
+      }
+      refusalStyle = String(input.refusalStyle) as RefusalStyle;
+    }
+
+    let refusalExample: string | undefined;
+    if (typeof input.refusalExample === "string" && input.refusalExample.length > 0) {
+      refusalExample = input.refusalExample;
+    }
+
     return {
       name: String(name),
       title: typeof input.title === "string" ? input.title : undefined,
@@ -337,6 +371,8 @@ export class NpcProfileStore {
       anchorConfig,
       propagateTags,
       gossipTrait,
+      refusalStyle,
+      refusalExample,
     };
   }
 }
