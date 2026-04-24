@@ -116,8 +116,14 @@ export async function enhancedExtract(
     }
 
     return merged;
-  } catch {
-    // Fallback to heuristic extraction
+  } catch (err) {
+    // Fallback to heuristic extraction. Log the reason so production failures
+    // (rate limits, timeouts, malformed responses) aren't silently invisible.
+    console.warn(
+      `[strata] enhancedExtract LLM path failed, falling back to heuristic: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
     return extractKnowledge(session);
   }
 }
