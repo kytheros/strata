@@ -102,6 +102,21 @@ export const CONFIG = {
     return join(this.dataDir, "sync-state.json");
   },
 
+  // Recall pipeline tuning (NPC TIR + QDP). Spec 2026-04-26-npc-recall-tir-qdp-design.md.
+  recall: {
+    qdp: {
+      // Near-duplicate dedupe: drop the lower-ranked of any pair with character-trigram
+      // Jaccard similarity at or above this threshold.
+      dedupeJaccard: 0.85,
+      // Filler filter: items shorter than this (after trimEnd) AND ending with '?' AND
+      // tagged exactly ['dialogue'] are dropped.
+      fillerMaxLen: 40,
+      // Query-coverage floor: query tokens shorter than this are dropped from the
+      // coverage check (avoids false positives on stop-words / fragments).
+      minTokenLen: 4,
+    },
+  },
+
   // Learning synthesis
   learning: {
     similarityThreshold: 0.6,  // Jaccard similarity for clustering
