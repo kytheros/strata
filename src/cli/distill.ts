@@ -259,7 +259,9 @@ export async function runDistillStatus(
       }
     } else {
       console.log("To begin fine-tuning:");
-      console.log("  pip install strata-memory[distill]");
+      console.log("  # The strata-memory Python SDK is in alpha and not yet on PyPI.");
+      console.log("  # Track release: https://github.com/kytheros/strata-py/issues/1");
+      console.log("  pip install 'strata-memory[distill]'  # will work once published");
       console.log("  strata-distill start --task extraction");
     }
   } finally {
