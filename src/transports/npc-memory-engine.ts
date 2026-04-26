@@ -30,6 +30,17 @@ export interface NpcMemory {
   accessCount: number;
 }
 
+/** See npc-turn-store.ts for rationale. Duplicated locally to keep the
+ * engines decoupled — they're independent stores that happen to share
+ * a sanitizer pattern. If a third caller emerges, lift to a shared util. */
+function sanitizeFtsQuery(raw: string): string {
+  const tokens = raw
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(t => t.length >= 2);
+  return tokens.join(" OR ");
+}
+
 export class NpcMemoryEngine {
   private readonly db: Database.Database;
   private readonly npcId: string;
@@ -113,7 +124,12 @@ export class NpcMemoryEngine {
 
   /** Full-text search within this NPC's memories. */
   search(query: string): NpcMemory[] {
-    // FTS5 match, filtered to this npcId via join back to npc_memories
+    if (!query || query.trim().length === 0) return [];
+    // FTS5 match, filtered to this npcId via join back to npc_memories.
+    // Sanitize the query into FTS5-safe alphanumeric tokens (OR-joined) so
+    // free-text inputs like "what's the password?" don't trip FTS5 syntax.
+    const ftsQuery = sanitizeFtsQuery(query);
+    if (ftsQuery.length === 0) return [];
     const stmt = this.db.prepare(`
       SELECT m.*
       FROM npc_memories m
@@ -122,7 +138,7 @@ export class NpcMemoryEngine {
         AND m.npc_id = ?
       ORDER BY m.importance DESC
     `);
-    const rows = stmt.all(query, this.npcId) as Record<string, unknown>[];
+    const rows = stmt.all(ftsQuery, this.npcId) as Record<string, unknown>[];
     return rows.map(r => this.rowToMemory(r));
   }
 

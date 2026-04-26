@@ -1,0 +1,16 @@
+
+═══ NPC Recall TIR + QDP Eval (Phase 0) ═══
+  ✓ abstention-pure-noise            score=0
+  ✓ alias-reverse-lookup             score=1
+  ✓ conflicting-quantities           score=2
+  ✓ cross-npc-contamination          score=1
+  ✓ mixed-source-fusion              score=1
+  ✓ noise-buried-fact                score=1
+  ✓ private-secret                   score=1
+  ✓ recency-contradiction            score=1
+  ✓ redundant-statements             score=1
+  ✓ seed-only                        score=1
+
+  Total: 10/10
+
+  Decision: SHIP Phase 0

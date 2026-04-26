@@ -38,6 +38,32 @@ export interface SearchOptions {
   limit: number;
 }
 
+/**
+ * Reduce a free-text query to FTS5-safe alphanumeric tokens, OR-joined.
+ *
+ * SQLite FTS5's MATCH syntax treats apostrophes, quotes, parens, and a
+ * handful of other characters as syntactic — passing user phrases like
+ * "what's the wizard's true name" raw produces a parse error.
+ *
+ * This sanitizer:
+ *   - lowercases
+ *   - splits on non-alphanumerics (drops punctuation)
+ *   - drops single-character tokens
+ *   - joins with " OR " so the query matches any token (FTS5's rank
+ *     formula already prefers documents that match more terms; explicit
+ *     OR avoids the implicit-AND trap where a single missing word voids
+ *     the entire match).
+ *
+ * Returns an empty string if no usable tokens remain.
+ */
+function sanitizeFtsQuery(raw: string): string {
+  const tokens = raw
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(t => t.length >= 2);
+  return tokens.join(" OR ");
+}
+
 export class NpcTurnStore {
   private readonly db: Database.Database;
   private readonly stmtInsert: Database.Statement;
@@ -75,6 +101,8 @@ export class NpcTurnStore {
    */
   search(query: string, opts: SearchOptions): NpcTurnHit[] {
     if (!query || query.trim().length === 0) return [];
+    const ftsQuery = sanitizeFtsQuery(query);
+    if (ftsQuery.length === 0) return [];
     const stmt = this.db.prepare(`
       SELECT t.*, bm25(npc_turns_fts) AS bm25_raw
       FROM npc_turns t
@@ -84,7 +112,7 @@ export class NpcTurnStore {
       ORDER BY bm25_raw ASC
       LIMIT ?
     `);
-    const rows = stmt.all(query, opts.npcId, opts.limit) as Record<string, unknown>[];
+    const rows = stmt.all(ftsQuery, opts.npcId, opts.limit) as Record<string, unknown>[];
     return rows.map(r => this.rowToHit(r));
   }
 
