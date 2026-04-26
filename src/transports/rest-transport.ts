@@ -37,6 +37,9 @@ import { WorldRegistry } from "./world-registry.js";
 import { WorldPool } from "./world-pool.js";
 import { mintPlayerToken, verifyPlayerToken, type PlayerTokenClaims } from "./player-token.js";
 import { NpcMemoryEngine } from "./npc-memory-engine.js";
+import { NpcTurnStore } from "./npc-turn-store.js";
+import { fuseRecallLanes, type RecallCandidate } from "./recall-fusion.js";
+import { recallQdp } from "./recall-qdp.js";
 import type { LlmProvider } from "../extensions/llm-extraction/llm-provider.js";
 import { getExtractionProvider } from "../extensions/llm-extraction/provider-factory.js";
 import { ExtractionQueueStore } from "../extensions/extraction-queue/queue-store.js";
@@ -224,6 +227,23 @@ function extractBearer(req: IncomingMessage): string {
 /** In no-auth mode, treat all requests as having full access (no security boundary). */
 function hasAdminAccess(auth: { kind: string }): boolean {
   return auth.kind === "admin" || auth.kind === "none";
+}
+
+/**
+ * Lazy singleton for the per-world NpcTurnStore. The cache invalidates when
+ * the underlying database handle changes — tests swap `:memory:` databases
+ * per case, and we don't want stale prepared statements pointed at a closed
+ * handle. Using `unknown` as the key type because the better-sqlite3 type is
+ * imported transitively and we just need referential equality.
+ */
+let _turnStore: NpcTurnStore | null = null;
+let _turnStoreDb: unknown = null;
+function getTurnStore(db: unknown): NpcTurnStore {
+  if (_turnStore === null || _turnStoreDb !== db) {
+    _turnStore = new NpcTurnStore(db as never);
+    _turnStoreDb = db;
+  }
+  return _turnStore;
 }
 
 /** Emit a structured audit log line for admin events. */
@@ -774,6 +794,20 @@ export async function startRestTransport(
           const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
           const id = engine.add({ content: memory, tags: storeTags, importance });
           result = { id, stored: true };
+
+          // TIR (Spec 2026-04-26): index raw turn for turn-level recall lane.
+          // Triggered only on extract:true (live conversation). Seed-fixture writes
+          // (NpcSeeder, authoring tool) skip this — they're already preserved verbatim
+          // in npc_memories.content and would pollute turn ranking with non-turns.
+          if (body.extract === true) {
+            const turnStore = getTurnStore(activeWorldDb);
+            turnStore.add({
+              npcId: params.agentId,
+              playerId,
+              speaker: typeof body.speaker === "string" ? body.speaker : "player",
+              content: memory,
+            });
+          }
 
           // Tag-rule side effect: compute trust delta and record per-player observation.
           // Always record when tags are present — familiarity is an interaction count,

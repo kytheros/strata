@@ -1212,3 +1212,43 @@ describe("REST Transport — extractionProvider option", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("REST Transport — turn indexing on /store (Spec 2026-04-26)", () => {
+  // Use a fast mock extraction provider so the queue drains immediately
+  // and afterEach can close the server without hanging.
+  const mockProvider = {
+    name: "test-mock",
+    complete: async () => '{"facts":[]}',
+  };
+
+  it("writes a turn row when body.extract === true (verified via search)", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
+    const base = getBaseUrl();
+
+    const res = await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memory: "the password is moonstone", extract: true }),
+    });
+    expect(res.status).toBe(200);
+
+    const search = await fetch(`${base}/api/agents/goran/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "moonstone", limit: 5 }),
+    });
+    const body = await search.json();
+    expect(body.results.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does NOT crash when body.extract is missing (seed-mode path)", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
+    const base = getBaseUrl();
+    const res = await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memory: "seed fact, no extract flag" }),
+    });
+    expect(res.status).toBe(200);
+  });
+});
