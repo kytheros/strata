@@ -19,7 +19,6 @@ import { GeminiParser } from "../parsers/gemini-parser.js";
 import { AiderParser } from "../parsers/aider-parser.js";
 import type { ConversationParser } from "../parsers/parser-interface.js";
 import type { ParsedSession, SessionFileInfo } from "../parsers/session-parser.js";
-import { hasFeature } from "../extensions/feature-gate.js";
 import { extractKnowledge } from "../knowledge/knowledge-extractor.js";
 import type { IEventStore } from "../storage/interfaces/event-store.js";
 import type { GeminiProvider } from "../extensions/llm-extraction/gemini-provider.js";
@@ -57,17 +56,15 @@ export class SqliteIndexManager {
     this.summaries = new SqliteSummaryStore(this.db);
     this.meta = new SqliteMetaStore(this.db);
 
-    // Initialize parser registry with default parsers
+    // Initialize parser registry — all coding-agent parsers are Community.
+    // Auto-indexing of conversation history is a baseline capability; tier
+    // gating belongs on the knowledge-extraction layer, not the parsers.
     this.registry = new ParserRegistry();
-    // Free tier: 3 parsers (Claude Code, Codex, Cline)
     this.registry.register(new ClaudeCodeParser());
     this.registry.register(new CodexParser());
     this.registry.register(new ClineParser());
-    // Pro tier: additional parsers (Gemini CLI, Aider)
-    if (hasFeature("pro")) {
-      this.registry.register(new GeminiParser());
-      this.registry.register(new AiderParser());
-    }
+    this.registry.register(new GeminiParser());
+    this.registry.register(new AiderParser());
   }
 
   /**
