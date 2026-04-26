@@ -1252,3 +1252,99 @@ describe("REST Transport — turn indexing on /store (Spec 2026-04-26)", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("REST Transport — recall TIR + QDP (Spec 2026-04-26)", () => {
+  const mockProvider = {
+    name: "test-mock",
+    complete: async () => '{"facts":[]}',
+  };
+
+  it("recall fuses turns and memories — turn content surfaces from extract:true writes", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
+    const base = getBaseUrl();
+
+    await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memory: "the password to the back room is moonstone", extract: true }),
+    });
+    await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memory: "Player told me a back-room password.", tags: ["seed"] }),
+    });
+
+    const res = await fetch(`${base}/api/agents/goran/recall`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ situation: "what was the password", limit: 5 }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const joined = body.context.map((c: { text: string }) => c.text).join(" || ");
+    expect(joined).toContain("moonstone");
+  });
+
+  it("recall QDP drops near-duplicates", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
+    const base = getBaseUrl();
+
+    for (const text of [
+      "the password is moonstone",
+      "the password is moonstone",
+      "the password was moonstone",
+    ]) {
+      await fetch(`${base}/api/agents/goran/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory: text, extract: true }),
+      });
+    }
+    const res = await fetch(`${base}/api/agents/goran/recall`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ situation: "password", limit: 5 }),
+    });
+    const body = await res.json();
+    const moonstoneHits = body.context.filter((c: { text: string }) => c.text.includes("moonstone"));
+    expect(moonstoneHits.length).toBeLessThanOrEqual(2);
+  });
+
+  it("recall QDP drops query-irrelevant noise", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
+    const base = getBaseUrl();
+
+    await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memory: "the password is moonstone", extract: true }),
+    });
+    await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memory: "completely unrelated trivia about ferrets", extract: true }),
+    });
+    const res = await fetch(`${base}/api/agents/goran/recall`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ situation: "password moonstone", limit: 5 }),
+    });
+    const body = await res.json();
+    const texts = body.context.map((c: { text: string }) => c.text);
+    expect(texts.some((t: string) => t.includes("moonstone"))).toBe(true);
+    expect(texts.some((t: string) => t.includes("ferrets"))).toBe(false);
+  });
+
+  it("recall response shape unchanged: { context, summary }", async () => {
+    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
+    const base = getBaseUrl();
+    const res = await fetch(`${base}/api/agents/goran/recall`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ situation: "anything", limit: 5 }),
+    });
+    const body = await res.json();
+    expect(Array.isArray(body.context)).toBe(true);
+    expect(typeof body.summary).toBe("string");
+  });
+});

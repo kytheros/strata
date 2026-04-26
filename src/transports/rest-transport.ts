@@ -928,24 +928,44 @@ export async function startRestTransport(
         const relData = activeRelationshipStore.get(playerId, params.agentId, npcProfile, activeCharacterStore.read(playerId));
 
         if (activeWorldDb !== null) {
-          // v2 world-scoped path: recall from world.db npc_memories (shared NPC memory).
+          // v2 world-scoped path: TIR + RRF fusion + rules-QDP. Spec 2026-04-26.
           const situation = body.situation;
           if (typeof situation !== "string" || situation.length === 0) {
             json(res, 400, { error: "Missing required field: situation", code: 400 });
             return;
           }
           const limit = typeof body.limit === "number" ? Math.min(body.limit, 50) : 10;
+
           const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
-          const memories = engine.search(situation);
-          const limited = memories.slice(0, limit);
-          const context = limited.map((m) => ({
-            text: m.content,
-            type: "fact" as const,
-            confidence: m.importance / 100,
-            source: "world-fts5" as const,
-            tags: m.tags,
+          const turnStore = getTurnStore(activeWorldDb);
+
+          // Two FTS5 searches against world.db. Both synchronous via better-sqlite3.
+          const turnHits = turnStore.search(situation, { npcId: params.agentId, limit: limit * 2 });
+          const memoryHits = engine.search(situation);
+
+          // Project to source-tagged candidates for fusion.
+          const turnList: RecallCandidate[] = turnHits.map(t => ({
+            id: t.turnId, score: t.bm25, source: "turn",
+            content: t.content, tags: [],
           }));
-          const topFacts = context.slice(0, 3).map((r) => r.text).join(". ");
+          const factList: RecallCandidate[] = memoryHits.map(m => ({
+            id: m.id, score: m.importance / 100, source: "fact",
+            content: m.content, tags: m.tags,
+          }));
+
+          const fused = fuseRecallLanes([turnList, factList]);
+          const pruned = recallQdp(fused, situation);
+          const top = pruned.slice(0, limit);
+
+          // Project to existing context[] response shape — unchanged contract.
+          const context = top.map(c => ({
+            text: c.content,
+            type: "fact" as const,
+            confidence: c.rrfScore,
+            source: c.source === "turn" ? ("npc-turn" as const) : ("world-fts5" as const),
+            tags: c.tags,
+          }));
+          const topFacts = context.slice(0, 3).map(r => r.text).join(". ");
           json(res, 200, { context, summary: topFacts || "No relevant memories found." });
         } else {
           // Legacy per-player path.
