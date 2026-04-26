@@ -229,23 +229,6 @@ function hasAdminAccess(auth: { kind: string }): boolean {
   return auth.kind === "admin" || auth.kind === "none";
 }
 
-/**
- * Lazy singleton for the per-world NpcTurnStore. The cache invalidates when
- * the underlying database handle changes — tests swap `:memory:` databases
- * per case, and we don't want stale prepared statements pointed at a closed
- * handle. Using `unknown` as the key type because the better-sqlite3 type is
- * imported transitively and we just need referential equality.
- */
-let _turnStore: NpcTurnStore | null = null;
-let _turnStoreDb: unknown = null;
-function getTurnStore(db: unknown): NpcTurnStore {
-  if (_turnStore === null || _turnStoreDb !== db) {
-    _turnStore = new NpcTurnStore(db as never);
-    _turnStoreDb = db;
-  }
-  return _turnStore;
-}
-
 /** Emit a structured audit log line for admin events. */
 function auditLog(event: string, fields: Record<string, unknown>): void {
   console.log(
@@ -800,7 +783,7 @@ export async function startRestTransport(
           // (NpcSeeder, authoring tool) skip this — they're already preserved verbatim
           // in npc_memories.content and would pollute turn ranking with non-turns.
           if (body.extract === true) {
-            const turnStore = getTurnStore(activeWorldDb);
+            const turnStore = new NpcTurnStore(activeWorldDb);
             turnStore.add({
               npcId: params.agentId,
               playerId,
@@ -937,7 +920,7 @@ export async function startRestTransport(
           const limit = typeof body.limit === "number" ? Math.min(body.limit, 50) : 10;
 
           const engine = new NpcMemoryEngine(activeWorldDb, params.agentId);
-          const turnStore = getTurnStore(activeWorldDb);
+          const turnStore = new NpcTurnStore(activeWorldDb);
 
           // Two FTS5 searches against world.db. Both synchronous via better-sqlite3.
           const turnHits = turnStore.search(situation, { npcId: params.agentId, limit: limit * 2 });

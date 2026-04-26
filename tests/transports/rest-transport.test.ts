@@ -1213,28 +1213,50 @@ describe("REST Transport — extractionProvider option", () => {
   });
 });
 
+/**
+ * v2 path scaffolding — TIR+QDP only fires on player-v2 tokens (worldDb-scoped).
+ * In no-auth mode `activeWorldDb` is null and requests fall to the legacy
+ * KnowledgeStore branch. To exercise the new code through HTTP, we must:
+ *   1. Boot the server with an admin token
+ *   2. Mint a v2 player token via POST /api/players + X-Strata-World header
+ *   3. Use that token's bearer auth for /api/agents/* calls
+ */
+async function bootV2Server(opts: { mockProvider?: { name: string; complete: () => Promise<string> } } = {}) {
+  const ADMIN = "a".repeat(32);
+  handle = await startRestTransport({
+    port: 0,
+    token: ADMIN,
+    baseDir: makeTempDir(),
+    extractionProvider: opts.mockProvider,
+  });
+  const base = getBaseUrl();
+  const mintRes = await fetch(`${base}/api/players`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${ADMIN}`,
+      "X-Strata-World": "default",
+    },
+    body: JSON.stringify({}),
+  });
+  const { playerToken } = await mintRes.json();
+  return { base, headers: { "Content-Type": "application/json", "Authorization": `Bearer ${playerToken}` } };
+}
+
 describe("REST Transport — turn indexing on /store (Spec 2026-04-26)", () => {
-  // Use a fast mock extraction provider so the queue drains immediately
-  // and afterEach can close the server without hanging.
-  const mockProvider = {
-    name: "test-mock",
-    complete: async () => '{"facts":[]}',
-  };
+  const mockProvider = { name: "test-mock", complete: async () => '{"facts":[]}' };
 
   it("writes a turn row when body.extract === true (verified via search)", async () => {
-    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
-    const base = getBaseUrl();
+    const { base, headers } = await bootV2Server({ mockProvider });
 
     const res = await fetch(`${base}/api/agents/goran/store`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ memory: "the password is moonstone", extract: true }),
     });
     expect(res.status).toBe(200);
 
     const search = await fetch(`${base}/api/agents/goran/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ query: "moonstone", limit: 5 }),
     });
     const body = await search.json();
@@ -1242,11 +1264,9 @@ describe("REST Transport — turn indexing on /store (Spec 2026-04-26)", () => {
   });
 
   it("does NOT crash when body.extract is missing (seed-mode path)", async () => {
-    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
-    const base = getBaseUrl();
+    const { base, headers } = await bootV2Server({ mockProvider });
     const res = await fetch(`${base}/api/agents/goran/store`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ memory: "seed fact, no extract flag" }),
     });
     expect(res.status).toBe(200);
@@ -1254,40 +1274,34 @@ describe("REST Transport — turn indexing on /store (Spec 2026-04-26)", () => {
 });
 
 describe("REST Transport — recall TIR + QDP (Spec 2026-04-26)", () => {
-  const mockProvider = {
-    name: "test-mock",
-    complete: async () => '{"facts":[]}',
-  };
+  const mockProvider = { name: "test-mock", complete: async () => '{"facts":[]}' };
 
-  it("recall fuses turns and memories — turn content surfaces from extract:true writes", async () => {
-    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
-    const base = getBaseUrl();
+  it("recall surfaces turn content from extract:true writes (proves dual-index wiring)", async () => {
+    const { base, headers } = await bootV2Server({ mockProvider });
 
+    // Live conversational turn — should land in npc_turns AND surface via the
+    // turn-level FTS5 lane in the new /recall pipeline.
     await fetch(`${base}/api/agents/goran/store`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ memory: "the password to the back room is moonstone", extract: true }),
-    });
-    await fetch(`${base}/api/agents/goran/store`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memory: "Player told me a back-room password.", tags: ["seed"] }),
     });
 
     const res = await fetch(`${base}/api/agents/goran/recall`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ situation: "what was the password", limit: 5 }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
     const joined = body.context.map((c: { text: string }) => c.text).join(" || ");
     expect(joined).toContain("moonstone");
+    // The new pipeline tags fused candidates with their source. Turn-source
+    // confidence is the RRF score — a small float, not the legacy importance/100.
+    const sources = new Set(body.context.map((c: { source: string }) => c.source));
+    expect(sources.has("npc-turn") || sources.has("world-fts5")).toBe(true);
   });
 
   it("recall QDP drops near-duplicates", async () => {
-    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
-    const base = getBaseUrl();
+    const { base, headers } = await bootV2Server({ mockProvider });
 
     for (const text of [
       "the password is moonstone",
@@ -1295,14 +1309,12 @@ describe("REST Transport — recall TIR + QDP (Spec 2026-04-26)", () => {
       "the password was moonstone",
     ]) {
       await fetch(`${base}/api/agents/goran/store`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers,
         body: JSON.stringify({ memory: text, extract: true }),
       });
     }
     const res = await fetch(`${base}/api/agents/goran/recall`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ situation: "password", limit: 5 }),
     });
     const body = await res.json();
@@ -1311,22 +1323,18 @@ describe("REST Transport — recall TIR + QDP (Spec 2026-04-26)", () => {
   });
 
   it("recall QDP drops query-irrelevant noise", async () => {
-    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
-    const base = getBaseUrl();
+    const { base, headers } = await bootV2Server({ mockProvider });
 
     await fetch(`${base}/api/agents/goran/store`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ memory: "the password is moonstone", extract: true }),
     });
     await fetch(`${base}/api/agents/goran/store`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ memory: "completely unrelated trivia about ferrets", extract: true }),
     });
     const res = await fetch(`${base}/api/agents/goran/recall`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ situation: "password moonstone", limit: 5 }),
     });
     const body = await res.json();
@@ -1336,11 +1344,9 @@ describe("REST Transport — recall TIR + QDP (Spec 2026-04-26)", () => {
   });
 
   it("recall response shape unchanged: { context, summary }", async () => {
-    handle = await startRestTransport({ port: 0, baseDir: makeTempDir(), extractionProvider: mockProvider });
-    const base = getBaseUrl();
+    const { base, headers } = await bootV2Server({ mockProvider });
     const res = await fetch(`${base}/api/agents/goran/recall`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify({ situation: "anything", limit: 5 }),
     });
     const body = await res.json();

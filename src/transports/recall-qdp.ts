@@ -22,9 +22,24 @@ const STOPWORDS = new Set([
   "should", "will", "shall", "may", "might", "been", "being",
 ]);
 
-export function recallQdp(items: FusedCandidate[], query: string): FusedCandidate[] {
+export interface QdpConfig {
+  dedupeJaccard: number;
+  fillerMaxLen: number;
+  minTokenLen: number;
+}
+
+/**
+ * Apply Phase-0 rules-only QDP. Defaults to `CONFIG.recall.qdp` when no
+ * `qdpConfig` is passed — production callers don't need to thread config,
+ * tests and AutoResearch loops can override per call.
+ */
+export function recallQdp(
+  items: FusedCandidate[],
+  query: string,
+  qdpConfig?: QdpConfig
+): FusedCandidate[] {
   if (items.length === 0) return items;
-  const cfg = CONFIG.recall.qdp;
+  const cfg = qdpConfig ?? CONFIG.recall.qdp;
 
   // 1. Dedupe — drop later items that are near-duplicates of earlier ones.
   const dedupeKept: FusedCandidate[] = [];
