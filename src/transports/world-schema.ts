@@ -89,6 +89,38 @@ export function applySchema(db: Database.Database): void {
       extras_json   TEXT,
       PRIMARY KEY (player_id, npc_id)
     );
+
+    -- TIR turn-level retrieval lane (Spec 2026-04-26-npc-recall-tir-qdp).
+    -- Holds verbatim conversation turns, indexed via FTS5 alongside the
+    -- existing npc_memories table (extracted facts).
+    CREATE TABLE IF NOT EXISTS npc_turns (
+      turn_id    TEXT PRIMARY KEY,
+      npc_id     TEXT NOT NULL,
+      player_id  TEXT NOT NULL,
+      speaker    TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      session_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_npc_turns_npc ON npc_turns(npc_id);
+    CREATE INDEX IF NOT EXISTS idx_npc_turns_npc_created ON npc_turns(npc_id, created_at DESC);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS npc_turns_fts
+      USING fts5(content, content='npc_turns', content_rowid='rowid');
+
+    CREATE TRIGGER IF NOT EXISTS npc_turns_ai
+      AFTER INSERT ON npc_turns BEGIN
+        INSERT INTO npc_turns_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
+    CREATE TRIGGER IF NOT EXISTS npc_turns_ad
+      AFTER DELETE ON npc_turns BEGIN
+        INSERT INTO npc_turns_fts(npc_turns_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+      END;
+    CREATE TRIGGER IF NOT EXISTS npc_turns_au
+      AFTER UPDATE ON npc_turns BEGIN
+        INSERT INTO npc_turns_fts(npc_turns_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+        INSERT INTO npc_turns_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
   `);
   db.prepare(
     "INSERT INTO schema_meta(key,value) VALUES('version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
