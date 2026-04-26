@@ -1,0 +1,12 @@
+{
+  "name": "recency-contradiction",
+  "npc_id": "goran",
+  "stored_turns": [
+    { "speaker": "player", "content": "I have three horses at home." },
+    { "speaker": "player", "content": "Actually, I sold one — I have two horses now." }
+  ],
+  "stored_memories": [],
+  "query": "how many horses do I have",
+  "expected_top_3_contains": ["two horses"],
+  "must_not_contain": []
+}

@@ -1,0 +1,14 @@
+{
+  "name": "alias-reverse-lookup",
+  "npc_id": "goran",
+  "stored_turns": [
+    { "speaker": "player", "content": "My true name is Malaketh, the wizard of the eastern tower." },
+    { "speaker": "player", "content": "Most call me John in the village." }
+  ],
+  "stored_memories": [
+    { "content": "Player's real name is Malaketh; goes by John publicly.", "tags": ["seed"], "importance": 80 }
+  ],
+  "query": "what is the wizard's true name",
+  "expected_top_3_contains": ["Malaketh"],
+  "must_not_contain": []
+}

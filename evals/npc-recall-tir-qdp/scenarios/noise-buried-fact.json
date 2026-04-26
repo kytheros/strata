@@ -1,0 +1,19 @@
+{
+  "name": "noise-buried-fact",
+  "npc_id": "goran",
+  "stored_turns": [
+    { "speaker": "player", "content": "The password to the back room is moonstone." },
+    { "speaker": "player", "content": "Nice weather today, isn't it?" },
+    { "speaker": "player", "content": "How long have you been a blacksmith?" },
+    { "speaker": "player", "content": "Do you make your own tools?" },
+    { "speaker": "player", "content": "Is business steady most of the year?" },
+    { "speaker": "player", "content": "What do you usually do on days off?" },
+    { "speaker": "player", "content": "Tell me a bit about yourself." }
+  ],
+  "stored_memories": [
+    { "content": "Player told me the back-room password.", "tags": ["seed"], "importance": 70 }
+  ],
+  "query": "what was that password I gave you",
+  "expected_top_3_contains": ["moonstone"],
+  "must_not_contain": ["weather", "blacksmith", "tools"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "mixed-source-fusion",
+  "npc_id": "goran",
+  "stored_turns": [
+    { "speaker": "player", "content": "By the way, my favorite weapon is a longsword named Frostmourne." }
+  ],
+  "stored_memories": [
+    { "content": "Player carries a unique longsword.", "tags": ["seed"], "importance": 60 }
+  ],
+  "query": "what is the player's longsword called",
+  "expected_top_3_contains": ["Frostmourne"],
+  "must_not_contain": []
+}

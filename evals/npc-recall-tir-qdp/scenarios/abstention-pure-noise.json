@@ -1,0 +1,13 @@
+{
+  "name": "abstention-pure-noise",
+  "npc_id": "goran",
+  "stored_turns": [
+    { "speaker": "player", "content": "Nice weather, isn't it?" },
+    { "speaker": "player", "content": "How long have you been a blacksmith?" },
+    { "speaker": "player", "content": "I bet you've seen a lot of travelers." }
+  ],
+  "stored_memories": [],
+  "query": "what is the password",
+  "expected_top_3_contains": [],
+  "must_not_contain": ["weather", "blacksmith", "travelers"]
+}

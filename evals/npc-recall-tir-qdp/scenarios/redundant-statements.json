@@ -1,0 +1,13 @@
+{
+  "name": "redundant-statements",
+  "npc_id": "goran",
+  "stored_turns": [
+    { "speaker": "player", "content": "the password is moonstone" },
+    { "speaker": "player", "content": "the password is moonstone" },
+    { "speaker": "player", "content": "the password was moonstone earlier today" }
+  ],
+  "stored_memories": [],
+  "query": "what is the password",
+  "expected_top_3_contains": ["moonstone"],
+  "must_not_contain": []
+}

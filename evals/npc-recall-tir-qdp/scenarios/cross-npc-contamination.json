@@ -1,0 +1,11 @@
+{
+  "name": "cross-npc-contamination",
+  "npc_id": "goran",
+  "stored_turns": [
+    { "speaker": "player", "content": "Goran, I told you the password is moonstone." }
+  ],
+  "stored_memories": [],
+  "query": "what was Goran's password",
+  "expected_top_3_contains": ["moonstone"],
+  "must_not_contain": []
+}

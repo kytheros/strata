@@ -1,0 +1,12 @@
+{
+  "name": "seed-only",
+  "npc_id": "goran",
+  "stored_turns": [],
+  "stored_memories": [
+    { "content": "Goran is a blacksmith with a daughter named Elara.", "tags": ["seed"], "importance": 80 },
+    { "content": "Goran's forge sits at the south end of Millhaven.", "tags": ["seed"], "importance": 70 }
+  ],
+  "query": "where is Goran's forge",
+  "expected_top_3_contains": ["Millhaven"],
+  "must_not_contain": []
+}

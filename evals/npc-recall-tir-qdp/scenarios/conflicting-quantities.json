@@ -1,0 +1,13 @@
+{
+  "name": "conflicting-quantities",
+  "npc_id": "goran",
+  "stored_turns": [
+    { "speaker": "player", "content": "I need five daggers for my squad." },
+    { "speaker": "player", "content": "Actually, can you make eight knives instead?" },
+    { "speaker": "player", "content": "And three short swords on top of that." }
+  ],
+  "stored_memories": [],
+  "query": "how many knives did I order",
+  "expected_top_3_contains": ["eight", "knives"],
+  "must_not_contain": []
+}
