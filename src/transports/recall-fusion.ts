@@ -23,6 +23,8 @@ export interface RecallCandidate {
   source: RecallSource;
   content: string;             // raw text for downstream QDP + projection
   tags: string[];              // for filler filter
+  createdAt: number;           // epoch ms; used by client renderer for recency sort
+  speaker: "player" | "npc";   // role marker; used by client renderer for section split
 }
 
 export interface FusedCandidate extends RecallCandidate {
