@@ -1353,4 +1353,57 @@ describe("REST Transport — recall TIR + QDP (Spec 2026-04-26)", () => {
     expect(Array.isArray(body.context)).toBe(true);
     expect(typeof body.summary).toBe("string");
   });
+
+  it("recall response includes createdAt and speaker on each context item", async () => {
+    const { base, headers } = await bootV2Server({ mockProvider });
+    await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST", headers,
+      body: JSON.stringify({ memory: "the password is moonstone", extract: true, speaker: "player" }),
+    });
+    const res = await fetch(`${base}/api/agents/goran/recall`, {
+      method: "POST", headers,
+      body: JSON.stringify({ situation: "password", limit: 5 }),
+    });
+    const body = await res.json();
+    expect(body.context.length).toBeGreaterThanOrEqual(1);
+    for (const item of body.context) {
+      expect(typeof item.createdAt).toBe("number");
+      expect(item.createdAt).toBeGreaterThan(0);
+      expect(["player", "npc"]).toContain(item.speaker);
+    }
+  });
+
+  it("recall passes through speaker:'npc' from a turn stored by an NPC", async () => {
+    const { base, headers } = await bootV2Server({ mockProvider });
+    await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST", headers,
+      body: JSON.stringify({ memory: "I am Goran the blacksmith", extract: true, speaker: "npc" }),
+    });
+    const res = await fetch(`${base}/api/agents/goran/recall`, {
+      method: "POST", headers,
+      body: JSON.stringify({ situation: "Goran blacksmith", limit: 5 }),
+    });
+    const body = await res.json();
+    const npcSpeakerItems = body.context.filter((c: { speaker: string }) => c.speaker === "npc");
+    expect(npcSpeakerItems.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("recall fact-source items default speaker:'player' when no self-utterance tag", async () => {
+    const { base, headers } = await bootV2Server({ mockProvider });
+    // Seed-mode write — no extract:true, lands in npc_memories without self-utterance tag.
+    await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST", headers,
+      body: JSON.stringify({ memory: "the back-room password", tags: ["seed"] }),
+    });
+    const res = await fetch(`${base}/api/agents/goran/recall`, {
+      method: "POST", headers,
+      body: JSON.stringify({ situation: "back-room password", limit: 5 }),
+    });
+    const body = await res.json();
+    const factItems = body.context.filter((c: { source: string }) => c.source === "world-fts5");
+    expect(factItems.length).toBeGreaterThanOrEqual(1);
+    for (const item of factItems) {
+      expect(item.speaker).toBe("player");
+    }
+  });
 });
