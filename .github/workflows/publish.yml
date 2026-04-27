@@ -18,6 +18,7 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
       - run: npm ci
+      - run: npm run rebuild:native
       - run: npm run build
       - run: npm test
       - run: npm publish

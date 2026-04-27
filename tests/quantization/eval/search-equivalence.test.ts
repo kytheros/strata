@@ -79,6 +79,14 @@ describe.skipIf(!hasDb)("Ranking equivalence: ADC vs dequantize path", () => {
       rhos.push(spearmanRho(dequantizedScores, adcScores));
     }
 
+    // Guard: this test reads from ~/.strata/strata.db. In CI the file may exist
+    // (created by other integration tests) but contain no embeddings, in which
+    // case `rhos` is empty and meanRho is NaN. Skip cleanly in that case.
+    if (rhos.length === 0) {
+      console.warn("No embeddings available — skipping ADC equivalence check");
+      return;
+    }
+
     const meanRho = rhos.reduce((s, r) => s + r, 0) / rhos.length;
     const minRho = Math.min(...rhos);
     console.log(`ADC equivalence: mean_rho=${meanRho.toFixed(6)} min=${minRho.toFixed(6)}`);

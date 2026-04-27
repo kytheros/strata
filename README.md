@@ -6,6 +6,8 @@ The open-source memory layer for AI agents. Strata gives any MCP-compatible agen
 
 **For agents you build:** Deploy Strata as memory infrastructure via HTTP or multi-tenant transport. Ingest conversations from any source, search with BM25 + vector hybrid ranking, and give your agents the ability to learn from their own history. Deploy on [Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) or [Google Cloud Run](#deploy-on-gcp-cloud-run).
 
+**For game engines (NEW in v2):** Drop the REST transport into Unity, Godot, or Unreal for per-NPC memory. Two-tier auth (admin tokens issue player tokens), dialogue-shaped `/recall` endpoint that returns ready-to-prompt context, world/agent scoping. See [Game Engine REST API](https://strata.kytheros.dev/docs/game-engine-api).
+
 **Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid BM25 + vector search with 3072-dimensional embeddings, LLM-powered knowledge extraction, and training data accumulation for local model distillation. Falls back to keyword search without it.
 
 **What makes Strata different:** Every knowledge entry passes through a [quality-gated evaluator pipeline](docs/evaluator-pipeline.md) before storage. Actionability, specificity, and relevance are checked deterministically. The result is a knowledge base that stays clean and auditable -- not a growing pile of everything.
@@ -72,7 +74,7 @@ strata status
 ```
 
 ```
-Strata v1.3.0
+Strata v2.0.0
 Database: ~/.strata/strata.db
 Sessions: 142 | Documents: 3847 | Projects: 12
 ```
@@ -285,7 +287,7 @@ strata distill activate      # Switch to hybrid provider (local model first, Gem
 strata distill deactivate    # Revert to frontier-only
 ```
 
-The training pipeline uses parameter-efficient fine-tuning (QLoRA) to produce a local model that handles knowledge extraction and summarization without any API calls. The Python SDK for fine-tuning is coming soon.
+The training pipeline uses parameter-efficient fine-tuning (QLoRA) to produce a local model that handles knowledge extraction and summarization without any API calls. The Python SDK (`strata-memory`) ships the fine-tuning pipeline, framework integrations (LangChain, CrewAI, LlamaIndex), and the typed memory client — currently alpha; PyPI publish tracked at [strata-py#1](https://github.com/kytheros/strata-py/issues/1).
 
 ---
 
@@ -314,7 +316,6 @@ Audit trails, entity intelligence, LLM-powered extraction, local dashboard, and 
 | `find_procedures` / `store_procedure` | Step-by-step workflow capture and search |
 | `search_entities` | Cross-session entity graph (libraries, services, tools, frameworks) |
 | `ingest_conversation` | Push conversations from any agent into the extraction pipeline |
-| `cloud_sync_push/pull/status` | Encrypted cross-machine sync |
 | `get_analytics` | Local usage analytics -- search patterns, tool usage, trends |
 | `list_evidence_gaps` | Knowledge blind spots -- topics searched but never answered |
 | Multi-provider extraction | LLM-powered extraction with Anthropic, OpenAI, and Gemini (community gets Gemini with API key; Pro adds provider choice) |
@@ -333,6 +334,12 @@ Audit trails, entity intelligence, LLM-powered extraction, local dashboard, and 
 | `STRATA_DEFAULT_USER` | Default user scope | `default` |
 | `STRATA_EXTRA_WATCH_DIRS` | Additional watch directories | _(none)_ |
 | `NO_COLOR` | Disable colored CLI output | _(unset)_ |
+| `STRATA_TOKEN_SECRET` | **Required** for `strata serve --rest`. HMAC signing key for player tokens. Generate with `openssl rand -hex 32`. | _(REST refuses to start)_ |
+| `STRATA_ALLOW_INSECURE_DEV_SECRET` | Opt into a publicly-known dev fallback secret for `--rest`. **Local dev only.** | `unset` |
+| `STRATA_REST_TOKEN` | Admin token for the REST transport (alternative to `--rest-token` flag). | _(unset)_ |
+| `STRATA_REQUIRE_AUTH_PROXY` | Set to `1` to enforce verified auth proxy for multi-tenant `/mcp`. **Required in production multi-tenant deployments.** | `unset` |
+| `STRATA_AUTH_PROXY_TOKEN` | Shared secret (≥32 chars) the upstream auth proxy must send as `X-Strata-Verified`. | _(required when above is set)_ |
+| `STRATA_ADMIN_TOKEN` | Bearer token gating `/admin/pool` debug route in multi-tenant mode. If unset, the route is disabled. | _(disabled)_ |
 
 You can also set the Gemini key in `~/.strata/config.json` instead of an environment variable:
 
@@ -352,13 +359,19 @@ You can also set the Gemini key in `~/.strata/config.json` instead of an environ
 | `strata init` | Auto-detect CLIs and set up integration (hooks, skills, config) |
 | `strata init --gemini` | Set up Gemini CLI integration only |
 | `strata init --claude` | Set up Claude Code integration only |
-| `strata serve` | Start HTTP server on port 3000 (or `$PORT`) |
+| `strata serve` | Start single-tenant HTTP MCP server on port 3000 (or `$PORT`) |
+| `strata serve --rest` | Start REST API server for game engines (requires `STRATA_TOKEN_SECRET`) |
+| `strata serve --multi-tenant` | Start multi-tenant HTTP MCP server (use `STRATA_REQUIRE_AUTH_PROXY=1` in production) |
 | `strata search <query>` | Search from the terminal |
 | `strata store-memory <text> --type <t>` | Store a memory |
 | `strata status` | Print index statistics |
+| `strata world-migrate` | Migrate pre-v2 installation to world-scoped REST layout (required before `serve --rest`) |
+| `strata rest-migrate` | REST-transport-specific migration |
+| `strata update` | Update strata installation in place |
 | `strata deploy cloudflare` | Deploy to Cloudflare Workers + D1 |
 | `strata deploy gcp` | Deploy to GCP Cloud Run (+ Litestream or Cloud SQL) |
 | `strata activate <key>` | Activate a Pro license |
+| `strata license` | Show current license status |
 | `strata --help` | Full usage |
 
 ---
@@ -377,6 +390,7 @@ Full documentation at [kytheros.dev/docs](https://kytheros.dev/docs).
 
 | Document | Description |
 |----------|-------------|
+| [Game Engine REST API](https://strata.kytheros.dev/docs/game-engine-api) | REST transport for Unity, Godot, Unreal — auth model, 22 routes, migration |
 | [Cloudflare Workers + D1 Guide](https://kytheros.dev/docs/cloudflare-workers-d1) | Deploy Strata as a serverless MCP server |
 | [Architecture](docs/architecture.md) | System design, storage model, retrieval pipeline |
 | [Evaluator Pipeline](docs/evaluator-pipeline.md) | Quality gates, accepted/rejected examples, importance scoring |
@@ -405,11 +419,11 @@ The memory system I'd built for the harness was already working. So I asked: wha
 
 ## Where Strata Is Going
 
-Today, Strata is the best memory layer for AI coding assistants. You install it, your assistant remembers everything across sessions, projects, and tools. That's the product.
+Today, Strata is the best memory layer for AI coding assistants and game engines. Install it and your AI coding assistant remembers across sessions, projects, and tools; deploy `strata serve --rest` and your game's NPCs accumulate memory across player conversations. That's the product.
 
-But the architecture was always designed for more than that. The HTTP transport, multi-tenant isolation, and pluggable storage backends (SQLite, D1, Postgres) exist because Strata is also memory infrastructure for the agents you build. If you're building an agent that needs to accumulate knowledge over time -- not just within a single conversation, but across hundreds of sessions -- that's what Strata does.
+The architecture extends in three directions. Storage backends (SQLite, D1, Postgres + Cloud Run) let you run Strata wherever your agents live. The HTTP and REST transports cover MCP-aware coding assistants and game engines respectively. Pluggable retrieval (BM25 + vector + RRF + per-NPC profile decay) adapts to whatever knowledge surface you point at it.
 
-The roadmap: deeper reasoning over accumulated knowledge, richer entity graphs, team-scale shared memory with conflict resolution, and deployment options that meet you wherever your agents run. The community edition is free and open source, forever.
+What's next: a first-party Unity package ([strata#2](https://github.com/kytheros/strata/issues/2)), `strata backup push/pull` for multi-device continuity ([strata#1](https://github.com/kytheros/strata/issues/1)), team-scale shared memory with conflict resolution, and deeper reasoning over the accumulated graph. The community edition is free and open source, forever.
 
 ---
 

@@ -14,3 +14,8 @@ benchmarks/longmemeval/*
 !benchmarks/longmemeval/strata_adapter.py
 !benchmarks/longmemeval/run_retrieval_benchmark.py
 autoresearch/
+
+# Personal exploratory scripts (uncommitted by policy)
+benchmarks/locomo/diagnose-*.ts
+evals/local-inference-quality/probe-*.ts
+evals/local-inference-quality/sweep-*.ts

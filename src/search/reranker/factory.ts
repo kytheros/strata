@@ -14,7 +14,7 @@ import type { IReranker } from "./types.js";
 
 export interface RerankerOptions {
   /** Override provider selection. */
-  provider?: "onnx" | "none";
+  provider?: "onnx" | "cohere" | "none";
 }
 
 let cachedReranker: IReranker | undefined;
@@ -31,6 +31,23 @@ export async function createReranker(
 
   // Explicit "none" → passthrough
   if (provider === "none") {
+    cachedReranker = new NullReranker();
+    return cachedReranker;
+  }
+
+  // Explicit "cohere"
+  if (provider === "cohere") {
+    const { CohereReranker, isCohereRerankerAvailable } = await import(
+      "./cohere-reranker.js"
+    );
+    if (isCohereRerankerAvailable()) {
+      cachedReranker = new CohereReranker();
+      console.error("[strata] Reranker: cohere-rerank-v3.5");
+      return cachedReranker;
+    }
+    console.error(
+      "[strata] Reranker: cohere requested but COHERE_API_KEY not set — falling back to none"
+    );
     cachedReranker = new NullReranker();
     return cachedReranker;
   }

@@ -1,7 +1,7 @@
 {
   "name": "strata-mcp",
-  "version": "1.3.0",
-  "description": "Mine your AI coding assistant conversation history for searchable knowledge",
+  "version": "2.0.0",
+  "description": "Local memory layer for AI agents — coding assistants over MCP, game NPCs over REST",
   "type": "module",
   "license": "Apache-2.0",
   "author": "Kytheros LLC",
@@ -16,13 +16,18 @@
   "keywords": [
     "mcp",
     "strata",
-    "history",
     "search",
     "knowledge",
+    "memory",
+    "agents",
     "claude-code",
     "codex",
     "aider",
-    "model-context-protocol"
+    "model-context-protocol",
+    "rest-api",
+    "game-engine",
+    "npc",
+    "unity"
   ],
   "engines": {
     "node": ">=20"

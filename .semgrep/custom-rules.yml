@@ -194,7 +194,10 @@ rules:
         - "**/storage/sqlite-knowledge-store.ts"
         - "**/storage/sqlite-entity-store.ts"
         - "**/storage/sqlite-summary-store.ts"
+        - "**/storage/pg/*.ts"
+        - "**/storage/d1/*.ts"
         - "**/search/evidence-gaps.ts"
+        - "**/extensions/quantization/migration.ts"
     message: >
       SQL query uses template literal string interpolation, which may allow SQL injection.
       Use parameterized queries instead:
@@ -372,6 +375,9 @@ rules:
         - "*fixture*"
         - "**/cli/download.ts"
         - "**/cli/init-gemini.ts"
+        - "**/cli/deploy.ts"
+        - "**/cli/deploy-gcp.ts"
+        - "**/cli/distill.ts"
     message: >
       exec() or execSync() spawns a shell and is vulnerable to command injection
       if the command string includes unsanitized user input.

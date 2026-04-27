@@ -352,7 +352,7 @@ describe("SqliteIndexManager: all 5 parsers registered", () => {
     const manager = new SqliteIndexManager(":memory:");
     try {
       const parserIds = manager.registry.getAll().map((p) => p.id).sort();
-      expect(parserIds).toEqual(["claude-code", "cline", "codex"]);
+      expect(parserIds).toEqual(["aider", "claude-code", "cline", "codex", "gemini-cli"]);
     } finally {
       manager.close();
     }

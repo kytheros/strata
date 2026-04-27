@@ -152,7 +152,8 @@ export function quantizedSearch(
   // Step 2: Unpack all indices (reused across both passes)
   const unpacked: { entryId: string; indices: Uint8Array }[] = [];
   for (const item of corpus) {
-    const bytes = item.blob instanceof Uint8Array ? item.blob : new Uint8Array(item.blob.buffer, item.blob.byteOffset, item.blob.byteLength);
+    // Buffer extends Uint8Array — direct assignment handles both cases.
+    const bytes: Uint8Array = item.blob;
     const { header, payload } = decodeBlob(bytes);
     const indices = unpackIndices(payload, header.bitWidth, PADDED_DIM);
     unpacked.push({ entryId: item.entryId, indices });
