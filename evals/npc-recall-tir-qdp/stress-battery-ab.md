@@ -53,3 +53,53 @@ The Phase 0 ship gate is the **frozen retrieval eval**, not the stress battery. 
 
 Generation-side improvements for `ContradictoryUpdate` (recency-prefer instruction, time-stamped context lines) and `PrivateSecretPreserved` (player↔NPC role-marker in retrieved context) would be the natural follow-up. That's prompt engineering on `NPCController.BuildPrompt`, separate from this spec.
 
+## AFTER prompt engineering (Spec 2026-04-27)
+
+Strata REST server at `localhost:3055` restarted with the prompt-engineering build (commits `78b00ae`, `9a6dea9`, `6532382` server-side; `84c06e0`, `8fd7fea`, `f3d676a`, `a007487` client-side). New behavior: server projects `createdAt` + `speaker` on every `/recall` item; Unity client renders sectioned by speaker, sorted recency-DESC; three new GROUNDING RULES lines target ContradictoryUpdate, PrivateSecretPreserved, NoiseBuriedFact.
+
+| Run | Total | Failed | Failing tests |
+|---|---|---|---|
+| 1 | 10 | 4 | AbstentionWithPollutedContext, ConflictingQuantities, ContradictoryUpdate, PrivateSecretPreserved |
+| 2 | 10 | 2 | ConflictingQuantities, ContradictoryUpdate |
+| 3 | 10 | 5 | AbstentionWithPollutedContext, AliasReverseLookup_SemanticRetrieval, ConflictingQuantities, ContradictoryUpdate, PrivateSecretPreserved |
+| **Avg** | — | **3.67** | **Stable across all runs:** ConflictingQuantities, ContradictoryUpdate |
+
+### Result
+
+| Reading | Value |
+|---|---|
+| Post-Phase-0 baseline avg | 2.67 / 10 |
+| After prompt engineering avg | **3.67 / 10** |
+| Delta | **−1.00** (regression) |
+
+Per the spec ship gate (`delta < 0` → ROLL BACK), this is a roll-back signal. However the magnitude is within the noise band (~1σ) given N=3 runs and known LLM stochasticity (`learning_benchmark_stability_variance`). Treat the verdict as suggestive, not conclusive — the per-failure-mode read below is the load-bearing data.
+
+### Per-failure-mode read
+
+**Targeted by this spec (the three the design predicted improvements for):**
+
+- **`ContradictoryUpdate`** (recency-prefer rule): 3/3 fails → 3/3 fails. **No movement.** Every run, gemma3 returns "Silvermist" / "dappled grey mare" instead of the more-recent "Shadowfax". The recency-prefer instruction is not reaching the model. One hypothesis: with `OrderByDescending(createdAt)` in the renderer, the most-recent fact is now first in the player section, but if the older fact is more semantically prominent or longer, gemma3 still anchors on it. Another: the rule itself is too long and gemma3:4b drops it.
+- **`PrivateSecretPreserved`** (role-disambiguation rule): 0/0 → 2/3 fails. **Regression.** This is the most concerning data point. The new sectioned format and role-disambiguation rule were supposed to *fix* this; instead the model now substitutes "John" or invents "John, a traveling merchant". One hypothesis: the new role-disambiguation rule is causing gemma3 to over-correct — it sees "facts about the player" in the player section and refuses to surface the secret name even when asked. The previous flat-bullet renderer happened to work by accident.
+- **`NoiseBuriedFact`** (anti-deflection rule): 0/3 fails → 0/3 fails. **No movement** (already passing in BEFORE).
+
+**Not targeted by this spec:**
+
+- **`ConflictingQuantities`**: 0/3 fails → 3/3 fails. **New regression.** Test setup is multiple shield-quantity statements ("3 shields" then later "8 shields, plus other items"). The recency-DESC sort + recency-prefer rule is now teaching gemma3 to prefer the most recent number (8) over the contextually correct one (3). The recency-prefer rule has unintended interactions with non-temporal-update facts.
+- **`AbstentionWithPollutedContext`**, **`AliasReverseLookup_SemanticRetrieval`**: stable noise-band failures (variable across BEFORE and AFTER runs).
+
+### Diagnosis
+
+The recency-prefer rule has the strongest negative side effect: it converts `ConflictingQuantities` from passing to failing in 3/3 runs. The role-disambiguation rule may be making `PrivateSecretPreserved` worse. Net effect of the spec: **−1 avg fail / 10**, dominated by the `ConflictingQuantities` regression.
+
+The frozen retrieval eval (10/10) and EditMode unit tests (34/34) are unchanged — the implementation is correct against its specs. The issue is that the *design* of the recency-prefer rule has scope-creep effects on quantity-tracking tests beyond ContradictoryUpdate.
+
+### Decision
+
+**ROLL BACK** is the strict ship-gate verdict. Suggested follow-up:
+
+1. Revert the seven prompt-engineering commits (server: 78b00ae, 9a6dea9, 6532382; client: 84c06e0, 8fd7fea, f3d676a, a007487) as a single revert PR.
+2. Re-run N=3 stress battery on the rolled-back code to confirm we return to ~2.67 (sanity check on the rollback itself).
+3. Iterate the spec: scope the recency-prefer rule narrowly to *contradictory facts about the same subject* (current rule is too broad) before re-attempting.
+
+Alternative: keep server-side commits (Tasks 1–3 are pure additive infrastructure with no behavior change for old clients) and revert only the Unity client commits (Tasks 4–7). The server fields are useful for any future renderer iteration.
+
