@@ -930,23 +930,29 @@ export async function startRestTransport(
           const turnList: RecallCandidate[] = turnHits.map(t => ({
             id: t.turnId, score: t.bm25, source: "turn",
             content: t.content, tags: [],
+            createdAt: t.createdAt,
+            speaker: (t.speaker === "npc" ? "npc" : "player"),
           }));
           const factList: RecallCandidate[] = memoryHits.map(m => ({
             id: m.id, score: m.importance / 100, source: "fact",
             content: m.content, tags: m.tags,
+            createdAt: m.createdAt,
+            speaker: m.tags.includes("self-utterance") ? "npc" : "player",
           }));
 
           const fused = fuseRecallLanes([turnList, factList]);
           const pruned = recallQdp(fused, situation);
           const top = pruned.slice(0, limit);
 
-          // Project to existing context[] response shape — unchanged contract.
+          // Project to existing context[] response shape — extended with createdAt + speaker.
           const context = top.map(c => ({
             text: c.content,
             type: "fact" as const,
             confidence: c.rrfScore,
             source: c.source === "turn" ? ("npc-turn" as const) : ("world-fts5" as const),
             tags: c.tags,
+            createdAt: c.createdAt,
+            speaker: c.speaker,
           }));
           const topFacts = context.slice(0, 3).map(r => r.text).join(". ");
           json(res, 200, { context, summary: topFacts || "No relevant memories found." });
