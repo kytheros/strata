@@ -1223,10 +1223,11 @@ describe("REST Transport — extractionProvider option", () => {
  */
 async function bootV2Server(opts: { mockProvider?: { name: string; complete: () => Promise<string> } } = {}) {
   const ADMIN = "a".repeat(32);
+  const baseDir = makeTempDir();
   handle = await startRestTransport({
     port: 0,
     token: ADMIN,
-    baseDir: makeTempDir(),
+    baseDir,
     extractionProvider: opts.mockProvider,
   });
   const base = getBaseUrl();
@@ -1240,7 +1241,18 @@ async function bootV2Server(opts: { mockProvider?: { name: string; complete: () 
     body: JSON.stringify({}),
   });
   const { playerToken } = await mintRes.json();
-  return { base, headers: { "Content-Type": "application/json", "Authorization": `Bearer ${playerToken}` } };
+  // Open the world DB directly so tests can seed it via NpcMemoryEngine.
+  // The world "default" is always at {baseDir}/worlds/default/world.db.
+  const { default: Database } = await import("better-sqlite3");
+  const { join: pathJoin } = await import("node:path");
+  const worldDb = new Database(pathJoin(baseDir, "worlds", "default", "world.db"));
+  const agentId = "goran";
+  return {
+    base,
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${playerToken}` },
+    worldDb,
+    agentId,
+  };
 }
 
 describe("REST Transport — turn indexing on /store (Spec 2026-04-26)", () => {
@@ -1405,5 +1417,40 @@ describe("REST Transport — recall TIR + QDP (Spec 2026-04-26)", () => {
     for (const item of factItems) {
       expect(item.speaker).toBe("player");
     }
+  });
+
+  it("recall excludes superseded facts when Spec 2026-04-28 conflict resolution applies", async () => {
+    const { base, headers, worldDb, agentId } = await bootV2Server({ mockProvider });
+    // Direct-write two facts via NpcMemoryEngine (LLM-free path).
+    const { NpcMemoryEngine } = await import("../../src/transports/npc-memory-engine.js");
+    const engine = new NpcMemoryEngine(worldDb, agentId);
+    const id1 = engine.add({ content: "horse is Silvermist", tags: ["extracted", "semantic"], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    const id2 = engine.add({ content: "horse is Shadowfax",  tags: ["extracted", "semantic"], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    engine.markSupersededByKey({ npcId: agentId, subjectKey: "player", predicateKey: "current_hors", excludeId: id2, supersededBy: id2 });
+
+    const res = await fetch(`${base}/api/agents/${agentId}/recall`, {
+      method: "POST", headers,
+      body: JSON.stringify({ situation: "horse", limit: 5 }),
+    });
+    const body = await res.json();
+    const texts = body.context.map((c: { text: string }) => c.text);
+    expect(texts).toContain("horse is Shadowfax");
+    expect(texts).not.toContain("horse is Silvermist");
+    void id1; // referenced for clarity; the assertion above proves it's filtered
+  });
+
+  it("recall returns NULL-key facts unchanged when no supersede applies", async () => {
+    const { base, headers, worldDb, agentId } = await bootV2Server({ mockProvider });
+    const { NpcMemoryEngine } = await import("../../src/transports/npc-memory-engine.js");
+    const engine = new NpcMemoryEngine(worldDb, agentId);
+    engine.add({ content: "a generic fact about the village", tags: ["seed"], importance: 50 });   // NULL keys
+
+    const res = await fetch(`${base}/api/agents/${agentId}/recall`, {
+      method: "POST", headers,
+      body: JSON.stringify({ situation: "village", limit: 5 }),
+    });
+    const body = await res.json();
+    const texts = body.context.map((c: { text: string }) => c.text);
+    expect(texts).toContain("a generic fact about the village");
   });
 });
