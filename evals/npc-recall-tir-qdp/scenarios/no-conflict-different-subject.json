@@ -1,0 +1,14 @@
+{
+  "name": "no-conflict-different-subject",
+  "npc_id": "goran",
+  "stored_turns": [],
+  "stored_memories": [],
+  "stored_facts": [
+    { "content": "player's current horse is Shadowfax", "subject": "player", "predicate": "current horse" },
+    { "content": "goran's current horse is Auroch",     "subject": "goran",  "predicate": "current horse" }
+  ],
+  "apply_supersede": true,
+  "query": "current horse",
+  "expected_top_3_contains": ["Shadowfax", "Auroch"],
+  "must_not_contain": []
+}

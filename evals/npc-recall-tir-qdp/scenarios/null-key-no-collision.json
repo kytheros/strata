@@ -1,0 +1,14 @@
+{
+  "name": "null-key-no-collision",
+  "npc_id": "goran",
+  "stored_turns": [],
+  "stored_memories": [
+    { "content": "player's home is in Riverdell" },
+    { "content": "player's home is in Stormhaven" }
+  ],
+  "stored_facts": [],
+  "apply_supersede": true,
+  "query": "where does the player live",
+  "expected_top_3_contains": ["Riverdell", "Stormhaven"],
+  "must_not_contain": []
+}

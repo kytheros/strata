@@ -1,0 +1,14 @@
+{
+  "name": "conflict-quantity-shields",
+  "npc_id": "goran",
+  "stored_turns": [],
+  "stored_memories": [],
+  "stored_facts": [
+    { "content": "player ordered three shields", "subject": "player", "predicate": "ordered shields" },
+    { "content": "player ordered eight shields", "subject": "player", "predicate": "ordered shields" }
+  ],
+  "apply_supersede": true,
+  "query": "how many shields did the player order",
+  "expected_top_3_contains": ["eight"],
+  "must_not_contain": ["three shields"]
+}

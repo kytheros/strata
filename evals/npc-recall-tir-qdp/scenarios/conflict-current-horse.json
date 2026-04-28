@@ -1,0 +1,14 @@
+{
+  "name": "conflict-current-horse",
+  "npc_id": "goran",
+  "stored_turns": [],
+  "stored_memories": [],
+  "stored_facts": [
+    { "content": "player's current horse is Silvermist", "subject": "player", "predicate": "current horse" },
+    { "content": "player's current horse is Shadowfax",  "subject": "player", "predicate": "current horse" }
+  ],
+  "apply_supersede": true,
+  "query": "what horse am i riding",
+  "expected_top_3_contains": ["Shadowfax"],
+  "must_not_contain": ["Silvermist"]
+}

@@ -20,16 +20,22 @@ import { NpcTurnStore } from "../../src/transports/npc-turn-store.js";
 import { NpcMemoryEngine } from "../../src/transports/npc-memory-engine.js";
 import { fuseRecallLanes, type RecallCandidate } from "../../src/transports/recall-fusion.js";
 import { recallQdp } from "../../src/transports/recall-qdp.js";
+import { normalizeKey } from "../../src/extensions/llm-extraction/utterance-extractor.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface StoredTurn { speaker: string; content: string }
 interface StoredMemory { content: string; tags?: string[]; importance?: number }
+interface StoredFact { content: string; subject: string; predicate: string; tags?: string[]; importance?: number }
 interface Scenario {
   name: string;
   npc_id?: string;
   stored_turns: StoredTurn[];
   stored_memories: StoredMemory[];
+  /** Spec 2026-04-28 — facts seeded with subject_key + predicate_key. */
+  stored_facts?: StoredFact[];
+  /** Spec 2026-04-28 — when true, apply markSupersededByKey after seeding. */
+  apply_supersede?: boolean;
   query: string;
   expected_top_3_contains: string[];
   must_not_contain: string[];
@@ -53,6 +59,29 @@ function runScenario(scenario: Scenario): ScenarioResult {
       tags: m.tags ?? [],
       importance: m.importance ?? 50,
     });
+  }
+
+  // Spec 2026-04-28 — seed atomic facts with normalized keys, optionally
+  // applying conflict resolution to mirror the extraction worker's behavior.
+  for (const f of scenario.stored_facts ?? []) {
+    const subjectKey = normalizeKey(f.subject);
+    const predicateKey = normalizeKey(f.predicate);
+    const newId = engine.add({
+      content: f.content,
+      tags: f.tags ?? ["extracted", "semantic"],
+      importance: f.importance ?? 70,
+      subjectKey,
+      predicateKey,
+    });
+    if (scenario.apply_supersede && subjectKey && predicateKey) {
+      engine.markSupersededByKey({
+        npcId,
+        subjectKey,
+        predicateKey,
+        excludeId: newId,
+        supersededBy: newId,
+      });
+    }
   }
 
   const turnHits = turnStore.search(scenario.query, { npcId, limit: 10 });
@@ -115,13 +144,15 @@ function main() {
   console.log(`  Total: ${passed}/${total}`);
   console.log("");
 
+  // Decision thresholds bumped for Spec 2026-04-28 (16 scenarios total: 10 Phase 0 + 6 conflict res).
   let decision: string;
-  if (passed >= 8)      decision = "SHIP Phase 0";
-  else if (passed >= 5) decision = "SHIP Phase 0; plan Phase 1 (LLM-QDP)";
-  else                  decision = "RE-EVALUATE — possibly Phase 2 (deprecate npc_memories from recall)";
+  if (passed === total)        decision = "SHIP Phase 0 + conflict resolution (full)";
+  else if (passed >= total - 2) decision = "SHIP partial; investigate failing scenarios";
+  else if (passed >= 8)         decision = "SHIP Phase 0 only; conflict-resolution scenarios failed";
+  else                          decision = "RE-EVALUATE";
   console.log(`  Decision: ${decision}`);
 
-  process.exit(passed >= 5 ? 0 : 1);
+  process.exit(passed >= 8 ? 0 : 1);
 }
 
 main();

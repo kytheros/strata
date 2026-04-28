@@ -1,0 +1,14 @@
+{
+  "name": "no-conflict-different-predicate",
+  "npc_id": "goran",
+  "stored_turns": [],
+  "stored_memories": [],
+  "stored_facts": [
+    { "content": "player's current horse is Shadowfax", "subject": "player", "predicate": "current horse" },
+    { "content": "player ordered eight shields",         "subject": "player", "predicate": "ordered shields" }
+  ],
+  "apply_supersede": true,
+  "query": "tell me about the player",
+  "expected_top_3_contains": ["Shadowfax", "shields"],
+  "must_not_contain": []
+}

@@ -1,0 +1,15 @@
+{
+  "name": "conflict-multi-supersedes",
+  "npc_id": "goran",
+  "stored_turns": [],
+  "stored_memories": [],
+  "stored_facts": [
+    { "content": "player's home is in Riverdell",  "subject": "player", "predicate": "home" },
+    { "content": "player's home is in Greycoat",   "subject": "player", "predicate": "home" },
+    { "content": "player's home is in Stormhaven", "subject": "player", "predicate": "home" }
+  ],
+  "apply_supersede": true,
+  "query": "where does the player live",
+  "expected_top_3_contains": ["Stormhaven"],
+  "must_not_contain": ["Riverdell", "Greycoat"]
+}
