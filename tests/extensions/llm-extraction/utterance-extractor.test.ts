@@ -84,3 +84,84 @@ describe("extractAtomicFacts", () => {
     expect(opts.timeoutMs).toBe(5000);
   });
 });
+
+import { normalizeKey } from "../../../src/extensions/llm-extraction/utterance-extractor.js";
+
+describe("normalizeKey (Spec 2026-04-28)", () => {
+  it("collapses casing and articles", () => {
+    expect(normalizeKey("Current Horse")).toBe("current_hors");
+    expect(normalizeKey("the current horse")).toBe("current_hors");
+    expect(normalizeKey("CURRENT HORSE")).toBe("current_hors");
+  });
+
+  it("strips punctuation", () => {
+    expect(normalizeKey("current's horse!")).toBe("current_hors");
+  });
+
+  it("light-stems plurals and gerunds", () => {
+    expect(normalizeKey("rides")).toBe("ride");
+    expect(normalizeKey("riding horses")).toBe("rid_hors");
+    expect(normalizeKey("ordered shields")).toBe("order_shield");
+    expect(normalizeKey("ordering shields")).toBe("order_shield");
+    expect(normalizeKey("armies")).toBe("army");
+  });
+
+  it("does not collapse short stems aggressively", () => {
+    expect(normalizeKey("is")).toBe("");
+    expect(normalizeKey("ride")).toBe("ride");
+    expect(normalizeKey("rid")).toBe("rid");
+  });
+
+  it("returns empty string for empty / stopword-only input", () => {
+    expect(normalizeKey("")).toBe("");
+    expect(normalizeKey("the of for")).toBe("");
+  });
+
+  it("strips non-ASCII letters via \w regex (best-effort)", () => {
+    expect(normalizeKey("café")).toBe("caf");
+  });
+});
+
+describe("extractAtomicFacts — subject/predicate (Spec 2026-04-28)", () => {
+  it("parses subject and predicate when present", async () => {
+    const provider = fakeProvider(JSON.stringify({
+      facts: [
+        { text: "player's current horse is Shadowfax", type: "semantic", subject: "player", predicate: "current horse" },
+      ],
+    }));
+    const facts = await extractAtomicFacts("My new horse is Shadowfax", { provider });
+    expect(facts.length).toBe(1);
+    expect(facts[0].subject).toBe("player");
+    expect(facts[0].predicate).toBe("current horse");
+  });
+
+  it("leaves subject/predicate undefined when LLM omits them", async () => {
+    const provider = fakeProvider(JSON.stringify({
+      facts: [{ text: "a fact without keys", type: "semantic" }],
+    }));
+    const facts = await extractAtomicFacts("a line", { provider });
+    expect(facts[0].subject).toBeUndefined();
+    expect(facts[0].predicate).toBeUndefined();
+  });
+
+  it("ignores non-string subject/predicate fields", async () => {
+    const provider = fakeProvider(JSON.stringify({
+      facts: [{ text: "a fact", type: "semantic", subject: 42, predicate: { obj: true } }],
+    }));
+    const facts = await extractAtomicFacts("a line", { provider });
+    expect(facts[0].subject).toBeUndefined();
+    expect(facts[0].predicate).toBeUndefined();
+  });
+
+  it("buildPrompt() includes the compound-update guidance and examples", async () => {
+    let captured = "";
+    const recorder: LlmProvider = {
+      name: "recorder",
+      complete: async (prompt: string) => { captured = prompt; return JSON.stringify({ facts: [] }); },
+    };
+    await extractAtomicFacts("anything", { provider: recorder });
+    expect(captured).toContain("Compound updates:");
+    expect(captured).toContain("Silvermist died last winter. My new horse is Shadowfax");
+    expect(captured).toContain("eight shields");
+  });
+});
