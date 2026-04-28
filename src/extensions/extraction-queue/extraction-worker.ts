@@ -100,6 +100,12 @@ export class ExtractionWorker {
         job.tenantId,
         job.agentId,
         async (target) => {
+          // Spec 2026-04-28: read conflict-detection mode once per job.
+          // "off" mode is used during ship-gate Step-1 baseline measurement.
+          const { CONFIG } = await import("../../config.js");
+          const conflictMode = CONFIG.extraction?.conflictDetection ?? "exact";
+          const { normalizeKey } = await import("../llm-extraction/utterance-extractor.js");
+
           for (const f of finalFacts) {
             const tags = [
               ...job.userTags,
@@ -115,7 +121,23 @@ export class ExtractionWorker {
               // Dynamic import to avoid top-level coupling with transports/.
               const { NpcMemoryEngine } = await import("../../transports/npc-memory-engine.js");
               const engine = new NpcMemoryEngine(target.worldDb, target.agentId);
-              engine.add({ content: f.text, tags: dedupedTags, importance });
+              const subjectKey   = (f.subject   && f.subject.trim().length   > 0) ? normalizeKey(f.subject)   : null;
+              const predicateKey = (f.predicate && f.predicate.trim().length > 0) ? normalizeKey(f.predicate) : null;
+              const newId = engine.add({
+                content: f.text, tags: dedupedTags, importance,
+                subjectKey, predicateKey,
+              });
+              // Conflict-resolution gate. "off" path is used during Step-1
+              // baseline measurement. "embedding" path delegates to exact today;
+              // reserved for follow-up spec.
+              if (conflictMode !== "off" && subjectKey !== null && predicateKey !== null) {
+                engine.markSupersededByKey({
+                  npcId: target.agentId,
+                  subjectKey, predicateKey,
+                  excludeId: newId,
+                  supersededBy: newId,
+                });
+              }
             } else {
               await target.addEntry(f.text, dedupedTags, importance);
             }

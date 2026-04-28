@@ -202,6 +202,21 @@ export const CONFIG = {
     pruneAfterDays: 90,
   },
 
+  // Spec 2026-04-28 — atomic-fact extraction conflict resolution.
+  extraction: {
+    /**
+     * Subject-collision detection mode for the extraction worker.
+     * - "exact":     compare normalized (subject_key, predicate_key) for equality (default)
+     * - "off":       skip collision detection entirely (used during the spec's
+     *                Step 1 baseline measurement; not recommended for prod)
+     * - "embedding": (future, Option 4 from Spec 2026-04-28 brainstorm) — wired
+     *                but currently delegates to "exact"; reserved for follow-up.
+     */
+    conflictDetection: "exact" as "exact" | "off" | "embedding",
+    /** Cosine threshold for embedding mode. Ignored unless conflictDetection === "embedding". */
+    embeddingThreshold: 0.85,
+  },
+
   // SVO event extraction
   events: {
     /** Enable SVO event extraction at ingest time. Requires GEMINI_API_KEY. */
