@@ -16,6 +16,8 @@ export interface NpcMemoryInput {
   tags: string[];
   importance: number;
   anchorDepth?: number;
+  subjectKey?: string | null;       // NEW (Spec 2026-04-28)
+  predicateKey?: string | null;     // NEW
 }
 
 export interface NpcMemory {
@@ -52,6 +54,7 @@ export class NpcMemoryEngine {
   private readonly stmtDeleteAll: Database.Statement;
   private readonly stmtRecordAccess: Database.Statement;
   private readonly stmtCount: Database.Statement;
+  private readonly stmtMarkSuperseded: Database.Statement;
 
   constructor(db: Database.Database, npcId: string) {
     this.db = db;
@@ -60,10 +63,12 @@ export class NpcMemoryEngine {
     this.stmtInsert = db.prepare(`
       INSERT INTO npc_memories
         (memory_id, npc_id, content, tags_json, importance, anchor_depth,
-         created_at, last_accessed, access_count)
+         created_at, last_accessed, access_count,
+         subject_key, predicate_key, superseded_by)
       VALUES
         (@memory_id, @npc_id, @content, @tags_json, @importance, @anchor_depth,
-         @now, @now, 0)
+         @now, @now, 0,
+         @subject_key, @predicate_key, NULL)
     `);
 
     this.stmtGetById = db.prepare(`
@@ -91,6 +96,16 @@ export class NpcMemoryEngine {
     this.stmtCount = db.prepare(`
       SELECT COUNT(*) AS cnt FROM npc_memories WHERE npc_id = ?
     `);
+
+    this.stmtMarkSuperseded = db.prepare(`
+      UPDATE npc_memories
+         SET superseded_by = @superseded_by
+       WHERE npc_id = @npc_id
+         AND subject_key = @subject_key
+         AND predicate_key = @predicate_key
+         AND memory_id != @exclude_id
+         AND superseded_by IS NULL
+    `);
   }
 
   /** Add a memory. Returns the generated memory_id. */
@@ -105,8 +120,32 @@ export class NpcMemoryEngine {
       importance: input.importance,
       anchor_depth: input.anchorDepth ?? 0,
       now,
+      subject_key: input.subjectKey ?? null,
+      predicate_key: input.predicateKey ?? null,
     });
     return id;
+  }
+
+  /**
+   * Mark prior facts with the same (npc_id, subject_key, predicate_key) as
+   * superseded by `supersededBy`. Excludes the row identified by `excludeId`
+   * so a self-supersede on insert doesn't fire. Returns affected row count.
+   */
+  markSupersededByKey(opts: {
+    npcId: string;
+    subjectKey: string;
+    predicateKey: string;
+    excludeId: string;
+    supersededBy: string;
+  }): number {
+    const result = this.stmtMarkSuperseded.run({
+      npc_id: opts.npcId,
+      subject_key: opts.subjectKey,
+      predicate_key: opts.predicateKey,
+      exclude_id: opts.excludeId,
+      superseded_by: opts.supersededBy,
+    });
+    return Number(result.changes);
   }
 
   /** Get a single memory by ID (scoped to this NPC). Returns null if not found. */
@@ -136,6 +175,7 @@ export class NpcMemoryEngine {
       JOIN npc_memories_fts fts ON fts.rowid = m.rowid
       WHERE fts.npc_memories_fts MATCH ?
         AND m.npc_id = ?
+        AND m.superseded_by IS NULL
       ORDER BY m.importance DESC
     `);
     const rows = stmt.all(ftsQuery, this.npcId) as Record<string, unknown>[];

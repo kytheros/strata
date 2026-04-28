@@ -109,3 +109,95 @@ describe("NpcMemoryEngine", () => {
     expect(engine.count()).toBe(2);
   });
 });
+
+describe("NpcMemoryEngine — conflict resolution (Spec 2026-04-28)", () => {
+  let db2: Database.Database;
+  let engine: NpcMemoryEngine;
+
+  beforeEach(() => {
+    db2 = new Database(":memory:");
+    applySchema(db2);
+    engine = new NpcMemoryEngine(db2, "goran");
+  });
+
+  afterEach(() => {
+    db2.close();
+  });
+
+  it("add() persists subjectKey and predicateKey when provided", () => {
+    const id = engine.add({
+      content: "player's current horse is Shadowfax",
+      tags: ["extracted", "semantic"],
+      importance: 70,
+      subjectKey: "player",
+      predicateKey: "current_hors",
+    });
+    const row = db2.prepare("SELECT subject_key, predicate_key, superseded_by FROM npc_memories WHERE memory_id=?").get(id) as Record<string, unknown>;
+    expect(row.subject_key).toBe("player");
+    expect(row.predicate_key).toBe("current_hors");
+    expect(row.superseded_by).toBeNull();
+  });
+
+  it("add() leaves keys NULL when caller does not supply them (backward compat)", () => {
+    const id = engine.add({
+      content: "a fact with no keys",
+      tags: [],
+      importance: 50,
+    });
+    const row = db2.prepare("SELECT subject_key, predicate_key FROM npc_memories WHERE memory_id=?").get(id) as Record<string, unknown>;
+    expect(row.subject_key).toBeNull();
+    expect(row.predicate_key).toBeNull();
+  });
+
+  it("markSupersededByKey() updates prior matching rows and returns affected count", () => {
+    const id1 = engine.add({ content: "horse is Silvermist", tags: [], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    const id2 = engine.add({ content: "horse is Shadowfax",  tags: [], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    const affected = engine.markSupersededByKey({
+      npcId: "goran",
+      subjectKey: "player",
+      predicateKey: "current_hors",
+      excludeId: id2,
+      supersededBy: id2,
+    });
+    expect(affected).toBe(1);
+    const row1 = db2.prepare("SELECT superseded_by FROM npc_memories WHERE memory_id=?").get(id1) as Record<string, unknown>;
+    const row2 = db2.prepare("SELECT superseded_by FROM npc_memories WHERE memory_id=?").get(id2) as Record<string, unknown>;
+    expect(row1.superseded_by).toBe(id2);
+    expect(row2.superseded_by).toBeNull();
+  });
+
+  it("markSupersededByKey() is idempotent — second call returns 0", () => {
+    const id1 = engine.add({ content: "a", tags: [], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    const id2 = engine.add({ content: "b", tags: [], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    engine.markSupersededByKey({ npcId: "goran", subjectKey: "player", predicateKey: "current_hors", excludeId: id2, supersededBy: id2 });
+    const second = engine.markSupersededByKey({ npcId: "goran", subjectKey: "player", predicateKey: "current_hors", excludeId: id2, supersededBy: id2 });
+    expect(second).toBe(0);
+    void id1;
+  });
+
+  it("markSupersededByKey() does not affect other NPCs", () => {
+    const otherEngine = new NpcMemoryEngine(db2, "other-npc");
+    const idOther = otherEngine.add({ content: "x", tags: [], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    const id2 = engine.add({ content: "y", tags: [], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    engine.markSupersededByKey({ npcId: "goran", subjectKey: "player", predicateKey: "current_hors", excludeId: id2, supersededBy: id2 });
+    const otherRow = db2.prepare("SELECT superseded_by FROM npc_memories WHERE memory_id=?").get(idOther) as Record<string, unknown>;
+    expect(otherRow.superseded_by).toBeNull();
+  });
+
+  it("search() filters out superseded rows", () => {
+    const id1 = engine.add({ content: "horse is Silvermist", tags: [], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    const id2 = engine.add({ content: "horse is Shadowfax",  tags: [], importance: 70, subjectKey: "player", predicateKey: "current_hors" });
+    engine.markSupersededByKey({ npcId: "goran", subjectKey: "player", predicateKey: "current_hors", excludeId: id2, supersededBy: id2 });
+    const hits = engine.search("horse");
+    const ids = hits.map(h => h.id);
+    expect(ids).toContain(id2);
+    expect(ids).not.toContain(id1);
+  });
+
+  it("search() returns NULL-key facts unchanged (backward compat)", () => {
+    engine.add({ content: "hello world", tags: [], importance: 50 });   // no keys
+    const hits = engine.search("hello");
+    expect(hits.length).toBe(1);
+    expect(hits[0].content).toBe("hello world");
+  });
+});
