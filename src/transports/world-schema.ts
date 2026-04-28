@@ -1,6 +1,13 @@
 import type Database from 'better-sqlite3';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+
+function ensureColumn(db: Database.Database, table: string, column: string, type: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{name: string}>;
+  if (!cols.some(c => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
+}
 
 export function applySchema(db: Database.Database): void {
   db.exec(`
@@ -122,6 +129,21 @@ export function applySchema(db: Database.Database): void {
         INSERT INTO npc_turns_fts(rowid, content) VALUES (new.rowid, new.content);
       END;
   `);
+
+  // Spec 2026-04-28 conflict resolution: add subject/predicate/supersede columns
+  // idempotently so both fresh DBs and pre-existing DBs get the new columns.
+  ensureColumn(db, "npc_memories", "subject_key", "TEXT");
+  ensureColumn(db, "npc_memories", "predicate_key", "TEXT");
+  ensureColumn(db, "npc_memories", "superseded_by", "TEXT");
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_npc_memories_subject_pred_active
+      ON npc_memories (npc_id, subject_key, predicate_key)
+      WHERE superseded_by IS NULL
+        AND subject_key IS NOT NULL
+        AND predicate_key IS NOT NULL;
+  `);
+
   db.prepare(
     "INSERT INTO schema_meta(key,value) VALUES('version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
   ).run(String(SCHEMA_VERSION));
