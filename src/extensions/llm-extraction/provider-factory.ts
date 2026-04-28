@@ -117,7 +117,11 @@ function stripJsonFences(raw: string): string {
 export function validateExtractionOutput(raw: string): boolean {
   try {
     const parsed = JSON.parse(stripJsonFences(raw));
-    return Array.isArray(parsed?.entries);
+    // The HybridProvider serves both extraction pipelines:
+    //   - KnowledgeStore (legacy)            → outputs { entries: [...] }
+    //   - utterance-extractor (Spec 2026-04-26+) → outputs { facts: [...] }
+    // Either shape is valid output.
+    return Array.isArray(parsed?.entries) || Array.isArray(parsed?.facts);
   } catch {
     return false;
   }
