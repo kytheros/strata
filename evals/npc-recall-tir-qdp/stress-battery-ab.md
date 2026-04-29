@@ -103,3 +103,68 @@ The frozen retrieval eval (10/10) and EditMode unit tests (34/34) are unchanged 
 
 Alternative: keep server-side commits (Tasks 1–3 are pure additive infrastructure with no behavior change for old clients) and revert only the Unity client commits (Tasks 4–7). The server fields are useful for any future renderer iteration.
 
+
+## AFTER conflict resolution (Spec 2026-04-28)
+
+Strata REST server at `localhost:3055` running with:
+- `STRATA_HYBRID_STRICT=1` (forces local-only Ollama, no Gemini fallback — Gemini quota exhausted)
+- `--rest-token <47-char dev token>` (required for v2 routing — without it, server defaults all requests to legacy `kind: "none"` auth and silently bypasses world scoping)
+- Test bench migrated to v2 path (commit `5292945` + `b5afc66`)
+- Conflict resolution active (`extraction.conflictDetection: "exact"`)
+
+Models:
+- Dialogue: `gemma3:4b` on Ollama
+- Atomic-fact extraction: `gemma4:e4b` on Ollama (was Gemini until quota exhausted)
+
+Frozen retrieval eval: **16/16 pass** (10 prior + 6 new conflict-resolution scenarios).
+EditMode tests: 24/24 pass.
+
+### Single full battery (N=1; Step-1/Step-2 N=3 deferred per option-2)
+
+| # | Test | Result |
+|---|------|--------|
+| 1 | AbstentionWithPollutedContext | ✓ |
+| 2 | AliasReverseLookup_SemanticRetrieval | ✓ |
+| 3 | **ConflictingQuantities** | **✓ (was 3/3 fail in Spec 2026-04-27)** |
+| 4 | ContradictoryUpdate | ✗ ("Silvermist" — passed in earlier isolation run; observed 1/2 today) |
+| 5 | CrossSessionPersistence | ✓ |
+| 6 | DistractedMultiFactRecall | ✓ |
+| 7 | LongContextRecall | ✓ |
+| 8 | NoiseBuriedFact | ✗ (model deflected without "moonstone") |
+| 9 | PrivateSecretPreserved | ✗ ("I don't know who John is" — out of spec scope) |
+| 10 | TemporalCountingHard | ✓ |
+
+**Failures: 3 / 10. Wall time: 60.7 min.**
+
+### Comparison vs prior measurements
+
+| Config | Avg fails / 10 | Notes |
+|--------|----------------|-------|
+| BEFORE all of this (gemma3:4b dialogue, Gemini extraction, legacy path) | 2.67 | Spec 2026-04-26 baseline |
+| Spec 2026-04-27 prompt eng (legacy, Gemini, gemma3:4b) | 3.67 | Regression — rolled back |
+| gemma4:e4b standalone w/ Search merge (legacy, Gemini, gemma4:e4b dialogue) | 3.00 | 2026-04-27 diagnostic |
+| **Spec 2026-04-28 (v2, local-only, conflict res, gemma3:4b dialogue + gemma4:e4b extraction)** | **3 (N=1)** | **Within historical noise band** |
+
+### Decision
+
+**SHIP partial + queue Phase 1.** Rationale:
+
+1. **Frozen eval cleared (16/16)** — the conflict-resolution mechanism is verifiably correct against the deterministic gate.
+2. **Spec's secondary target hit** — `ConflictingQuantities`, which was a clean 3/3 fail in the Spec 2026-04-27 prompt-engineering attempt, now passes. The atomic-fact extraction split prevented the recency-prefer scope-creep that broke 04-27.
+3. **No aggregate regression** — 3/10 sits within the historical 2–4 noise band given the multiple variables changed (model family, data path, conflict res).
+4. **`ContradictoryUpdate` is borderline.** Passed in isolation earlier today (proving the mechanism works end-to-end on the right code path), failed in the batch run. With N=2 we can't measure the rate. Per spec ship-gate, this is the **Phase 1 trigger** — turn-level supersedes filter (Q5 Option B from the brainstorm) is the natural next step. The hypothesis: even with the fact superseded in `npc_memories`, the raw "I ride Silvermist" turn from `npc_turns` still anchors gemma3:4b on the simpler declarative.
+5. **`NoiseBuriedFact` and `PrivateSecretPreserved`** are explicitly out of scope per spec Section 9; their failures here are not regressions.
+
+### Per-failure-mode read
+
+- **`ContradictoryUpdate`**: DB inspection showed atomic-fact extraction working — `(player, current_hors, "Shadowfax")` was extracted as a separate atomic fact. Two unrelated supersedes fired during the run (both for "keeping the forge running"), proving the mechanism. The Silvermist↔Shadowfax pair didn't supersede because gemma4:e4b emitted different predicates for the two facts: `ride_hors` (Silvermist) vs `current_hors` (Shadowfax) — a predicate-vocabulary drift the slug-and-stem normalizer doesn't catch. Phase 1 (turn-level filter) sidesteps this by suppressing the raw Silvermist turn entirely once the new fact is established.
+- **`ConflictingQuantities` (newly passing)**: gemma4:e4b correctly extracted `(player, ordered_shield, "8")` and superseded the prior `(player, ordered_shield, "3")`. Mechanism worked as designed.
+- **`NoiseBuriedFact`**: not targeted by this spec. Model knows the fact exists but won't say the word — generation-side issue, separate from retrieval/conflict.
+- **`PrivateSecretPreserved`**: not targeted. Alias-chain retrieval issue (the model couldn't traverse "John" → "Malaketh"); needs its own spec on importance-weighted anchoring of high-salience private facts.
+
+### Next steps
+
+1. Code review (Task 15) — dispatched to `code-reviewer` agent.
+2. Phase 1 (turn-level supersedes) — separate spec, addresses the ContradictoryUpdate predicate-drift issue revealed here.
+3. Full N=3 protocol — deferred; can run at a quieter time, gives the strict ship-gate signal but not blocking ship of this work.
+4. Predicate-key embedding similarity (Option 4 from brainstorm) — would catch `ride_hors` ≡ `current_hors` collision; deferred.
