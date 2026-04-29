@@ -100,11 +100,19 @@ export class ExtractionWorker {
         job.tenantId,
         job.agentId,
         async (target) => {
-          // Spec 2026-04-28: read conflict-detection mode once per job.
-          // "off" mode is used during ship-gate Step-1 baseline measurement.
+          // Spec 2026-04-28: hoist per-job constants and the engine construction
+          // out of the per-fact loop. Constructing NpcMemoryEngine prepares 8
+          // statements; doing it per fact would re-prepare them ~3x for every
+          // compound update. Same engine instance is safe across the loop —
+          // facts are committed in order and visible to subsequent supersede
+          // queries via the shared target.worldDb.
           const { CONFIG } = await import("../../config.js");
           const conflictMode = CONFIG.extraction?.conflictDetection ?? "exact";
           const { normalizeKey } = await import("../llm-extraction/utterance-extractor.js");
+          const { NpcMemoryEngine } = await import("../../transports/npc-memory-engine.js");
+          const engine = target.kind === "v2"
+            ? new NpcMemoryEngine(target.worldDb, target.agentId)
+            : null;
 
           for (const f of finalFacts) {
             const tags = [
@@ -118,20 +126,19 @@ export class ExtractionWorker {
               ? f.importance
               : job.importance ?? 70;
             if (target.kind === "v2") {
-              // Dynamic import to avoid top-level coupling with transports/.
-              const { NpcMemoryEngine } = await import("../../transports/npc-memory-engine.js");
-              const engine = new NpcMemoryEngine(target.worldDb, target.agentId);
               const subjectKey   = (f.subject   && f.subject.trim().length   > 0) ? normalizeKey(f.subject)   : null;
               const predicateKey = (f.predicate && f.predicate.trim().length > 0) ? normalizeKey(f.predicate) : null;
-              const newId = engine.add({
+              const newId = engine!.add({
                 content: f.text, tags: dedupedTags, importance,
                 subjectKey, predicateKey,
               });
-              // Conflict-resolution gate. "off" path is used during Step-1
-              // baseline measurement. "embedding" path delegates to exact today;
-              // reserved for follow-up spec.
+              // Conflict-resolution gate. "off" skips collision detection entirely
+              // (Step-1 baseline measurement). "embedding" is intentionally
+              // treated as "exact" until Option 4 (cosine similarity) is
+              // implemented in a follow-up spec — guard is `!== "off"` rather
+              // than `=== "exact"` so adding the new mode is a one-line change.
               if (conflictMode !== "off" && subjectKey !== null && predicateKey !== null) {
-                engine.markSupersededByKey({
+                engine!.markSupersededByKey({
                   npcId: target.agentId,
                   subjectKey, predicateKey,
                   excludeId: newId,

@@ -46,6 +46,8 @@ export function normalizeKey(raw: string): string {
   return raw.toLowerCase()
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
+    // length > 1: drop single-char tokens that survive the stopword list
+    // (e.g. the "s" left over from possessives like "current's horse" → "current s horse").
     .filter(t => t.length > 1 && !STOPWORDS.has(t))
     .map(stem)
     .join("_");
