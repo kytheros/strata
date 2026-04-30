@@ -5,6 +5,12 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`strata backup push/pull/status`** — BYO-bucket backup commands for multi-device continuity and disaster recovery. Upload `~/.strata/strata.db` to any S3-compatible provider (AWS S3, Cloudflare R2, Backblaze B2, MinIO) with `strata backup push s3://bucket/key`. Restore with `strata backup pull`. Check local vs. remote state with `strata backup status`. Credentials read from standard AWS env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`); set `AWS_ENDPOINT_URL` for non-AWS providers. Push is atomic (temp-key + rename) and writes a SHA-256 sidecar; pull verifies the sidecar before committing. Store a default URI in `~/.strata/backup.json` to omit the argument. Uses `better-sqlite3`'s online backup API so a running server is never snapshotted mid-write. Use `--force` to skip the newer-local-DB confirmation prompt.
+
 ## [2.0.0] - 2026-04-27
 
 ### ⚠️ Breaking changes

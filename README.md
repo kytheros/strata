@@ -260,6 +260,39 @@ All ranking parameters are centralized in [`src/config.ts`](src/config.ts) and w
 
 ---
 
+## Backup and Multi-Device Continuity
+
+Strata stores everything in a single SQLite file (`~/.strata/strata.db`). Back it up to any S3-compatible provider — AWS S3, Cloudflare R2, Backblaze B2, or a self-hosted MinIO instance — with three commands:
+
+```bash
+# Push: upload local DB to bucket (atomic — temp key then rename, SHA-256 sidecar written)
+strata backup push s3://my-bucket/my-machine.db
+
+# Pull: restore DB from bucket (warns before overwriting a newer local file)
+strata backup pull s3://my-bucket/my-machine.db
+
+# Status: compare local vs. remote size and last-modified timestamps
+strata backup status s3://my-bucket/my-machine.db
+```
+
+Credentials come from the standard AWS environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`). For non-AWS providers, also set `AWS_ENDPOINT_URL`:
+
+```bash
+# Cloudflare R2
+export AWS_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+strata backup push s3://my-bucket/strata.db
+```
+
+To skip repeating the URI, add a default to `~/.strata/backup.json`:
+
+```json
+{ "uri": "s3://my-bucket/my-machine.db" }
+```
+
+Then `strata backup push` (no argument) reads it automatically. Use `--force` to skip the overwrite confirmation on `pull`.
+
+---
+
 ## Local LLM Inference (Gemma 4)
 
 Strata's extraction, conflict resolution, and summarization pipeline can run
@@ -370,6 +403,9 @@ You can also set the Gemini key in `~/.strata/config.json` instead of an environ
 | `strata update` | Update strata installation in place |
 | `strata deploy cloudflare` | Deploy to Cloudflare Workers + D1 |
 | `strata deploy gcp` | Deploy to GCP Cloud Run (+ Litestream or Cloud SQL) |
+| `strata backup push <s3-uri>` | Upload `~/.strata/strata.db` to S3-compatible bucket |
+| `strata backup pull <s3-uri>` | Restore DB from bucket (prompts before overwriting newer local file) |
+| `strata backup status <s3-uri>` | Compare local vs. remote size and last-modified |
 | `strata activate <key>` | Activate a Pro license |
 | `strata license` | Show current license status |
 | `strata --help` | Full usage |
@@ -423,7 +459,7 @@ Today, Strata is the best memory layer for AI coding assistants and game engines
 
 The architecture extends in three directions. Storage backends (SQLite, D1, Postgres + Cloud Run) let you run Strata wherever your agents live. The HTTP and REST transports cover MCP-aware coding assistants and game engines respectively. Pluggable retrieval (BM25 + vector + RRF + per-NPC profile decay) adapts to whatever knowledge surface you point at it.
 
-What's next: a first-party Unity package ([strata#2](https://github.com/kytheros/strata/issues/2)), `strata backup push/pull` for multi-device continuity ([strata#1](https://github.com/kytheros/strata/issues/1)), team-scale shared memory with conflict resolution, and deeper reasoning over the accumulated graph. The community edition is free and open source, forever.
+What's next: a first-party Unity package ([strata#2](https://github.com/kytheros/strata/issues/2)), team-scale shared memory with conflict resolution, and deeper reasoning over the accumulated graph. The community edition is free and open source, forever.
 
 ---
 
