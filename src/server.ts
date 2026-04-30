@@ -106,7 +106,7 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
   // Only create SqliteIndexManager when no external storage is provided.
   // In Workers environments (D1), there is no filesystem — IndexManager cannot be created.
   // dataDir comes from CLI args or developer config, not user input.
-  const dbPath = options?.dataDir ? join(options.dataDir, "strata.db") : undefined; // nosemgrep: semgrep.mcp-path-traversal-risk
+  const dbPath = options?.dataDir ? join(options.dataDir, "strata.db") : undefined; // nosemgrep: mcp-path-traversal-risk
   const indexManager = hasExternalStorage ? null : new SqliteIndexManager(dbPath);
 
   // Build the StorageContext. When injected (D1 path), use the provided context.

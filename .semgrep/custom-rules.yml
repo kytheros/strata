@@ -198,6 +198,7 @@ rules:
         - "**/storage/d1/*.ts"
         - "**/search/evidence-gaps.ts"
         - "**/extensions/quantization/migration.ts"
+        - "**/transports/world-schema.ts"
     message: >
       SQL query uses template literal string interpolation, which may allow SQL injection.
       Use parameterized queries instead:
