@@ -1,0 +1,25 @@
+version: 2
+
+# Socket Security configuration for strata-mcp.
+#
+# Network access in this package is intentional and documented in README.md
+# under "Network Access". Strata is a local memory layer that optionally
+# integrates with embedding, LLM, reranker, and S3 backup providers — all
+# opt-in via environment variables. With no API keys set, Strata makes zero
+# outbound calls.
+#
+# We use native `fetch` for all HTTP (no axios/got/node-fetch) per our
+# supply-chain hardening policy. The `hasNetwork` alert is therefore
+# expected and accepted.
+
+projectIgnorePaths:
+  - "tests/**"
+  - "evals/**"
+  - "scripts/**"
+  - "docs/**"
+  - "specs/**"
+
+issueRules:
+  # Acknowledged — see README.md "Network Access" section.
+  hasNetwork:
+    action: ignore

@@ -1,6 +1,15 @@
 # strata-mcp
 
-The open-source memory layer for AI agents. Strata gives any MCP-compatible agent persistent memory that survives across sessions -- decisions, solutions, patterns, and knowledge that accumulate over time instead of disappearing when the context window rolls.
+[![npm](https://img.shields.io/npm/v/strata-mcp.svg)](https://www.npmjs.com/package/strata-mcp)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![MCP](https://img.shields.io/badge/MCP-compatible-7C3AED.svg)](https://modelcontextprotocol.io)
+[![CI](https://github.com/kytheros/strata/actions/workflows/ci.yml/badge.svg)](https://github.com/kytheros/strata/actions)
+![Status: Beta](https://img.shields.io/badge/status-beta-orange.svg)
+
+**Persistent memory for AI agents.** Agents forget. Context windows roll over and the bug you fixed, the decision you made, and the pattern you found are gone. Strata captures these as structured knowledge while you work and gives them back to the next session — through the [Model Context Protocol](https://modelcontextprotocol.io), the open standard supported by Claude Code, Cursor, Cline, Continue, Claude Desktop, Codex CLI, and Gemini CLI.
+
+**81.1% on LongMemEval-500** with the same BM25 + vector + RRF stack documented below — see [Benchmarks](docs/benchmarks.md). Runs locally on SQLite, on Cloudflare Workers + D1, or on Google Cloud Run.
 
 **For AI coding assistants:** Strata auto-indexes your conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a shared knowledge base. Store a decision in Claude Code, recall it from Gemini CLI.
 
@@ -13,6 +22,30 @@ The open-source memory layer for AI agents. Strata gives any MCP-compatible agen
 **What makes Strata different:** Every knowledge entry passes through a [quality-gated evaluator pipeline](docs/evaluator-pipeline.md) before storage. Actionability, specificity, and relevance are checked deterministically. The result is a knowledge base that stays clean and auditable -- not a growing pile of everything.
 
 No cloud required. No memory caps. Everything stays on your machine -- or deploy anywhere.
+
+> **Status:** Beta. The data model and MCP tool surface are stable; CLI flags and deploy commands may shift between minor versions. Used in production by Kytheros LLC and design partners.
+>
+> **Who builds this:** Strata is built and maintained by **[Kytheros LLC](https://kytheros.dev)**. The community edition (this repo) is **Apache 2.0 licensed and free forever** — the feature set documented here is committed, not bait-and-switch. A commercial Pro tier adds the features listed under [Pro Edition](#pro-edition) below and funds ongoing development.
+>
+> **Support development:** [polar.sh/kytheros](https://polar.sh/kytheros) — sponsor or pick up a Pro license. Both directly fund the community edition.
+>
+> **Privacy:** Strata stores everything locally in `~/.strata/strata.db` by default and works fully offline with FTS5 keyword search. If you set `GEMINI_API_KEY`, queries and stored content are sent to Google's Gemini API for embeddings and extraction (subject to [Google's API terms](https://ai.google.dev/terms)). [Local LLM Inference](#local-llm-inference-gemma-4) removes the Gemini dependency entirely.
+
+---
+
+## Strata vs. other memory layers
+
+|                              | **Strata**                          | Mem0                  | LangMem            | Raw vector DB |
+|------------------------------|-------------------------------------|-----------------------|--------------------|---------------|
+| **Integration model**        | MCP server (any MCP client)         | SDK (Python / JS)     | LangChain only     | DIY           |
+| **Conversation ingestion**   | Auto-parses Claude / Codex / Aider / Cline / Gemini transcripts | Explicit `add()` calls | Explicit          | DIY           |
+| **Quality control on writes**| Evaluator pipeline (3 deterministic gates) | Stores all     | Stores all         | None          |
+| **Search**                   | BM25 + vector + RRF + recency + decay | Vector              | Vector             | Vector        |
+| **Local-only mode**          | ✓ (works fully offline w/o API key) | Hosted-default        | Configurable       | ✓             |
+| **Game engine transport**    | ✓ (REST, per-NPC scoping)           | ✗                     | ✗                  | ✗             |
+| **License**                  | Apache 2.0                          | Apache 2.0            | MIT                | Varies        |
+
+Mem0 is the right tool when you're embedding memory inside a single application's SDK. Strata is the right tool when you want a memory layer that **every MCP-compatible agent on your machine shares** — and that you can also deploy as multi-tenant infrastructure.
 
 ---
 
@@ -78,6 +111,65 @@ Strata v2.0.0
 Database: ~/.strata/strata.db
 Sessions: 142 | Documents: 3847 | Projects: 12
 ```
+
+---
+
+## MCP Client Setup
+
+`strata init` auto-configures Claude Code and Gemini CLI. For other MCP clients, drop the snippet below into the client's MCP settings file:
+
+**Claude Desktop** — `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "strata": {
+      "command": "strata"
+    }
+  }
+}
+```
+
+**Cursor** — Settings → MCP → Add Server, or `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "strata": {
+      "command": "strata",
+      "env": {
+        "GEMINI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+**Cline** (VS Code) — Cline → Settings → MCP Servers, or `cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "strata": {
+      "command": "strata",
+      "disabled": false,
+      "autoApprove": ["search_history", "find_solutions", "get_project_context"]
+    }
+  }
+}
+```
+
+**Continue** — `~/.continue/config.yaml`:
+
+```yaml
+mcpServers:
+  - name: strata
+    command: strata
+```
+
+**Codex CLI / Aider** — both read conversation files Strata already auto-indexes. No MCP wiring needed; just run `strata init` and they show up in `strata status`.
+
+**Remote / HTTP transport** — start Strata as an HTTP server with `strata serve --port 3000` and point any MCP-compatible client at `http://localhost:3000/mcp`. For multi-user deployments, see [Deploy on Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) — the multi-tenant transport requires a verified auth proxy in production.
 
 ---
 
@@ -236,6 +328,28 @@ Deploys Cloud Run with a managed Cloud SQL (Postgres 17) instance. Row-level ten
 
 Both modes use the same search pipeline (BM25 full-text + vector cosine similarity via RRF). Add a `GEMINI_API_KEY` secret for semantic search.
 
+### Multi-tenant auth model
+
+> **Read this before exposing a multi-tenant deployment to untrusted clients.**
+
+Strata identifies the calling user via the `X-Strata-User` HTTP header (a UUID) and routes the request to that user's isolated SQLite database. The header alone is **trust-the-header** — Strata has no way to prove the caller actually owns the UUID they claim. For any deployment where untrusted clients can reach the port, you **must** front Strata with an auth proxy and require it to vouch for every request:
+
+```bash
+STRATA_REQUIRE_AUTH_PROXY=1
+STRATA_AUTH_PROXY_TOKEN=$(openssl rand -hex 32)   # ≥32 chars
+```
+
+The upstream proxy (Cloudflare Worker, Kong, Envoy, nginx + auth_request, etc.) is responsible for:
+
+1. Authenticating the caller — JWT, session cookie, mTLS, OAuth, whatever fits your stack
+2. Mapping that identity to a Strata user UUID
+3. Setting `X-Strata-User: <uuid>` on the upstream request
+4. Setting `X-Strata-Verified: <STRATA_AUTH_PROXY_TOKEN>` to vouch that step 1 succeeded
+
+Strata verifies `X-Strata-Verified` in constant time and rejects any `/mcp` request that's missing or mismatched. Without `STRATA_REQUIRE_AUTH_PROXY=1`, the backend assumes it's behind a private network boundary — fine for `localhost` and single-user self-hosted deployments, **not** safe to expose publicly.
+
+The REST transport (`strata serve --rest`) has a separate token model: it signs player bearer tokens with HMAC and refuses to start unless `STRATA_TOKEN_SECRET` is set. See [Game Engine REST API](https://strata.kytheros.dev/docs/game-engine-api) for the two-tier admin/player flow.
+
 ---
 
 ## Search Intelligence
@@ -338,9 +452,9 @@ Run `strata status` to see which tools are detected on your system.
 
 ---
 
-## Pro & Team Editions
+## Pro Edition
 
-Audit trails, entity intelligence, LLM-powered extraction, local dashboard, and cross-machine sync.
+Audit trails, entity intelligence, multi-provider LLM extraction, local dashboard, and cross-machine sync. Funds development of the community edition.
 
 | Feature | Description |
 |---------|-------------|
@@ -363,7 +477,7 @@ Audit trails, entity intelligence, LLM-powered extraction, local dashboard, and 
 |----------|-------------|---------|
 | `GEMINI_API_KEY` | Gemini API key for semantic search and embeddings. [Get one free](https://aistudio.google.com/apikey). Also reads from `~/.strata/config.json`. | _(FTS5 only)_ |
 | `STRATA_DATA_DIR` | Database directory | `~/.strata/` |
-| `STRATA_LICENSE_KEY` | Pro/Team license key | _(free tier)_ |
+| `STRATA_LICENSE_KEY` | Pro license key | _(free tier)_ |
 | `STRATA_DEFAULT_USER` | Default user scope | `default` |
 | `STRATA_EXTRA_WATCH_DIRS` | Additional watch directories | _(none)_ |
 | `NO_COLOR` | Disable colored CLI output | _(unset)_ |
@@ -409,6 +523,24 @@ You can also set the Gemini key in `~/.strata/config.json` instead of an environ
 | `strata activate <key>` | Activate a Pro license |
 | `strata license` | Show current license status |
 | `strata --help` | Full usage |
+
+---
+
+## Network Access
+
+Strata runs **fully local by default**. The SQLite database, FTS5 index, and BM25 search engine never leave your machine. Outbound network calls are made only when you explicitly opt in to one of the following integrations:
+
+| Integration | Endpoint | Triggered by |
+|---|---|---|
+| Gemini embeddings + extraction | `generativelanguage.googleapis.com` | `GEMINI_API_KEY` set |
+| OpenAI reasoning | `api.openai.com` | `OPENAI_API_KEY` set + `reason_over_query` called |
+| Anthropic reasoning | `api.anthropic.com` | `ANTHROPIC_API_KEY` set + `reason_over_query` called |
+| Cohere reranking | `api.cohere.com` | `COHERE_API_KEY` set + reranker enabled |
+| S3-compatible bucket | `<your-bucket>` | `strata backup push/pull` invoked |
+
+With no API keys set, Strata makes zero outbound calls — you can run it on an air-gapped machine. The optional Ollama integration (local LLM via `strata distill`) is also fully on-device.
+
+We use native `fetch` for all HTTP calls (no axios, got, or other third-party HTTP clients) per the project's [supply-chain hardening policy](https://github.com/kytheros/strata/blob/main/CLAUDE.md). Socket's "module accesses the network" alert flags these `fetch` call sites; they are intentional and documented above.
 
 ---
 
@@ -459,10 +591,47 @@ Today, Strata is the best memory layer for AI coding assistants and game engines
 
 The architecture extends in three directions. Storage backends (SQLite, D1, Postgres + Cloud Run) let you run Strata wherever your agents live. The HTTP and REST transports cover MCP-aware coding assistants and game engines respectively. Pluggable retrieval (BM25 + vector + RRF + per-NPC profile decay) adapts to whatever knowledge surface you point at it.
 
-What's next: a first-party Unity package ([strata#2](https://github.com/kytheros/strata/issues/2)), team-scale shared memory with conflict resolution, and deeper reasoning over the accumulated graph. The community edition is free and open source, forever.
+What's next: a first-party Unity package ([strata#2](https://github.com/kytheros/strata/issues/2)), deeper reasoning over the accumulated graph, and richer per-NPC memory primitives for game engines. The community edition is free and open source, forever.
+
+---
+
+## Community
+
+- **Questions and ideas** — [GitHub Discussions](https://github.com/kytheros/strata/discussions)
+- **Bugs and feature requests** — [GitHub Issues](https://github.com/kytheros/strata/issues)
+- **First-time contributors** — issues labeled [`good first issue`](https://github.com/kytheros/strata/labels/good%20first%20issue) are scoped, documented, and reviewed quickly
+- **Security disclosures** — see [SECURITY.md](SECURITY.md) (do not file public issues for vulnerabilities)
+- **Sponsor / Pro license** — [polar.sh/kytheros](https://polar.sh/kytheros)
+
+## Contributing
+
+Pull requests welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, the test command, and the PR conventions we follow.
+
+We use the [Developer Certificate of Origin](https://developercertificate.org/) — sign off your commits with `git commit -s`. No CLA. By contributing, you agree to license your contributions under [Apache 2.0](LICENSE) (the project license).
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). Reports go to conduct@kytheros.dev.
+
+---
+
+## Acknowledgements
+
+Strata stands on a stack of excellent open-source work:
+
+- **[Model Context Protocol](https://modelcontextprotocol.io)** — the open standard that makes Strata speakable to any AI agent
+- **[better-sqlite3](https://github.com/WiseLibs/better-sqlite3)** — synchronous SQLite bindings; the foundation of the local index
+- **[Litestream](https://litestream.io)** — continuous SQLite replication for the Cloud Run single-user deploy
+- **[Ollama](https://ollama.com)** + **[Gemma](https://ai.google.dev/gemma)** — local inference path for extraction and summarization
+- **[Cloudflare Workers + D1](https://developers.cloudflare.com/d1/)** — serverless edge runtime and SQLite-compatible storage
+- **Google [Gemini API](https://ai.google.dev/)** — embeddings (`gemini-embedding-001`) and frontier extraction
+
+---
+
+## Trademarks
+
+"Strata" and "Kytheros" are trademarks of Kytheros LLC. The Apache 2.0 license grants you broad rights to use, modify, and distribute this software, but it does not grant trademark rights — please don't use the names or logos in ways that imply endorsement or affiliation that doesn't exist. Forks are welcome; please rename them.
 
 ---
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
+Apache 2.0 — see [LICENSE](LICENSE) for details. Contributions are licensed under the same terms (see [Contributing](#contributing) above).
