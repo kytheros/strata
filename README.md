@@ -209,6 +209,8 @@ mcpServers:
 
 ## How It Works
 
+![Strata architecture](docs/diagrams/strata-architecture.gif)
+
 ```
 Conversation files  -->  Parsers  -->  SQLite + FTS5 index
                                              |
@@ -253,6 +255,8 @@ See [Hooks and Skills](docs/HOOKS-AND-SKILLS.md) for the full configuration refe
 ---
 
 ## Deploy on Cloudflare Workers + D1
+
+![Strata on Cloudflare D1](docs/diagrams/strata-d1-flow.gif)
 
 Strata ships a pluggable storage layer with a Cloudflare D1 adapter. Deploy Strata as a serverless MCP server on Cloudflare's global edge — zero ops, infinite scale, $0 idle cost.
 
