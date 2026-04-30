@@ -179,8 +179,10 @@ async function streamToBuffer(stream: Readable | NodeJS.ReadableStream): Promise
 
 /**
  * Use better-sqlite3's online backup API to snapshot the live DB to a temp
- * file, then return the temp path.  Falls back to a plain file read if
- * better-sqlite3 is not available (e.g., in unit tests without native deps).
+ * file, then return the temp path.  Falls back to a plain file read ONLY
+ * when better-sqlite3 is not installed (MODULE_NOT_FOUND / ERR_MODULE_NOT_FOUND).
+ * Any other error (locked DB, disk full, corrupt file, etc.) is re-thrown so
+ * the caller does not silently fall back to a torn read on a live WAL-mode DB.
  */
 async function snapshotDb(srcPath: string, tmpPath: string): Promise<void> {
   try {
@@ -188,8 +190,15 @@ async function snapshotDb(srcPath: string, tmpPath: string): Promise<void> {
     const db = new Database(srcPath, { readonly: true });
     await db.backup(tmpPath);
     db.close();
-  } catch {
-    // Fallback: plain file copy (acceptable for tests without native SQLite)
+  } catch (err: unknown) {
+    const isModuleNotFound =
+      err instanceof Error &&
+      (
+        (err as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND" ||
+        (err as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND"
+      );
+    if (!isModuleNotFound) throw err;
+    // Fallback: plain file copy (acceptable only when better-sqlite3 is absent)
     const buf = readFileSync(srcPath);
     writeFileSync(tmpPath, buf);
   }
@@ -202,9 +211,13 @@ async function snapshotDb(srcPath: string, tmpPath: string): Promise<void> {
  *  1. Snapshot DB via SQLite online backup API → temp file.
  *  2. Upload temp file to <key>.tmp-<timestamp>.
  *  3. Compute SHA-256 of the snapshot.
- *  4. Upload SHA-256 to <key>.sha256.
- *  5. CopyObject temp → final key.
+ *  4. CopyObject temp → final key.
+ *  5. Upload SHA-256 sidecar to <key>.sha256  (after final key is live).
  *  6. DeleteObject temp key.
+ *
+ * The sidecar is written after the final key is live so that a concurrent pull
+ * never sees a sidecar pointing at absent or stale content.  If step 5 fails,
+ * pull handles a missing sidecar gracefully (skips SHA verification).
  *
  * On any failure mid-flight, attempts to delete the temp key (best-effort).
  */
@@ -250,7 +263,21 @@ export async function runBackupPush(
     // Step 3: compute SHA-256 of the snapshot
     const digest = sha256File(snapshotPath);
 
-    // Step 4: upload SHA-256 sidecar
+    // Step 4: atomic rename — CopyObject temp → final
+    // The sidecar is written AFTER this so that a concurrent pull never sees
+    // a sidecar that describes a final key that is still absent or stale.
+    if (!quiet) console.log(`Promoting to s3://${bucket}/${key} ...`);
+    await s3.send(
+      new CopyObjectCommand({
+        Bucket: bucket,
+        CopySource: `${bucket}/${tmpKey}`,
+        Key: key,
+      })
+    );
+
+    // Step 5: upload SHA-256 sidecar (after final key is live)
+    // If this write fails, pull handles a missing sidecar gracefully (skips
+    // SHA verification).  The remote DB is already consistent at this point.
     if (!quiet) console.log(`Writing manifest s3://${bucket}/${sha256Key} ...`);
     await s3.send(
       new PutObjectCommand({
@@ -258,16 +285,6 @@ export async function runBackupPush(
         Key: sha256Key,
         Body: digest,
         ContentType: "text/plain",
-      })
-    );
-
-    // Step 5: atomic rename — CopyObject temp → final
-    if (!quiet) console.log(`Promoting to s3://${bucket}/${key} ...`);
-    await s3.send(
-      new CopyObjectCommand({
-        Bucket: bucket,
-        CopySource: `${bucket}/${tmpKey}`,
-        Key: key,
       })
     );
 
