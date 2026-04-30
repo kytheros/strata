@@ -92,10 +92,11 @@ describe("PostToolUseFailure hook", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("exits 2 with stderr when matching solution found", () => {
+  it("exits 2 with stderr when matching solution found in same project", () => {
     const result = runHook({
       stdinData: JSON.stringify({
         tool_name: "Bash",
+        cwd: "backend",
         error: "Error: ECONNREFUSED 127.0.0.1:5432 - connection refused to database",
       }),
       env: { STRATA_DATA_DIR: tempDir },
@@ -105,5 +106,46 @@ describe("PostToolUseFailure hook", () => {
       expect(result.stderr).toContain("[Strata]");
       expect(result.stderr).toContain("past solution");
     }
+  });
+
+  it("exits 0 silently when matching solution is from a different project", () => {
+    const result = runHook({
+      stdinData: JSON.stringify({
+        tool_name: "Bash",
+        cwd: "frontend",
+        error: "Error: ECONNREFUSED 127.0.0.1:5432 - connection refused to database",
+      }),
+      env: { STRATA_DATA_DIR: tempDir },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("[Strata]");
+  });
+
+  it("exits 0 silently when cwd is missing from payload", () => {
+    const result = runHook({
+      stdinData: JSON.stringify({
+        tool_name: "Bash",
+        error: "Error: ECONNREFUSED 127.0.0.1:5432 - connection refused to database",
+      }),
+      env: { STRATA_DATA_DIR: tempDir },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("[Strata]");
+  });
+
+  it("exits 0 silently when match is the same error text (recurring error, not a fix)", () => {
+    // Search text essentially identical to the seeded chunk → near-duplicate
+    const dupText =
+      "Fixed ECONNREFUSED on port 5432 by increasing the connection pool size to 20 and adding retry logic";
+    const result = runHook({
+      stdinData: JSON.stringify({
+        tool_name: "Bash",
+        cwd: "backend",
+        error: dupText,
+      }),
+      env: { STRATA_DATA_DIR: tempDir },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("past solution");
   });
 });
