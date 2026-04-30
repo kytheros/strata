@@ -23,3 +23,35 @@ issueRules:
   # Acknowledged — see README.md "Network Access" section.
   hasNetwork:
     action: ignore
+
+# Documented exceptions
+# ---------------------
+# Socket's per-package alert suppression is managed via the dashboard
+# ("Accept Risk" / "Ignore"), not this file. The list below documents
+# alerts we have reviewed and consciously accepted, with rationale.
+# Revisit annually (next: 2027-04-30).
+#
+# - pdf-lib@1.17.1  obfuscatedFile (90% likely obfuscated)
+#   Reason: false positive on minified UMD bundle. pdf-lib is the de-facto
+#   JS PDF library (8M+ weekly downloads, MIT, source on GitHub at
+#   Hopding/pdf-lib). Last release 2021 — unmaintained but not malicious.
+#   Used in src/tools/pdf-chunker.ts for PDF splitting before embedding.
+#   No CVEs, no supply-chain incidents. Pinned at 1.17.1.
+#
+# - vite@5.4.21  CVE GHSA-4w7w-66w2-5vf9 (path traversal in `.map` handling)
+#   Reason: dev-only transitive (via vitest@2.1.9). Fix is in vite 6.4.2+,
+#   which requires bumping vitest to 3.x — out of scope for this work.
+#   Exploit requires a victim browser visiting a malicious page WHILE a
+#   vite dev server is running locally. We do not run a vite dev server;
+#   vite is used only as vitest's module transformer for unit tests.
+#   Not exploitable in production or CI. Revisit on next vitest major bump.
+#
+# - boolean@*  deprecated (transitive)
+#   Reason: deprecated by maintainer but functionally stable. Pulled in by
+#   a transitive dep we don't directly control. Low impact, no CVEs.
+#   Will drop naturally when the parent dep updates.
+#
+# - prebuild-install@*  deprecated (transitive, unused)
+#   Reason: standard build-time helper for native modules (better-sqlite3).
+#   Marked unused by Socket because our `.npmrc` has `ignore-scripts=true`,
+#   which neutralizes its lifecycle scripts. False alarm in our context.
