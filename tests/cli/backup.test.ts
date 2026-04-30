@@ -261,6 +261,71 @@ describe("runBackupPull", () => {
     expect(existsSync(destPath + ".partial")).toBe(false);
   });
 
+  it("pull, local newer, user answers y — downloads and replaces existing file", async () => {
+    const destPath = join(testDataDir, "strata.db");
+    writeFileSync(destPath, "old-local-content");
+
+    const remoteContent = "new-remote-content";
+
+    // Remote is older than the just-written local file
+    s3Mock
+      .on(HeadObjectCommand)
+      .resolves({
+        ContentLength: remoteContent.length,
+        LastModified: new Date("2020-01-01"),
+      })
+      .on(GetObjectCommand)
+      .resolvesOnce({
+        Body: stringToStream(remoteContent) as unknown as ReadableStream,
+        ContentLength: remoteContent.length,
+      });
+
+    await runBackupPull("s3://test-bucket/backup.db", {
+      destPath,
+      force: false,
+      promptAnswer: "y",
+      quiet: true,
+    });
+
+    // Download should have proceeded and replaced the old file
+    expect(existsSync(destPath)).toBe(true);
+    expect(readFileSync(destPath, "utf-8")).toBe(remoteContent);
+    expect(existsSync(destPath + ".partial")).toBe(false);
+  });
+
+  it("pull, remote newer than local — no prompt fires, download proceeds", async () => {
+    const destPath = join(testDataDir, "strata.db");
+    writeFileSync(destPath, "older-local-content");
+
+    const remoteContent = "fresh-remote-content";
+
+    // Remote LastModified is far in the future relative to the local file
+    s3Mock
+      .on(HeadObjectCommand)
+      .resolves({
+        ContentLength: remoteContent.length,
+        LastModified: new Date("2099-12-31"),
+      })
+      .on(GetObjectCommand)
+      .resolvesOnce({
+        Body: stringToStream(remoteContent) as unknown as ReadableStream,
+        ContentLength: remoteContent.length,
+      });
+
+    // force=false but no promptAnswer provided — if a prompt were fired and
+    // promptAnswer is undefined the code would try readline (which would hang
+    // in tests).  The test passing proves no prompt was triggered.
+    await runBackupPull("s3://test-bucket/backup.db", {
+      destPath,
+      force: false,
+      quiet: true,
+    });
+
+    expect(existsSync(destPath)).toBe(true);
+    expect(readFileSync(destPath, "utf-8")).toBe(remoteContent);
+    expect(existsSync(destPath + ".partial")).toBe(false);
+  });
+
   it("leaves .partial file and rejects when SHA256 mismatches", async () => {
     const destPath = join(testDataDir, "strata.db");
     const fakeContent = "corrupted-db-content";
