@@ -7,9 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-04-30
+
 ### Added
 
 - **`strata backup push/pull/status`** — BYO-bucket backup commands for multi-device continuity and disaster recovery. Upload `~/.strata/strata.db` to any S3-compatible provider (AWS S3, Cloudflare R2, Backblaze B2, MinIO) with `strata backup push s3://bucket/key`. Restore with `strata backup pull`. Check local vs. remote state with `strata backup status`. Credentials read from standard AWS env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`); set `AWS_ENDPOINT_URL` for non-AWS providers. Push is atomic (temp-key + rename) and writes a SHA-256 sidecar; pull verifies the sidecar before committing. Store a default URI in `~/.strata/backup.json` to omit the argument. Uses `better-sqlite3`'s online backup API so a running server is never snapshotted mid-write. Use `--force` to skip the newer-local-DB confirmation prompt.
+
+### Security
+
+- **Patched esbuild dev-server CSRF advisory** — `esbuild` is forced to `^0.25.0` via npm `overrides` (was 0.21.5 transitively via vitest's vite). End users installing `strata-mcp@2.0.1` now get the patched esbuild in their dependency tree.
+- Pinned `vite` floor to `^5.4.20` (transitive via vitest) — the path-traversal CVE in vite remains in the vite 5.x line and is fixed only in 6.4.2+, but is dev-only and not exploitable in our deployment topology (we don't expose a vite dev server). Documented in `socket.yml`.
+
+### Documentation
+
+- **Network access disclosure in README** — explicit list of opt-in integrations (Gemini, OpenAI, Anthropic, Cohere, S3 backup) with endpoints and trigger conditions, plus a statement that Strata makes zero outbound calls when no API keys are set.
+- **Added `socket.yml`** — Socket Security configuration acknowledging the intentional `hasNetwork` alert and documenting accepted false positives (`pdf-lib` minification heuristic, deprecated transitive `boolean` and `prebuild-install`).
 
 ## [2.0.0] - 2026-04-27
 

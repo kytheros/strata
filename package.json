@@ -1,6 +1,6 @@
 {
   "name": "strata-mcp",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Local memory layer for AI agents — coding assistants over MCP, game NPCs over REST",
   "type": "module",
   "license": "Apache-2.0",
