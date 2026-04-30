@@ -44,9 +44,14 @@ Queries span different retrieval challenges:
 
 | Pipeline | Description |
 |----------|-------------|
-| **Strata Community** | BM25 full-text search via FTS5 with Porter stemming. Boosts: recency, project match, importance. |
-| **Strata Pro** | Hybrid BM25 + vector cosine similarity (Gemini 3072d or local 384d) merged via Reciprocal Rank Fusion (k=60). Same boosts as community. |
+| **Strata Community** | Hybrid BM25 + vector cosine similarity merged via Reciprocal Rank Fusion. BM25 full-text search via FTS5 with Porter stemming; vector embeddings via Gemini (3072d) or local provider (384d). Boosts: recency, project match, importance. |
 | **Mem0** | Mem0 hosted API with default configuration. Requires `MEM0_API_KEY`. |
+
+> **Note on Strata Pro.** Pro's differentiators — procedures, entity graph, analytics, cloud sync, knowledge audit — don't move retrieval-quality metrics on a 50-learning corpus where Community already saturates Recall@5. Pro warrants its own evaluations on its own axes (procedure-recall, entity-graph traversal, analytics fidelity); those are queued separately. See [Pro feature evaluations](#pro-feature-evaluations) below.
+
+### Comparison set
+
+This benchmark currently reports Strata Community vs Mem0. The intended comparison set also includes **Letta**, **MemGPT**, **Zep**, and **Cognee**; harnesses are queued. Results land here as those harnesses ship.
 
 ---
 
@@ -82,12 +87,12 @@ The Mem0 benchmark requires a valid API key. If `MEM0_API_KEY` is not set, the M
 
 ## Results
 
-Last updated: 2026-03-13
+Last updated: 2026-04-30
 
 ### Summary
 
-| Metric | Strata Community (BM25) | Mem0 (hosted API) |
-|--------|-------------------------|-------------------|
+| Metric | Strata Community | Mem0 (hosted API) |
+|--------|------------------|-------------------|
 | **Recall@5** | **1.000** | 0.300 |
 | **Recall@10** | **1.000** | 0.300 |
 | **MRR** | **1.000** | 0.300 |
@@ -95,7 +100,7 @@ Last updated: 2026-03-13
 | **p95 latency** | **0.5ms** | 389.9ms |
 | Memories stored | 50/50 | 20/50 |
 
-### Strata Community (BM25-only)
+### Strata Community (hybrid BM25 + vector + RRF)
 
 | Metric | Value |
 |--------|-------|
@@ -105,17 +110,7 @@ Last updated: 2026-03-13
 | p50 latency | 0.3ms |
 | p95 latency | 0.5ms |
 
-All 20 queries returned the correct relevant learning in position 1. BM25 with stop-word stripping and OR matching handles operational keyword queries extremely well.
-
-### Strata Pro (hybrid BM25 + vector + RRF)
-
-| Metric | Value |
-|--------|-------|
-| Recall@5 | _pending — requires embedding provider during benchmark_ |
-| Recall@10 | _pending_ |
-| MRR | _pending_ |
-| p50 latency | _pending_ |
-| p95 latency | _pending_ |
+All 20 queries returned the correct relevant learning in position 1. BM25 with stop-word stripping and OR matching handles operational keyword queries extremely well; vector retrieval and RRF fusion are available in the same pipeline for queries where exact-match matters less.
 
 ### Mem0 (hosted API)
 
@@ -163,3 +158,63 @@ Strata Pro's hybrid pipeline combines both: BM25 catches exact matches while vec
 ### Latency Advantage
 
 Strata runs entirely locally with SQLite. There is no network round-trip for queries. This gives Strata a structural latency advantage over hosted API services like Mem0, especially for the p50 metric.
+
+---
+
+## Other evaluation tracks
+
+The operational-learnings benchmark above tests retrieval quality on the coding-assistant-memory use case. Strata also has two other evaluation tracks targeting different content shapes and access patterns.
+
+### LongMemEval
+
+[LongMemEval](https://arxiv.org/abs/2410.10813) is the standard academic benchmark for long-term conversational memory — multi-session question answering where a system must recall and reason over facts spread across many prior conversations.
+
+| Metric | Value |
+|--------|-------|
+| **Task-averaged accuracy (LongMemEval-500)** | **81.1%** |
+| Answer model | GPT-4o (`gpt-4o-2024-08-06`) |
+| Judge model | GPT-4o |
+| Extraction provider | Gemini 2.5 Flash |
+| Run date | 2026-03-27 |
+
+The 500-question run uses the official LongMemEval split, the published evaluation rubric, and the same answer/judge models referenced in the upstream paper for direct comparability. Strata's retrieval pipeline (the same hybrid BM25 + vector + RRF that ships in Community) is wrapped in an agent loop with a 40K-token budget per question.
+
+Reproducibility: see `evals/longmemeval/` in this repository for the harness, the wrapper-prompt templates, and the run logs.
+
+### NPC memory evaluations
+
+The game-engine track evaluates Strata's REST + world-scoped storage path on multi-turn dialogue with NPCs (Spec 2026-04-28: NPC Conflict Resolution).
+
+**Frozen retrieval eval** — 16 hand-curated scenarios covering retrieval correctness, conflict-resolution correctness, and abstention. Deterministic, LLM-free.
+
+| Metric | Value |
+|--------|-------|
+| Score | **16/16** |
+| Date | 2026-04-30 |
+
+**Stress battery** — 10 end-to-end multi-turn dialogue tests exercising contradiction handling, alias chains, abstention, and long-context recall against a live NPC dialogue model.
+
+| Run config | Pass rate (N=3 avg) | Stable failures |
+|---|---|---|
+| Tier-1-tuned Ollama + drain-wait gate | **7.0 / 10** | NoiseBuriedFact, PrivateSecretPreserved, AbstentionWithPollutedContext |
+
+The two tests Spec 2026-04-28 was designed to fix — `ContradictoryUpdate` (Silvermist→Shadowfax) and `ConflictingQuantities` — pass in 5 of 6 attempts across N=1 and N=3 runs. The stable-failure set is generation-side (LLM prompt-following), not retrieval; each is queued for its own spec.
+
+Reproducibility: see `evals/npc-recall-tir-qdp/` (frozen eval) and `evals/npc-recall-tir-qdp/stress-battery-ab.md` (stress battery readouts).
+
+---
+
+## Pro feature evaluations
+
+Strata Pro extends the open-source memory engine with features that don't show up on a retrieval-quality benchmark: procedures (reusable search recipes), entity graph (cross-memory entity tracking), analytics (`get_analytics`, `knowledge_stats`, `knowledge_quality`, `knowledge_audit`, `list_evidence_gaps`), cloud sync, and conversation-level ingestion.
+
+These features warrant their own evaluations on their own axes:
+
+| Feature | Evaluation axis | Status |
+|---|---|---|
+| Procedures | Procedure recall and reuse hit-rate | Queued |
+| Entity graph | Cross-memory entity-traversal queries | Queued |
+| Analytics | Aggregate fidelity vs ground truth | Queued |
+| Cloud sync | Multi-device convergence + conflict resolution | Queued |
+
+Results land here as those harnesses ship.
