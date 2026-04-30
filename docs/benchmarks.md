@@ -141,16 +141,18 @@ All 20 queries returned the correct relevant learning in position 1. BM25 with s
 
 ## Design Decisions
 
-### Why Operational Learnings?
+### Why this corpus?
 
-Strata targets **operational engineering knowledge** -- the kind of hard-won discoveries that teams make during development but rarely document. This is a different domain from general Q&A or factoid retrieval benchmarks.
+Strata started out as **memory for AI coding assistants** — Claude Code, Codex CLI, Aider, Cline, Gemini CLI. The job was to index those assistants' session history into searchable, recallable knowledge so the next session didn't start cold. The operational-learnings corpus simulates that exact content shape: error codes, config gotchas, deploy steps, tool surprises — the hard-won knowledge a coding assistant accumulates and a teammate would benefit from recalling later.
 
 Operational learnings are:
 - **Specific**: they reference concrete tools, versions, error codes, and configurations
 - **Actionable**: they describe what to do (or avoid) in specific situations
 - **Discoverable via keywords**: they contain technical terms that BM25 handles well
 
-This domain plays to Strata's strengths (FTS5 exact-match + quality-gated ingestion) while also testing semantic retrieval (Pro) on queries that use different phrasing.
+This domain plays to Strata's strengths (FTS5 exact-match + quality-gated ingestion) while also testing semantic retrieval on queries that use different phrasing.
+
+The product itself has since grown beyond coding assistants. Strata exposes a REST API and Python SDK that any agent can use as a memory backend, and ships a world-scoped storage path for game-engine NPCs. Those tracks have their own evaluations because the content shape and access patterns differ — see [NPC memory evaluations](../evals/npc-recall-tir-qdp/README.md) and the LongMemEval results referenced from the project README. This benchmark is specifically the coding-assistant-memory story.
 
 ### Why BM25 Matters for Operational Knowledge
 
