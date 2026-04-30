@@ -462,6 +462,20 @@ export async function startRestTransport(
       return;
     }
 
+    // Extraction-queue depth (admin-only). Test bench polls this between
+    // dialogue turns and the final recall, so recall sees a fully-drained
+    // queue and supersedes have had a chance to fire. Production callers
+    // don't need this — eventual consistency is fine in-game.
+    if (pathname === "/api/admin/extraction-queue/depth" && method === "GET") {
+      const authForDepth = authenticate(req);
+      if (!authForDepth || !hasAdminAccess(authForDepth)) {
+        json(res, 403, { error: "Admin token required", code: 403 });
+        return;
+      }
+      json(res, 200, queueStore.getDepth());
+      return;
+    }
+
     const auth = authenticate(req);
     if (!auth) {
       auditLog("auth.reject", { pathname, reason: "invalid_or_missing_token" });

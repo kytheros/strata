@@ -167,6 +167,24 @@ export class ExtractionQueueStore extends EventEmitter {
       .run(truncated, now, id);
   }
 
+  /**
+   * Count jobs that are not yet terminal. Used by the test bench to gate
+   * recall queries on the queue having drained — tests need deterministic
+   * extraction-vs-read ordering, which is otherwise broken by the
+   * dialogue-faster-than-extraction race revealed by Tier 1 GPU tuning.
+   */
+  getDepth(): { pending: number; running: number } {
+    const row = this.db
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+           SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) AS running
+         FROM extraction_jobs`,
+      )
+      .get() as { pending: number | null; running: number | null };
+    return { pending: row.pending ?? 0, running: row.running ?? 0 };
+  }
+
   recoverOrphaned(now: number): number {
     const cutoff = now - 5 * 60_000;
     const result = this.db
