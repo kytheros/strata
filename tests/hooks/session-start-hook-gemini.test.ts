@@ -54,7 +54,10 @@ function runHook(opts: {
     "npx",
     ["tsx", hookScript],
     {
-      cwd: opts.env?.GEMINI_PROJECT_DIR || projectRoot,
+      // Always run from projectRoot so npx can find tsx in node_modules.
+      // Running from a temp dir on Node 20 breaks npx resolution (works on 22).
+      // The hook gets the target dir via env vars, not cwd.
+      cwd: projectRoot,
       timeout: opts.timeout ?? 15_000,
       encoding: "utf-8",
       env: env as NodeJS.ProcessEnv,
