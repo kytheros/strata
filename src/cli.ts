@@ -56,6 +56,9 @@ Usage:
   strata license                          Show current license status
   strata embed                            Generate embeddings for vector search
   strata world-migrate                    Migrate legacy agents/players/ layout to world-scoped DB
+  strata backup push <s3-uri>             Upload ~/.strata/strata.db to S3-compatible bucket
+  strata backup pull <s3-uri>             Download backup to ~/.strata/strata.db
+  strata backup status <s3-uri>           Show local vs. remote size and mtime
   strata distill status                   Show distillation training data stats
   strata distill export-data              Export training data to JSONL
   strata distill activate                 Enable local model distillation mode
@@ -854,6 +857,13 @@ async function main(): Promise<void> {
           console.log("  test          Verify local inference pipeline");
           process.exit(subcommand ? 1 : 0);
       }
+      break;
+    }
+    case "backup": {
+      const backupSubcommand = args[0];
+      const backupArgs = args.slice(1);
+      const { runBackup } = await import("./cli/backup.js");
+      await runBackup(backupSubcommand, backupArgs, flags);
       break;
     }
     case "dashboard":
