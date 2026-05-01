@@ -9,7 +9,7 @@ import { readFileSync, existsSync, statSync } from "fs";
 import { DocumentChunkStore, type StoredDocument, type DocumentChunk as StoredChunk } from "../storage/document-chunk-store.js";
 import type { DocumentEmbedder } from "../extensions/embeddings/document-embedder.js";
 import { CONFIG } from "../config.js";
-import { chunkPdf } from "./pdf-chunker.js";
+import { preparePdf } from "./pdf-prepare.js";
 
 const SUPPORTED_MIME_TYPES = new Set([
   "application/pdf",
@@ -116,10 +116,12 @@ export async function handleStoreDocument(
         errors.push(`Image: ${err instanceof Error ? err.message : String(err)}`);
       }
     } else if (mime_type === "application/pdf") {
-      // --- PDF chunking by page groups (max 6 pages per Gemini request) ---
+      // --- PDF: hybrid path ---
+      // ≤6 pages: single multimodal embedding (raw bytes to Gemini).
+      // >6 pages: per-page text embedding. See pdf-prepare.ts.
       let pdfResult;
       try {
-        pdfResult = await chunkPdf(docBytes);
+        pdfResult = await preparePdf(docBytes, { maxPages: CONFIG.indexing.maxPdfPages });
       } catch (err) {
         return `Error: PDF processing failed: ${err instanceof Error ? err.message : String(err)}`;
       }
@@ -127,22 +129,48 @@ export async function handleStoreDocument(
       totalPages = pdfResult.totalPages;
       fullText = pdfResult.fullText;
 
-      for (const pdfChunk of pdfResult.chunks) {
+      if (pdfResult.mode === "multimodal") {
         try {
-          const embedding = await embedder.embedBinary(pdfChunk.pdfBytes, mime_type);
+          const embedding = await embedder.embedBinary(pdfResult.pdfBytes, mime_type);
           chunks.push({
             id: randomUUID(),
             documentId: docId,
-            chunkIndex: pdfChunk.index,
-            content: pdfChunk.text || undefined,
+            chunkIndex: 0,
+            content: pdfResult.fullText || undefined,
             embedding,
             model: CONFIG.embeddings.documentModel,
-            pageStart: pdfChunk.pageStart,
-            pageEnd: pdfChunk.pageEnd,
+            pageStart: 1,
+            pageEnd: pdfResult.totalPages,
             createdAt: now,
           });
         } catch (err) {
-          errors.push(`PDF chunk ${pdfChunk.index} (pages ${pdfChunk.pageStart}-${pdfChunk.pageEnd}): ${err instanceof Error ? err.message : String(err)}`);
+          errors.push(`PDF (multimodal, ${pdfResult.totalPages} pages): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else {
+        // text-only mode
+        for (let i = 0; i < pdfResult.pages.length; i++) {
+          const page = pdfResult.pages[i];
+          if (!page.text) {
+            // Empty page (e.g., image-only scan with no text layer) — skip
+            continue;
+          }
+          try {
+            const embedding = await embedder.embedText(page.text);
+            chunks.push({
+              id: randomUUID(),
+              documentId: docId,
+              chunkIndex: i,
+              content: page.text,
+              embedding,
+              model: CONFIG.embeddings.documentModel,
+              tokenCount: Math.ceil(page.text.length / 4),
+              pageStart: page.pageNumber,
+              pageEnd: page.pageNumber,
+              createdAt: now,
+            });
+          } catch (err) {
+            errors.push(`PDF page ${page.pageNumber}: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
       }
     }

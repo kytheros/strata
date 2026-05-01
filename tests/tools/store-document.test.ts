@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Database from "better-sqlite3";
-import { PDFDocument } from "pdf-lib";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { openDatabase } from "../../src/storage/database.js";
 import { DocumentChunkStore } from "../../src/storage/document-chunk-store.js";
 import { handleStoreDocument } from "../../src/tools/store-document.js";
+
+const FIXTURES = join(__dirname, "..", "fixtures", "pdfs");
+const loadPdf = (name: string): Buffer => readFileSync(join(FIXTURES, name));
 
 describe("store_document tool", () => {
   let db: Database.Database;
@@ -94,25 +98,15 @@ describe("store_document tool", () => {
   });
 
   describe("PDF chunking", () => {
-    /** Helper: create a valid PDF buffer with N pages */
-    async function createTestPdf(numPages: number): Promise<Buffer> {
-      const doc = await PDFDocument.create();
-      for (let i = 0; i < numPages; i++) {
-        const page = doc.addPage([612, 792]);
-        page.drawText(`Page ${i + 1} content`, { x: 50, y: 700 });
-      }
-      const bytes = await doc.save();
-      return Buffer.from(bytes);
-    }
-
-    it("stores a small PDF (<=6 pages) as a single chunk", async () => {
+    it("stores a small PDF (<=6 pages) as a single chunk via multimodal path", async () => {
       const mockEmbedder = {
         embedText: vi.fn(),
         embedBinary: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.3)),
         dimensions: 3072,
       };
 
-      const pdfBuffer = await createTestPdf(3);
+      // Use 1-page fixture (multimodal path)
+      const pdfBuffer = loadPdf("1-page.pdf");
       const result = await handleStoreDocument(store, mockEmbedder as any, {
         content: pdfBuffer.toString("base64"),
         mime_type: "application/pdf",
@@ -122,31 +116,60 @@ describe("store_document tool", () => {
 
       expect(result).toContain("Stored");
       expect(result).toContain("Small PDF");
-      expect(result).toContain("3 pages");
+      expect(result).toContain("1 page");
       expect(result).toContain("1 chunk");
       expect(result).toContain("1 embedding");
+      // Multimodal path uses embedBinary
       expect(mockEmbedder.embedBinary).toHaveBeenCalledTimes(1);
+      expect(mockEmbedder.embedText).not.toHaveBeenCalled();
 
       // Verify database records
       const docs = db.prepare("SELECT * FROM stored_documents").all() as any[];
       expect(docs).toHaveLength(1);
-      expect(docs[0].total_pages).toBe(3);
+      expect(docs[0].total_pages).toBe(1);
       expect(docs[0].chunk_count).toBe(1);
 
       const chunks = db.prepare("SELECT * FROM document_chunks").all() as any[];
       expect(chunks).toHaveLength(1);
       expect(chunks[0].page_start).toBe(1);
-      expect(chunks[0].page_end).toBe(3);
+      expect(chunks[0].page_end).toBe(1);
     });
 
-    it("splits a 7-page PDF into 2 chunks and embeds each separately", async () => {
+    it("stores a 6-page PDF as a single chunk via multimodal path (boundary)", async () => {
       const mockEmbedder = {
         embedText: vi.fn(),
-        embedBinary: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.4)),
+        embedBinary: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.3)),
         dimensions: 3072,
       };
 
-      const pdfBuffer = await createTestPdf(7);
+      const pdfBuffer = loadPdf("6-pages.pdf");
+      const result = await handleStoreDocument(store, mockEmbedder as any, {
+        content: pdfBuffer.toString("base64"),
+        mime_type: "application/pdf",
+        title: "6-Page PDF",
+        project: "test-project",
+      });
+
+      expect(result).toContain("Stored");
+      expect(result).toContain("6 pages");
+      expect(result).toContain("1 chunk");
+      // Multimodal path: 1 embedBinary call
+      expect(mockEmbedder.embedBinary).toHaveBeenCalledTimes(1);
+
+      const chunks = db.prepare("SELECT * FROM document_chunks").all() as any[];
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0].page_start).toBe(1);
+      expect(chunks[0].page_end).toBe(6);
+    });
+
+    it("stores a 7-page PDF using text-only path (boundary)", async () => {
+      const mockEmbedder = {
+        embedText: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.4)),
+        embedBinary: vi.fn(),
+        dimensions: 3072,
+      };
+
+      const pdfBuffer = loadPdf("7-pages.pdf");
       const result = await handleStoreDocument(store, mockEmbedder as any, {
         content: pdfBuffer.toString("base64"),
         mime_type: "application/pdf",
@@ -155,29 +178,26 @@ describe("store_document tool", () => {
 
       expect(result).toContain("Stored");
       expect(result).toContain("7 pages");
-      expect(result).toContain("2 chunks");
-      expect(result).toContain("2 embeddings");
+      // Text-only path: one chunk per page, 7 embedText calls
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(7);
+      expect(mockEmbedder.embedBinary).not.toHaveBeenCalled();
 
-      // embedBinary called once per chunk
-      expect(mockEmbedder.embedBinary).toHaveBeenCalledTimes(2);
-
-      // Verify chunk records
       const chunks = db.prepare("SELECT * FROM document_chunks ORDER BY chunk_index").all() as any[];
-      expect(chunks).toHaveLength(2);
+      expect(chunks).toHaveLength(7);
       expect(chunks[0].page_start).toBe(1);
-      expect(chunks[0].page_end).toBe(6);
-      expect(chunks[1].page_start).toBe(7);
-      expect(chunks[1].page_end).toBe(7);
+      expect(chunks[0].page_end).toBe(1);
+      expect(chunks[6].page_start).toBe(7);
+      expect(chunks[6].page_end).toBe(7);
     });
 
-    it("splits a 13-page PDF into 3 chunks (6+6+1)", async () => {
+    it("stores a 13-page PDF using text-only path", async () => {
       const mockEmbedder = {
-        embedText: vi.fn(),
-        embedBinary: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.5)),
+        embedText: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.5)),
+        embedBinary: vi.fn(),
         dimensions: 3072,
       };
 
-      const pdfBuffer = await createTestPdf(13);
+      const pdfBuffer = loadPdf("13-pages.pdf");
       const result = await handleStoreDocument(store, mockEmbedder as any, {
         content: pdfBuffer.toString("base64"),
         mime_type: "application/pdf",
@@ -185,20 +205,14 @@ describe("store_document tool", () => {
       });
 
       expect(result).toContain("13 pages");
-      expect(result).toContain("3 chunks");
-      expect(mockEmbedder.embedBinary).toHaveBeenCalledTimes(3);
+      // Text-only path: 13 embedText calls (one per page)
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(13);
 
       const chunks = db.prepare("SELECT * FROM document_chunks ORDER BY chunk_index").all() as any[];
-      expect(chunks).toHaveLength(3);
-      expect(chunks[0].page_start).toBe(1);
-      expect(chunks[0].page_end).toBe(6);
-      expect(chunks[1].page_start).toBe(7);
-      expect(chunks[1].page_end).toBe(12);
-      expect(chunks[2].page_start).toBe(13);
-      expect(chunks[2].page_end).toBe(13);
+      expect(chunks).toHaveLength(13);
     });
 
-    it("sends valid sub-PDF bytes to the embedder (not the full PDF)", async () => {
+    it("sends raw PDF bytes to embedBinary on multimodal path", async () => {
       const receivedBuffers: Buffer[] = [];
       const mockEmbedder = {
         embedText: vi.fn(),
@@ -209,80 +223,49 @@ describe("store_document tool", () => {
         dimensions: 3072,
       };
 
-      const pdfBuffer = await createTestPdf(7);
+      // Use 6-page fixture (multimodal path, raw bytes sent)
+      const pdfBuffer = loadPdf("6-pages.pdf");
       await handleStoreDocument(store, mockEmbedder as any, {
         content: pdfBuffer.toString("base64"),
         mime_type: "application/pdf",
-        title: "Verify Sub-PDFs",
+        title: "Verify Bytes",
       });
 
-      expect(receivedBuffers).toHaveLength(2);
-
-      // Each buffer should be a valid PDF
-      const sub1 = await PDFDocument.load(receivedBuffers[0]);
-      expect(sub1.getPageCount()).toBe(6);
-
-      const sub2 = await PDFDocument.load(receivedBuffers[1]);
-      expect(sub2.getPageCount()).toBe(1);
-
-      // Sub-PDF bytes should be smaller than the original
-      expect(receivedBuffers[0].length).toBeLessThan(pdfBuffer.length);
+      expect(receivedBuffers).toHaveLength(1);
+      // The raw PDF bytes should be passed through unchanged
+      expect(receivedBuffers[0].length).toBe(pdfBuffer.length);
     });
 
-    it("extracts text content into chunk records for FTS5 indexing", async () => {
-      const mockEmbedder = {
-        embedText: vi.fn(),
-        embedBinary: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.6)),
-        dimensions: 3072,
-      };
-
-      const pdfBuffer = await createTestPdf(3);
-      await handleStoreDocument(store, mockEmbedder as any, {
-        content: pdfBuffer.toString("base64"),
-        mime_type: "application/pdf",
-        title: "Text Extraction Test",
-        project: "test-proj",
-      });
-
-      // Check that content column is populated (text extraction may vary)
-      const chunks = db.prepare("SELECT * FROM document_chunks").all() as any[];
-      expect(chunks).toHaveLength(1);
-      // Content is populated if pdf-parse can extract text from pdf-lib output
-      // Even if extraction fails, the chunk should still exist with an embedding
-      expect(chunks[0].embedding).toBeDefined();
-    });
-
-    it("handles partial embedding failures gracefully", async () => {
+    it("handles partial embedding failures gracefully on text-only path", async () => {
       let callCount = 0;
       const mockEmbedder = {
-        embedText: vi.fn(),
-        embedBinary: vi.fn().mockImplementation(async () => {
+        embedText: vi.fn().mockImplementation(async () => {
           callCount++;
           if (callCount === 2) {
             throw new Error("API rate limit exceeded");
           }
           return new Float32Array(3072).fill(0.7);
         }),
+        embedBinary: vi.fn(),
         dimensions: 3072,
       };
 
-      const pdfBuffer = await createTestPdf(12); // 2 chunks
+      // 7-page PDF → text-only → 7 embedText calls; second call fails
+      const pdfBuffer = loadPdf("7-pages.pdf");
       const result = await handleStoreDocument(store, mockEmbedder as any, {
         content: pdfBuffer.toString("base64"),
         mime_type: "application/pdf",
         title: "Partial Failure",
       });
 
-      // Should succeed with warnings
+      // Should succeed with warnings (6 of 7 pages embedded)
       expect(result).toContain("Stored");
-      expect(result).toContain("1 chunk");
-      expect(result).toContain("1 embedding");
       expect(result).toContain("Warnings");
       expect(result).toContain("API rate limit exceeded");
 
-      // Only the successful chunk should be stored
+      // Only the successful chunks stored (6 of 7)
       const chunks = db.prepare("SELECT * FROM document_chunks").all() as any[];
-      expect(chunks).toHaveLength(1);
+      expect(chunks).toHaveLength(6);
     });
 
     it("returns error for corrupted PDF data", async () => {
@@ -304,12 +287,13 @@ describe("store_document tool", () => {
 
     it("stores totalPages in the document record", async () => {
       const mockEmbedder = {
-        embedText: vi.fn(),
-        embedBinary: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.9)),
+        embedText: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.9)),
+        embedBinary: vi.fn(),
         dimensions: 3072,
       };
 
-      const pdfBuffer = await createTestPdf(10);
+      // 13-page fixture → text-only path
+      const pdfBuffer = loadPdf("13-pages.pdf");
       await handleStoreDocument(store, mockEmbedder as any, {
         content: pdfBuffer.toString("base64"),
         mime_type: "application/pdf",
@@ -317,7 +301,7 @@ describe("store_document tool", () => {
       });
 
       const doc = db.prepare("SELECT * FROM stored_documents").get() as any;
-      expect(doc.total_pages).toBe(10);
+      expect(doc.total_pages).toBe(13);
     });
   });
 });
