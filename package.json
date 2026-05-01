@@ -94,7 +94,6 @@
     "@aws-sdk/client-s3": "^3.1038.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^11.0.0",
-    "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "zod": "^4.3.6"
   },
