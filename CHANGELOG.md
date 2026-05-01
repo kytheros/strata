@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **PDF embedding hybrid path.** PDFs with ≤6 pages continue to use
+  Gemini's multimodal PDF embedding (text + figures + layout). PDFs with
+  more than 6 pages now embed via per-page text extraction (no multimodal
+  signal on the long tail). New `STRATA_PDF_MAX_PAGES` env var (default
+  `100`) caps the text-only path. Image-only scanned PDFs >6 pages are
+  not searchable on this release; track [kytheros/strata#4](https://github.com/kytheros/strata/issues/4)
+  for the image-rendering follow-up.
+- Existing PDF documents in user databases are not auto-reindexed.
+  Users with visual-heavy long PDFs may delete and re-store via
+  `delete_memory` + `store_document` if they want the new embedding shape.
+
+### Removed
+
+- `pdf-lib` runtime dependency. Clears the Socket.dev "obfuscated code"
+  alert on the public package page.
+
 ## [2.0.1] - 2026-04-30
 
 ### Added

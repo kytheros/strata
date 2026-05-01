@@ -513,6 +513,57 @@ Error: entry a1b2c3d4-5678-9abc-def0-123456789abc not found.
 
 ---
 
+### store_document
+
+**Category:** Memory
+**Tier:** Free
+**Handler:** `src/tools/store-document.ts`
+**Registration:** `src/server.ts`
+
+Stores a document for hybrid keyword + semantic retrieval. Accepts PDFs,
+plain text, and PNG/JPEG images. Documents are split into chunks, each
+embedded via Gemini Embedding 2 (3072-dim), and stored alongside the
+document metadata.
+
+Requires `GEMINI_API_KEY` — `store_document` is the one community-tier
+tool that requires Gemini.
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file_path` | `string` | Either this or `content` | Absolute path to the document file |
+| `content` | `string` | Either this or `file_path` | Base64-encoded document bytes |
+| `mime_type` | `string` | Yes | One of `application/pdf`, `text/plain`, `image/png`, `image/jpeg` |
+| `title` | `string` | Yes | Display title |
+| `tags` | `string[]` | No | Optional tags for filtering |
+| `project` | `string` | No | Project scope (defaults to `global`) |
+
+#### PDF Handling
+
+PDFs take one of two embedding paths based on page count:
+
+| Page count | Path | What gets embedded |
+|------------|------|--------------------|
+| ≤6 pages | **Multimodal** | Raw PDF bytes → Gemini PDF embedding (text + figures + layout). Single chunk. |
+| >6 pages | **Text-only** | Per-page text via `pdf-parse` → text embedding. One chunk per page. |
+
+The 6-page boundary is dictated by Gemini Embedding 2's PDF-embedding
+input cap. PDFs above that limit are not split into multimodal sub-chunks
+in this release; track [kytheros/strata#4](https://github.com/kytheros/strata/issues/4)
+for image-rendering follow-up that would restore multimodal end-to-end.
+
+**Caveats on the text-only path:**
+
+- **Image-only scanned PDFs** (no text layer) >6 pages are not indexable.
+  Pre-OCR them, or split into ≤6-page sections before storing.
+- **Visual-heavy PDFs** (slide decks, infographics) >6 pages lose the
+  visual retrieval signal. Text on each page is still indexed.
+- **Per-page page cap** is configurable via `STRATA_PDF_MAX_PAGES`
+  (default `100`). Pages beyond the cap are dropped with a WARN log.
+
+---
+
 ## Response Formats
 
 All search and discovery tools support three response formats:
