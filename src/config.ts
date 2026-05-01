@@ -78,6 +78,13 @@ export const CONFIG = {
     chunkSize: 1600, // tokens per chunk
     chunkOverlap: 50,
     maxChunksPerSession: 500,
+    /**
+     * Maximum number of pages embedded per PDF on the text-only path
+     * (>6-page PDFs). Pages beyond this cap are dropped with a WARN log.
+     * Multimodal path (≤6 pages) is unaffected.
+     * Override via STRATA_PDF_MAX_PAGES env var.
+     */
+    maxPdfPages: Number(process.env.STRATA_PDF_MAX_PAGES) || 100,
   },
 
   // File watcher

@@ -80,3 +80,39 @@ describe("preparePdf", () => {
     expect(result.fullText.length).toBeGreaterThan(0);
   });
 });
+
+describe("preparePdf — maxPages cap", () => {
+  it("truncates text-only result to maxPages when totalPages exceeds the cap", async () => {
+    const buf = load("13-pages.pdf");
+    const result = await preparePdf(buf, { maxPages: 10 });
+
+    expect(result.mode).toBe("text-only");
+    if (result.mode !== "text-only") return;
+    // totalPages reflects the original document, not the cap
+    expect(result.totalPages).toBe(13);
+    // pages array is truncated to the cap
+    expect(result.pages).toHaveLength(10);
+    expect(result.pages[0].pageNumber).toBe(1);
+    expect(result.pages[9].pageNumber).toBe(10);
+  });
+
+  it("does not truncate when totalPages is within maxPages", async () => {
+    const buf = load("7-pages.pdf");
+    const result = await preparePdf(buf, { maxPages: 100 });
+
+    expect(result.mode).toBe("text-only");
+    if (result.mode !== "text-only") return;
+    expect(result.pages).toHaveLength(7);
+  });
+
+  it("does not apply the cap on the multimodal path", async () => {
+    const buf = load("6-pages.pdf");
+    const result = await preparePdf(buf, { maxPages: 3 });
+
+    expect(result.mode).toBe("multimodal");
+    if (result.mode !== "multimodal") return;
+    expect(result.totalPages).toBe(6);
+    // Raw bytes are unchanged — multimodal path doesn't paginate
+    expect(result.pdfBytes.length).toBe(buf.length);
+  });
+});
