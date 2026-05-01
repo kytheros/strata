@@ -1,4 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+// Isolate the API-key lookup from the developer's ~/.strata/config.json.
+// `loadGeminiApiKeyFromConfig` falls back to the config file when
+// GEMINI_API_KEY is unset; on dev machines that file usually has a real
+// key, which makes the "no key set" assertions in this suite leak from
+// the host environment. This mock makes the lookup env-only.
+vi.mock("../../../src/extensions/embeddings/gemini-embedder.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../../src/extensions/embeddings/gemini-embedder.js")
+  >("../../../src/extensions/embeddings/gemini-embedder.js");
+  return {
+    ...actual,
+    loadGeminiApiKeyFromConfig: (): string | null =>
+      process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 0
+        ? process.env.GEMINI_API_KEY
+        : null,
+  };
+});
+
 import {
   GeminiProvider,
   getCachedGeminiProvider,

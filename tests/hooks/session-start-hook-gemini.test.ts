@@ -8,7 +8,7 @@
  * - Empty output when stdin source is "clear"
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync, execSync, spawnSync } from "child_process";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 import { join } from "path";
@@ -77,14 +77,26 @@ function runHook(opts: {
 describe("SessionStart hook Gemini format", () => {
   let dataDir: string;
   let projectDir: string;
+  let homeDir: string;
 
   beforeEach(() => {
     dataDir = makeTempDir("data");
     projectDir = makeTempDir("project");
+    // Isolate the hook subprocess from the developer's real ~/.strata/.
+    // STRATA_DATA_DIR alone isn't enough — the hook resolves auxiliary
+    // state (project metadata, config) via homedir(). On a dev machine
+    // where ~/.strata/strata.db has real session data, that data leaks
+    // into the empty-database assertions below.
+    homeDir = makeTempDir("home");
+    // runHook spreads process.env into the subprocess, so stubbing here
+    // propagates to the child.
+    vi.stubEnv("HOME", homeDir);
+    vi.stubEnv("USERPROFILE", homeDir);
   });
 
   afterEach(() => {
-    for (const dir of [dataDir, projectDir]) {
+    vi.unstubAllEnvs();
+    for (const dir of [dataDir, projectDir, homeDir]) {
       try {
         rmSync(dir, { recursive: true, force: true });
       } catch {
