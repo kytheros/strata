@@ -148,8 +148,8 @@ export async function handleStoreDocument(
         }
       } else {
         // text-only mode
-        for (let i = 0; i < pdfResult.pages.length; i++) {
-          const page = pdfResult.pages[i];
+        let chunkIdx = 0;
+        for (const page of pdfResult.pages) {
           if (!page.text) {
             // Empty page (e.g., image-only scan with no text layer) — skip
             continue;
@@ -159,7 +159,7 @@ export async function handleStoreDocument(
             chunks.push({
               id: randomUUID(),
               documentId: docId,
-              chunkIndex: i,
+              chunkIndex: chunkIdx++,
               content: page.text,
               embedding,
               model: CONFIG.embeddings.documentModel,

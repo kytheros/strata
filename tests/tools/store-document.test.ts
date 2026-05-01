@@ -5,6 +5,7 @@ import { join } from "path";
 import { openDatabase } from "../../src/storage/database.js";
 import { DocumentChunkStore } from "../../src/storage/document-chunk-store.js";
 import { handleStoreDocument } from "../../src/tools/store-document.js";
+import { CONFIG } from "../../src/config.js";
 
 const FIXTURES = join(__dirname, "..", "fixtures", "pdfs");
 const loadPdf = (name: string): Buffer => readFileSync(join(FIXTURES, name));
@@ -302,6 +303,39 @@ describe("store_document tool", () => {
 
       const doc = db.prepare("SELECT * FROM stored_documents").get() as any;
       expect(doc.total_pages).toBe(13);
+    });
+
+    it("honors STRATA_PDF_MAX_PAGES cap on the text-only path", async () => {
+      const mockEmbedder = {
+        embedText: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.5)),
+        embedBinary: vi.fn(),
+        dimensions: 3072,
+      };
+
+      // Drop cap to 5 — verifies the call site at store-document.ts wires
+      // CONFIG.indexing.maxPdfPages through to preparePdf's options.
+      const original = CONFIG.indexing.maxPdfPages;
+      CONFIG.indexing.maxPdfPages = 5;
+      try {
+        const pdfBuffer = loadPdf("13-pages.pdf");
+        const result = await handleStoreDocument(store, mockEmbedder as any, {
+          content: pdfBuffer.toString("base64"),
+          mime_type: "application/pdf",
+          title: "Capped PDF",
+        });
+
+        expect(result).toContain("Stored");
+        // totalPages still reflects the original document length
+        expect(result).toContain("13 pages");
+        // But only the first 5 pages were embedded
+        expect(mockEmbedder.embedText).toHaveBeenCalledTimes(5);
+        const chunks = db.prepare("SELECT * FROM document_chunks ORDER BY chunk_index").all() as any[];
+        expect(chunks).toHaveLength(5);
+        expect(chunks[0].page_start).toBe(1);
+        expect(chunks[4].page_start).toBe(5);
+      } finally {
+        CONFIG.indexing.maxPdfPages = original;
+      }
     });
   });
 });

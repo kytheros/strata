@@ -16,6 +16,7 @@ Strata exposes 15 MCP tools in the community edition. All tools are registered i
 | `find_patterns` | Analysis | Free | Discover recurring patterns in conversation history |
 | `store_memory` | Memory | Free | Explicitly store a memory for future recall |
 | `delete_memory` | Memory | Free | Permanently delete a memory entry |
+| `store_document` | Memory | Free | Index PDFs, text, or images for hybrid keyword + semantic retrieval (requires `GEMINI_API_KEY`) |
 
 ---
 
@@ -604,7 +605,9 @@ Features gated behind Pro:
 - Memory decay penalties (`src/search/result-ranker.ts`, line 66)
 - Gemini CLI watch target (`src/watcher/file-watcher.ts`, line 54)
 - LLM-enhanced extraction, smart summarization, conflict resolution
-- Vector/hybrid search, embeddings, cloud sync
+- Cross-machine cloud sync, procedures, entity graph, analytics
+
+Vector/hybrid search and document embeddings are Community-tier — opt in by setting `GEMINI_API_KEY`.
 
 Community edition tools are always available with no license required.
 

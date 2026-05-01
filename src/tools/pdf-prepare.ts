@@ -62,7 +62,7 @@ export async function preparePdf(
   const { pageTexts, totalPages } = await extractPdfPages(pdfBuffer);
 
   if (totalPages === 0) {
-    throw new Error("PDF has 0 pages — the file may be corrupted or image-only.");
+    throw new Error("PDF has 0 pages — the file may be corrupted.");
   }
 
   const fullText = pageTexts.join("\n\n");
@@ -101,8 +101,8 @@ export async function preparePdf(
 
 /**
  * Extract per-page text and total page count via pdf-parse.
- * pdf-parse is dynamically imported because it's an ESM-friendly
- * wrapper that loads pdfjs-dist lazily.
+ * Dynamically imported to keep pdf-parse (and its pdfjs-dist transitive)
+ * out of the cold-start path for non-PDF document ingestion.
  */
 async function extractPdfPages(
   pdfBuffer: Buffer
