@@ -41,7 +41,7 @@ No cloud required. No memory caps. Everything stays on your machine -- or deploy
 | **Conversation ingestion**   | Auto-parses Claude / Codex / Aider / Cline / Gemini transcripts | Explicit `add()` calls | Explicit          | DIY           |
 | **Quality control on writes**| Evaluator pipeline (3 deterministic gates) | Stores all     | Stores all         | None          |
 | **Search**                   | BM25 + vector + RRF + recency + decay | Vector              | Vector             | Vector        |
-| **Embedding storage**        | Quantized in SQLite/D1 (Lloyd-Max + Hadamard + TurboQuant) | Backend-defined | Backend-defined | Backend-specific |
+| **Embedding storage**        | Quantized across SQLite / D1 / Postgres (Lloyd-Max + Hadamard + TurboQuant) | Backend-defined | Backend-defined | Backend-specific |
 | **Local-only mode**          | ✓ (works fully offline w/o API key) | Hosted-default        | Configurable       | ✓             |
 | **Game engine transport**    | ✓ (REST, per-NPC scoping)           | ✗                     | ✗                  | ✗             |
 | **License**                  | Apache 2.0                          | Apache 2.0            | MIT                | Varies        |
@@ -50,7 +50,7 @@ Mem0 is the right tool when you're embedding memory inside a single application'
 
 ### Why owning the storage matters
 
-Most memory layers wrap a separately-configured vector database — Qdrant, pgvector, Pinecone, LanceDB. That's a sound abstraction, but it means the memory product can never ship features that touch the storage layout: quantization, ranking-fidelity tradeoffs, custom index types, online migration. Strata owns its storage end-to-end (SQLite locally, Cloudflare D1 at the edge) and ships those as first-class capabilities — including TurboQuant scalar quantization, an algorithm that isn't yet standard in any production vector DB.
+Most memory layers wrap a separately-configured vector database — Qdrant, pgvector, Pinecone, LanceDB. That's a sound abstraction, but it means the memory product can never ship features that touch the storage layout: quantization, ranking-fidelity tradeoffs, custom index types, online migration. Strata owns its storage end-to-end across every deployment target — SQLite locally, Cloudflare D1 at the edge, Postgres on GCP Cloud SQL — and ships those as first-class capabilities. That includes TurboQuant scalar quantization, an algorithm that isn't yet standard in any production vector DB.
 
 ---
 
