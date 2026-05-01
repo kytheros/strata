@@ -28,9 +28,9 @@ The core engine. Indexes conversations from Claude Code, Codex CLI, Aider, Cline
 
 ### Pro (licensed, +11 tools)
 
-Adds hybrid retrieval (FTS5 + vector cosine similarity fused via Reciprocal Rank Fusion), cross-machine cloud sync, step-by-step procedure capture, entity graph, usage analytics, conversation ingestion from external agents, and a full audit trail interface.
+Adds cross-machine cloud sync, step-by-step procedure capture, entity graph, usage analytics, conversation ingestion from external agents, and a full audit trail interface. (Hybrid BM25+vector retrieval ships in Community.)
 
-**Tools:** `semantic_search`, `find_procedures`, `store_procedure`, `search_entities`, `update_memory`, `memory_history`, `ingest_conversation`, `cloud_sync_status`, `cloud_sync_push`, `cloud_sync_pull`, `get_analytics`, `list_evidence_gaps`
+**Tools:** `find_procedures`, `store_procedure`, `search_entities`, `update_memory`, `memory_history`, `ingest_conversation`, `cloud_sync_status`, `cloud_sync_push`, `cloud_sync_pull`, `get_analytics`, `list_evidence_gaps`
 
 ### Team (licensed, extends Pro)
 
@@ -47,7 +47,7 @@ Everything lives in a single SQLite database at `~/.strata/strata.db` (configura
 | **better-sqlite3** | Synchronous SQLite binding for Node.js. Zero-config, bundled. |
 | **WAL mode** | `PRAGMA journal_mode = WAL` enables concurrent reads during writes. |
 | **FTS5** | Virtual table `documents_fts` for full-text search with Porter stemming and Unicode tokenization. Kept in sync via INSERT/DELETE/UPDATE triggers. |
-| **sqlite-vec** (Pro) | Vector KNN search for cosine similarity on embeddings stored as BLOBs. |
+| **sqlite-vec** | Vector KNN search for cosine similarity on embeddings stored as BLOBs. Ships in Community. |
 
 ### Core Tables
 
@@ -95,7 +95,7 @@ Knowledge entries survive session teardown, context rotation, and server restart
 
 ## Retrieval Pipeline
 
-### Community: BM25 Full-Text Search
+### Community: BM25 Full-Text Search (baseline)
 
 ```
 Raw query string
@@ -127,9 +127,9 @@ SearchResult[]
 
 Explicit memories (stored via `store_memory`, sessionId = `"explicit-memory"`) are exempt from memory decay.
 
-### Pro: Hybrid BM25 + Vector + RRF
+### Community: Hybrid BM25 + Vector + RRF
 
-Strata Pro adds vector search and fuses it with BM25 using Reciprocal Rank Fusion (RRF).
+Strata Community fuses BM25 with vector cosine similarity via Reciprocal Rank Fusion (RRF). (This pipeline previously shipped only in Pro; it moved to Community for Mem0 parity.)
 
 ```
 Raw query

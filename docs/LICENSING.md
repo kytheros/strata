@@ -4,8 +4,8 @@
 
 Strata uses an open-core licensing model:
 
-- **Community edition** (free) -- No license key required. Provides 15 MCP tools, 3 AI tool parsers, and the full SQLite/FTS5 search engine. Install from npm and use immediately.
-- **Pro edition** ($9/mo or $90/yr) -- Requires a license key (JWT). Adds semantic search, entity graph, procedures, cloud sync, analytics, LLM extraction, and 2 additional parsers.
+- **Community edition** (free) -- No license key required. Provides 15 MCP tools, 3 AI tool parsers, the full SQLite/FTS5 search engine, and **semantic vector search** (Gemini/OpenAI/local MiniLM embeddings fused with BM25 via RRF). Install from npm and use immediately.
+- **Pro edition** ($9/mo or $90/yr) -- Requires a license key (JWT). Adds entity graph, procedures, cloud sync, analytics, LLM extraction, and 2 additional parsers on top of Community semantic search.
 - **Team edition** ($19/user/mo) -- Requires a license key (JWT). Adds shared knowledge, team sync, and role-based access control on top of all Pro features.
 
 License keys are RSA-signed JWTs verified entirely offline. There is no phone-home, no telemetry, and no network call during verification.
@@ -158,8 +158,8 @@ Feature gating is how Pro/Team tools check whether the current license authorize
 import { hasFeature, requireFeature, getLicenseInfo } from "./extensions/feature-gate.js";
 
 // Check without throwing
-if (hasFeature("vector_search")) {
-  // enable vector search UI
+if (hasFeature("analytics")) {
+  // enable analytics dashboard UI
 }
 
 // Check and throw if missing
@@ -175,7 +175,7 @@ const info = getLicenseInfo();
 | Flag               | Tier      | Gates                                          |
 |--------------------|-----------|-------------------------------------------------|
 | `pro`              | Pro, Team | Parsers (Aider, Gemini CLI), entity extraction, procedures, confidence scoring, memory decay |
-| `vector_search`    | Pro, Team | Semantic search (Gemini embeddings + hybrid RRF) |
+| `vector_search`    | Community, Pro, Team | **Semantic search now ships in Community** (Gemini/OpenAI/MiniLM embeddings + BM25 hybrid RRF). The flag is retained in Pro/Team JWTs for backward compatibility but no longer gates access. |
 | `llm_extraction`   | Pro, Team | LLM-powered knowledge extraction (Gemini)       |
 | `cloud_sync`       | Pro, Team | Cloud sync push/pull (Supabase backend)          |
 | `analytics`        | Pro, Team | Local usage analytics                            |

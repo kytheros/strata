@@ -244,7 +244,7 @@ The `SqliteKnowledgeStore.addEntry()` method (`src/storage/sqlite-knowledge-stor
 
 ### Layer 2: Semantic Conflict Resolution (requires LLM provider)
 
-When an LLM provider is available (Pro feature), the `ConflictResolver` (`src/knowledge/conflict-resolver.ts`) performs semantic deduplication:
+When an LLM provider is available (Community with `GEMINI_API_KEY`, or Pro multi-provider extraction), the `ConflictResolver` (`src/knowledge/conflict-resolver.ts`) performs semantic deduplication:
 
 1. **Search** for up to 5 similar existing entries using `store.search(candidate.summary)`
 2. **Build a classification prompt** with the candidate and similar entries (text truncated to 300 chars each)

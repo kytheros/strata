@@ -7,8 +7,8 @@ This is the core memory engine for AI coding assistants. It indexes conversation
 Strata ships as a layered product family (separate packages, not included in this repo):
 
 ```
-strata/          ← THIS REPO — Community edition, core engine (free, 15 MCP tools)
-strata-pro       ← Enterprise features: semantic search, cloud sync, procedures, analytics (separate npm package)
+strata/          ← THIS REPO — Community edition, core engine (free, 15 MCP tools, includes semantic search)
+strata-pro       ← Enterprise features: procedures, entity graph, analytics, ingestion, LLM extraction (separate npm package)
 strata-team      ← Team edition: shared knowledge, team sync, RBAC (separate npm package)
 strata-web       ← Marketing/auth frontend (separate repo)
 strata-worker    ← Cloudflare Worker: licensed release distribution (separate repo)
