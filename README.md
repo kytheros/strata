@@ -178,6 +178,71 @@ mcpServers:
 
 ---
 
+## Python SDK
+
+For agents you build in Python, install `strata-memory` from PyPI:
+
+```bash
+pip install strata-memory
+```
+
+```python
+from strata import StrataClient
+
+s = StrataClient()  # local SQLite by default; set STRATA_URL for remote HTTP
+
+s.add("Use bcrypt with cost factor 12 for password hashing", type="decision")
+results = s.search("password hashing")
+```
+
+### Framework integrations
+
+Strata ships first-party adapters for the major Python agent frameworks. Install with the matching extra:
+
+**LangChain:**
+
+```bash
+pip install strata-memory[langchain]
+```
+
+```python
+from strata import StrataClient
+from strata.integrations.langchain import StrataRetriever
+
+retriever = StrataRetriever(client=StrataClient(), search_kwargs={"limit": 5})
+docs = retriever.invoke("How did we fix auth last time?")
+```
+
+**CrewAI:**
+
+```bash
+pip install strata-memory[crewai]
+```
+
+```python
+from strata import StrataClient
+from strata.integrations.crewai import StrataCrewMemory
+
+memory = StrataCrewMemory(client=StrataClient(), project="research-crew")
+```
+
+**LlamaIndex:**
+
+```bash
+pip install strata-memory[llamaindex]
+```
+
+```python
+from strata import StrataClient
+from strata.integrations.llamaindex import StrataMemoryStore
+
+store = StrataMemoryStore(client=StrataClient(), project="my-index")
+```
+
+The Python SDK is currently **alpha (0.1.0)**. Full reference and Mem0 migration guide at [strata-py](https://github.com/kytheros/strata-py).
+
+---
+
 ## Community Tools (15, free)
 
 ### Search and Discovery
@@ -439,7 +504,7 @@ strata distill activate      # Switch to hybrid provider (local model first, Gem
 strata distill deactivate    # Revert to frontier-only
 ```
 
-The training pipeline uses parameter-efficient fine-tuning (QLoRA) to produce a local model that handles knowledge extraction and summarization without any API calls. The Python SDK (`strata-memory`) ships the fine-tuning pipeline, framework integrations (LangChain, CrewAI, LlamaIndex), and the typed memory client — currently alpha; PyPI publish tracked at [strata-py#1](https://github.com/kytheros/strata-py/issues/1).
+The training pipeline uses parameter-efficient fine-tuning (QLoRA) to produce a local model that handles knowledge extraction and summarization without any API calls. Available via the [Python SDK](#python-sdk): `pip install strata-memory[distill]`.
 
 ---
 
