@@ -71,6 +71,8 @@ export const CONFIG = {
     quantizedCandidateCount: 100,
     /** Auto-disable SDC pre-filter below this vector count (ADC is fast enough) */
     quantizedSdcThreshold: 500,
+    // TIR+QDP community port feature flag (Phase 4 flip after dogfooding)
+    useTirQdp: false,
   },
 
   // Indexing
@@ -120,6 +122,15 @@ export const CONFIG = {
       fillerMaxLen: 40,
       // Query-coverage floor: query tokens shorter than this are dropped from the
       // coverage check (avoids false positives on stop-words / fragments).
+      minTokenLen: 4,
+    },
+    // Community QDP defaults (TIR+QDP community port). Spec 2026-05-01-tirqdp-community-port-plan.md.
+    communityQdp: {
+      // Near-duplicate dedupe threshold for knowledge_entries (character-trigram Jaccard).
+      dedupeJaccard: 0.85,
+      // Filler filter: entries shorter than this (chars) are candidates for filler pruning.
+      fillerMaxLen: 40,
+      // Query-coverage floor: query tokens shorter than this are ignored in coverage scoring.
       minTokenLen: 4,
     },
   },
