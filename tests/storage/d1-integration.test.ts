@@ -130,6 +130,8 @@ describe("D1 Storage Integration", () => {
         "knowledge",
         "knowledge_entities",
         "knowledge_history",
+        "knowledge_turns",
+        "knowledge_turns_fts",
         "summaries",
       ];
 
@@ -183,7 +185,7 @@ describe("D1 Storage Integration", () => {
         .prepare("SELECT value FROM index_meta WHERE key = 'schema_version'")
         .first();
       expect(row).not.toBeNull();
-      expect(row.value).toBe("3");
+      expect(row.value).toBe("4");
     });
 
     it("should be idempotent (calling createD1Storage twice is safe)", async () => {
@@ -193,7 +195,142 @@ describe("D1 Storage Integration", () => {
       const count = await db
         .prepare("SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'table'")
         .first();
-      expect(count.cnt).toBeGreaterThanOrEqual(12);
+      expect(count.cnt).toBeGreaterThanOrEqual(14);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 1b. Migration 0004 — knowledge_turns
+  // -------------------------------------------------------------------------
+
+  describe("migration 0004 — knowledge_turns", () => {
+    it("creates knowledge_turns table with all required columns", async () => {
+      const row = await db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_turns'")
+        .first();
+      expect(row).not.toBeNull();
+      expect(row.sql).toContain("turn_id");
+      expect(row.sql).toContain("session_id");
+      expect(row.sql).toContain("project");
+      expect(row.sql).toContain("user_id");
+      expect(row.sql).toContain("speaker");
+      expect(row.sql).toContain("content");
+      expect(row.sql).toContain("message_index");
+      expect(row.sql).toContain("created_at");
+    });
+
+    it("creates knowledge_turns_fts virtual table with porter tokenizer", async () => {
+      const row = await db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_turns_fts'"
+        )
+        .first();
+      expect(row).not.toBeNull();
+      expect(row.sql).toContain("fts5");
+      expect(row.sql).toContain("porter");
+    });
+
+    it("creates idx_knowledge_turns_session index", async () => {
+      const result = await db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_knowledge_turns_session'"
+        )
+        .first();
+      expect(result).not.toBeNull();
+    });
+
+    it("creates idx_knowledge_turns_project index", async () => {
+      const result = await db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_knowledge_turns_project'"
+        )
+        .first();
+      expect(result).not.toBeNull();
+    });
+
+    it("creates knowledge_turns_ai insert trigger", async () => {
+      const result = await db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'knowledge_turns_ai'"
+        )
+        .first();
+      expect(result).not.toBeNull();
+    });
+
+    it("creates knowledge_turns_ad delete trigger", async () => {
+      const result = await db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'knowledge_turns_ad'"
+        )
+        .first();
+      expect(result).not.toBeNull();
+    });
+
+    it("insert trigger populates knowledge_turns_fts", async () => {
+      await db
+        .prepare(
+          "INSERT INTO knowledge_turns (turn_id, session_id, speaker, content, message_index, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        .bind("t-d1-1", "sess1", "user", "TypeScript generics explained", 0, Date.now())
+        .run();
+
+      const result = await db
+        .prepare(
+          "SELECT rowid FROM knowledge_turns_fts WHERE knowledge_turns_fts MATCH 'typescript'"
+        )
+        .all();
+      expect(result.results.length).toBe(1);
+    });
+
+    it("delete trigger removes entry from knowledge_turns_fts", async () => {
+      await db
+        .prepare(
+          "INSERT INTO knowledge_turns (turn_id, session_id, speaker, content, message_index, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        .bind("t-d1-2", "sess1", "assistant", "SQLite FTS5 search pattern", 0, Date.now())
+        .run();
+      await db
+        .prepare("DELETE FROM knowledge_turns WHERE turn_id = ?")
+        .bind("t-d1-2")
+        .run();
+
+      const result = await db
+        .prepare(
+          "SELECT rowid FROM knowledge_turns_fts WHERE knowledge_turns_fts MATCH 'sqlite'"
+        )
+        .all();
+      expect(result.results.length).toBe(0);
+    });
+
+    it("does not modify knowledge or knowledge_fts (additive only)", async () => {
+      const knowledgeSql = await db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge'")
+        .first();
+      expect(knowledgeSql.sql).toContain("summary");
+      expect(knowledgeSql.sql).not.toContain("turn_id");
+
+      const ftsSql = await db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_fts'")
+        .first();
+      expect(ftsSql.sql).toContain("summary");
+      expect(ftsSql.sql).not.toContain("knowledge_turns");
+    });
+
+    it("existing v3 DB upgrades to v4 idempotently", async () => {
+      // Simulate a v3 DB by creating fresh storage twice — second call should be no-op
+      const storage2 = await createD1Storage({ d1: db, userId: USER_A });
+      await storage2.close();
+
+      const versionRow = await db
+        .prepare("SELECT value FROM index_meta WHERE key = 'schema_version'")
+        .first();
+      expect(versionRow.value).toBe("4");
+
+      // knowledge_turns must still exist and have correct structure
+      const turns = await db
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_turns'")
+        .first();
+      expect(turns).not.toBeNull();
     });
   });
 
@@ -943,7 +1080,7 @@ describe("D1 Storage Integration", () => {
       expect(all["key1"]).toBe("val1");
       expect(all["key2"]).toBe("val2");
       // Also includes schema_version from init
-      expect(all["schema_version"]).toBe("3");
+      expect(all["schema_version"]).toBe("4");
     });
 
     it("should overwrite existing key on set", async () => {

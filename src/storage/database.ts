@@ -639,6 +639,56 @@ function initSchema(db: Database.Database): void {
     `);
   }
 
+  // ── Migration 0004: knowledge_turns (Turn Isolation Retrieval) ─────────────
+  // Additive. Does not alter knowledge or knowledge_fts.
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_turns (
+      turn_id      TEXT PRIMARY KEY,
+      session_id   TEXT NOT NULL,
+      project      TEXT,
+      user_id      TEXT,
+      speaker      TEXT NOT NULL,
+      content      TEXT NOT NULL,
+      message_index INTEGER NOT NULL,
+      created_at   INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_knowledge_turns_session ON knowledge_turns(session_id, message_index);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_turns_project ON knowledge_turns(project, created_at DESC);
+  `);
+
+  const knowledgeTurnsFtsExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_turns_fts'"
+  ).get();
+
+  if (!knowledgeTurnsFtsExists) {
+    db.exec(`
+      CREATE VIRTUAL TABLE knowledge_turns_fts USING fts5(
+        content,
+        content='knowledge_turns',
+        content_rowid='rowid',
+        tokenize='porter'
+      );
+    `);
+  }
+
+  const knowledgeTurnsTriggerExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='trigger' AND name='knowledge_turns_ai'"
+  ).get();
+
+  if (!knowledgeTurnsTriggerExists) {
+    db.exec(`
+      CREATE TRIGGER knowledge_turns_ai AFTER INSERT ON knowledge_turns BEGIN
+        INSERT INTO knowledge_turns_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
+
+      CREATE TRIGGER knowledge_turns_ad AFTER DELETE ON knowledge_turns BEGIN
+        INSERT INTO knowledge_turns_fts(knowledge_turns_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+      END;
+    `);
+  }
+
   // Backfill knowledge_fts if it exists but is empty while knowledge has rows
   backfillKnowledgeFts(db);
 }

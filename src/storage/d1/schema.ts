@@ -219,7 +219,36 @@ CREATE TABLE IF NOT EXISTS migration_state (
   started_at INTEGER,
   completed_at INTEGER
 );
+
+-- knowledge_turns: turn-level FTS5 index for Turn Isolation Retrieval (TIR).
+-- Additive alongside knowledge/knowledge_fts. No changes to those tables.
+CREATE TABLE IF NOT EXISTS knowledge_turns (
+  turn_id      TEXT PRIMARY KEY,
+  session_id   TEXT NOT NULL,
+  project      TEXT,
+  user_id      TEXT,
+  speaker      TEXT NOT NULL,
+  content      TEXT NOT NULL,
+  message_index INTEGER NOT NULL,
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_turns_session ON knowledge_turns(session_id, message_index);
+CREATE INDEX IF NOT EXISTS idx_knowledge_turns_project ON knowledge_turns(project, created_at DESC);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_turns_fts USING fts5(
+  content,
+  content='knowledge_turns',
+  content_rowid='rowid',
+  tokenize='porter'
+);
+
+CREATE TRIGGER IF NOT EXISTS knowledge_turns_ai AFTER INSERT ON knowledge_turns BEGIN
+  INSERT INTO knowledge_turns_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS knowledge_turns_ad AFTER DELETE ON knowledge_turns BEGIN
+  INSERT INTO knowledge_turns_fts(knowledge_turns_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+END;
 `;
 
 /** Schema version for tracking migrations. */
-export const D1_SCHEMA_VERSION = "3";
+export const D1_SCHEMA_VERSION = "4";
