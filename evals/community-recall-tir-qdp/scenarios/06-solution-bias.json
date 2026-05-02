@@ -1,0 +1,27 @@
+{
+  "id": "06-solution-bias",
+  "description": "A session containing a known fix/resolve statement plus unrelated discussion. The solution-typed knowledge entry should surface first for a fix-language query.",
+  "seed_turns": [
+    { "speaker": "user", "content": "The authentication middleware was throwing a 401 on valid tokens.", "message_index": 1, "project": "project-fix", "user_id": "user-dave" },
+    { "speaker": "assistant", "content": "That sounds like a token expiry configuration issue.", "message_index": 2, "project": "project-fix", "user_id": "user-dave" },
+    { "speaker": "user", "content": "We fixed the auth bug by updating the JWT_SECRET environment variable to match the new signing key.", "message_index": 3, "project": "project-fix", "user_id": "user-dave" },
+    { "speaker": "assistant", "content": "Good catch. Make sure to rotate secrets regularly.", "message_index": 4, "project": "project-fix", "user_id": "user-dave" },
+    { "speaker": "user", "content": "Also discussed adding OAuth2 as an alternative login method in the future.", "message_index": 5, "project": "project-fix", "user_id": "user-dave" }
+  ],
+  "seed_entries": [
+    {
+      "id": "entry-auth-fix-001",
+      "summary": "Fixed 401 authentication error by updating JWT_SECRET environment variable",
+      "details": "The middleware was comparing tokens against the old signing key. Resolved by updating JWT_SECRET to match the new key in all environments.",
+      "type": "error_fix",
+      "project": "project-fix",
+      "user": "user-dave",
+      "tags": ["auth", "jwt", "error_fix"]
+    }
+  ],
+  "query": "how did we resolve the authentication 401 error",
+  "query_user_id": "user-dave",
+  "query_project": "project-fix",
+  "expected_top_3_contains": ["JWT_SECRET"],
+  "must_not_contain": ["OAuth2"]
+}

@@ -1,0 +1,33 @@
+{
+  "id": "09-query-coverage-floor",
+  "description": "A turn with zero token overlap with the query should be excluded by QDP coverage floor. The matching turn should remain in top-3.",
+  "seed_turns": [
+    {
+      "speaker": "user",
+      "content": "The timeout threshold for the request handler is 30 seconds.",
+      "message_index": 1,
+      "project": "project-timeout",
+      "user_id": "user-grace"
+    },
+    {
+      "speaker": "user",
+      "content": "Elephants are the largest land animals and live in Africa and Asia.",
+      "message_index": 2,
+      "project": "project-timeout",
+      "user_id": "user-grace"
+    },
+    {
+      "speaker": "user",
+      "content": "The capital of France is Paris and it has many famous museums.",
+      "message_index": 3,
+      "project": "project-timeout",
+      "user_id": "user-grace"
+    }
+  ],
+  "seed_entries": [],
+  "query": "request handler timeout configuration",
+  "query_user_id": "user-grace",
+  "query_project": "project-timeout",
+  "expected_top_3_contains": ["30 seconds"],
+  "must_not_contain": ["Elephants", "Paris"]
+}

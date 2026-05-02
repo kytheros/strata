@@ -1,0 +1,23 @@
+Community Recall TIR + QDP Eval — Baseline Result
+Run date: 2026-05-02
+Commit: TIRQDP-1.10
+
+═══ Community Recall TIR + QDP Eval (TIRQDP-1.10) ═══
+  ✓ 01-buried-fact-long-session          score=1
+  ✓ 02-distractor-saturation             score=1
+  ✓ 03-redundancy-near-duplicate         score=1
+  ✓ 04-cross-project-isolation           score=1
+  ✓ 05-cross-user-isolation              score=1
+  ✓ 06-solution-bias                     score=1
+  ✓ 07-recency-prefer-on-conflict        score=1
+  ✓ 08-multi-session-merge               score=1
+  ✓ 09-query-coverage-floor              score=1
+  ✓ 10-seed-only-baseline                score=1
+
+  Total: 10/10
+
+  Decision: SHIP — all scenarios pass
+
+Ship gate: ≥9/10. Gate cleared at 10/10.
+
+NPC regression (npc-recall-tir-qdp/eval.ts): 16/16 — no regression.

@@ -1,0 +1,18 @@
+{
+  "id": "03-redundancy-near-duplicate",
+  "description": "5 near-duplicate turns all saying the same thing with slight variation. QDP dedupe should collapse them so top-3 doesn't show 3 copies of the same fact.",
+  "seed_turns": [
+    { "speaker": "user", "content": "The service runs on port 8080.", "message_index": 1, "project": "project-gamma", "user_id": "user-carol" },
+    { "speaker": "user", "content": "Our service is running on port 8080.", "message_index": 2, "project": "project-gamma", "user_id": "user-carol" },
+    { "speaker": "user", "content": "We are using port 8080 for the service.", "message_index": 3, "project": "project-gamma", "user_id": "user-carol" },
+    { "speaker": "user", "content": "The application listens on port 8080.", "message_index": 4, "project": "project-gamma", "user_id": "user-carol" },
+    { "speaker": "user", "content": "Port 8080 is what the service uses.", "message_index": 5, "project": "project-gamma", "user_id": "user-carol" },
+    { "speaker": "user", "content": "We also use a separate admin interface on port 9090.", "message_index": 6, "project": "project-gamma", "user_id": "user-carol" }
+  ],
+  "seed_entries": [],
+  "query": "which port does the service run on",
+  "query_user_id": "user-carol",
+  "query_project": "project-gamma",
+  "expected_top_3_contains": ["8080"],
+  "must_not_contain": []
+}

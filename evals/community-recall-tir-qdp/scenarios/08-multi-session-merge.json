@@ -1,0 +1,44 @@
+{
+  "id": "08-multi-session-merge",
+  "description": "A single fact is split across two sessions: session-A establishes the library name, session-B establishes the version. Both pieces should be recoverable.",
+  "seed_turns": [
+    {
+      "speaker": "user",
+      "content": "We decided to use the Zod library for runtime validation in this project.",
+      "message_index": 1,
+      "project": "project-merge",
+      "user_id": "user-frank",
+      "session_id": "session-A"
+    },
+    {
+      "speaker": "assistant",
+      "content": "Zod is a great choice for TypeScript schema validation.",
+      "message_index": 2,
+      "project": "project-merge",
+      "user_id": "user-frank",
+      "session_id": "session-A"
+    },
+    {
+      "speaker": "user",
+      "content": "We pinned Zod to version 3.22.4 to avoid breaking changes.",
+      "message_index": 1,
+      "project": "project-merge",
+      "user_id": "user-frank",
+      "session_id": "session-B"
+    },
+    {
+      "speaker": "user",
+      "content": "The Zod version 3.22.4 was tested against our schema definitions.",
+      "message_index": 2,
+      "project": "project-merge",
+      "user_id": "user-frank",
+      "session_id": "session-B"
+    }
+  ],
+  "seed_entries": [],
+  "query": "which validation library and version are we using",
+  "query_user_id": "user-frank",
+  "query_project": "project-merge",
+  "expected_top_3_contains": ["3.22.4"],
+  "must_not_contain": []
+}

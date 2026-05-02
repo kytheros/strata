@@ -1,0 +1,16 @@
+{
+  "id": "04-cross-project-isolation",
+  "description": "Two projects have different values for the same concept. A query scoped to project-A must return project-A's answer, not project-B's.",
+  "seed_turns": [
+    { "speaker": "user", "content": "In project-alpha we deploy to the us-east-1 AWS region.", "message_index": 1, "project": "project-alpha", "user_id": "user-alice" },
+    { "speaker": "user", "content": "Our CI pipeline runs tests on every pull request.", "message_index": 2, "project": "project-alpha", "user_id": "user-alice" },
+    { "speaker": "user", "content": "In project-delta we deploy to the eu-west-1 AWS region.", "message_index": 1, "project": "project-delta", "user_id": "user-alice" },
+    { "speaker": "user", "content": "Project delta uses a weekly deployment schedule.", "message_index": 2, "project": "project-delta", "user_id": "user-alice" }
+  ],
+  "seed_entries": [],
+  "query": "which AWS region do we deploy to",
+  "query_user_id": "user-alice",
+  "query_project": "project-alpha",
+  "expected_top_3_contains": ["us-east-1"],
+  "must_not_contain": ["eu-west-1"]
+}

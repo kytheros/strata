@@ -1,0 +1,16 @@
+{
+  "id": "05-cross-user-isolation",
+  "description": "Two users in the same project have different secrets. A query scoped to user-alice must never return user-bob's content.",
+  "seed_turns": [
+    { "speaker": "user", "content": "My personal deploy token for this project is ALICE-TOKEN-XYZ.", "message_index": 1, "project": "shared-project", "user_id": "user-alice" },
+    { "speaker": "user", "content": "I set up the staging environment last week.", "message_index": 2, "project": "shared-project", "user_id": "user-alice" },
+    { "speaker": "user", "content": "My personal deploy token for this project is BOB-TOKEN-ABC.", "message_index": 1, "project": "shared-project", "user_id": "user-bob" },
+    { "speaker": "user", "content": "Bob uses a different configuration for local development.", "message_index": 2, "project": "shared-project", "user_id": "user-bob" }
+  ],
+  "seed_entries": [],
+  "query": "what is my personal deploy token",
+  "query_user_id": "user-alice",
+  "query_project": "shared-project",
+  "expected_top_3_contains": ["ALICE-TOKEN-XYZ"],
+  "must_not_contain": ["BOB-TOKEN-ABC"]
+}

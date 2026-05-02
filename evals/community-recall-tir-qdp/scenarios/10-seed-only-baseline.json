@@ -1,0 +1,21 @@
+{
+  "id": "10-seed-only-baseline",
+  "description": "Sanity check: a single knowledge entry, a single query. The entry must appear in top-3. No turns in play.",
+  "seed_turns": [],
+  "seed_entries": [
+    {
+      "id": "entry-baseline-001",
+      "summary": "The primary database uses PostgreSQL 15",
+      "details": "We migrated from MySQL to PostgreSQL 15 in Q1 2025 for better JSON support and window functions.",
+      "type": "decision",
+      "project": "project-baseline",
+      "user": "user-helen",
+      "tags": ["database", "postgresql", "migration"]
+    }
+  ],
+  "query": "which database are we using",
+  "query_user_id": "user-helen",
+  "query_project": "project-baseline",
+  "expected_top_3_contains": ["PostgreSQL"],
+  "must_not_contain": []
+}

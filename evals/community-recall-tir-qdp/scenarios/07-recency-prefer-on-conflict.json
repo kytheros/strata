@@ -1,0 +1,36 @@
+{
+  "id": "07-recency-prefer-on-conflict",
+  "description": "Two turns conflict: an older turn says one value, a newer turn overrides it. The newer value should appear in top-3; the older should not.",
+  "seed_turns": [
+    {
+      "speaker": "user",
+      "content": "The release branch name is release-v1.",
+      "message_index": 1,
+      "project": "project-release",
+      "user_id": "user-eve",
+      "created_at": 1000000
+    },
+    {
+      "speaker": "user",
+      "content": "We changed the release branch naming convention. The release branch is now called release-v2.",
+      "message_index": 2,
+      "project": "project-release",
+      "user_id": "user-eve",
+      "created_at": 2000000
+    },
+    {
+      "speaker": "user",
+      "content": "Make sure all developers update their local branches to use the new naming convention release-v2.",
+      "message_index": 3,
+      "project": "project-release",
+      "user_id": "user-eve",
+      "created_at": 2100000
+    }
+  ],
+  "seed_entries": [],
+  "query": "what is the current release branch name",
+  "query_user_id": "user-eve",
+  "query_project": "project-release",
+  "expected_top_3_contains": ["release-v2"],
+  "must_not_contain": []
+}
