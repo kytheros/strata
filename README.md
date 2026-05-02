@@ -442,6 +442,8 @@ Vector search uses `CODE_RETRIEVAL_QUERY` task type for queries and `RETRIEVAL_D
 
 All ranking parameters are centralized in [`src/config.ts`](src/config.ts) and were validated against frozen eval suites (search retrieval: 30/30, chunking: 25/25, RRF fusion: 58/58).
 
+*TIR+QDP early access: see [docs/upgrade-guide.md](docs/upgrade-guide.md) to opt in to turn-level retrieval ahead of the default-on flip.*
+
 ---
 
 ## Backup and Multi-Device Continuity
