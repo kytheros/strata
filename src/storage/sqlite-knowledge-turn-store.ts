@@ -104,7 +104,7 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
 
   // ── insert ─────────────────────────────────────────────────────────────────
 
-  insert(turn: KnowledgeTurnInput): string {
+  async insert(turn: KnowledgeTurnInput): Promise<string> {
     const turnId = randomUUID();
     this.stmtInsert.run({
       turn_id: turnId,
@@ -121,11 +121,22 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
 
   // ── bulkInsert ─────────────────────────────────────────────────────────────
 
-  bulkInsert(turns: KnowledgeTurnInput[]): string[] {
+  async bulkInsert(turns: KnowledgeTurnInput[]): Promise<string[]> {
     const ids: string[] = [];
     const insertMany = this.db.transaction(() => {
       for (const turn of turns) {
-        ids.push(this.insert(turn));
+        const turnId = randomUUID();
+        this.stmtInsert.run({
+          turn_id: turnId,
+          session_id: turn.sessionId,
+          project: turn.project ?? null,
+          user_id: turn.userId ?? null,
+          speaker: turn.speaker,
+          content: turn.content,
+          message_index: turn.messageIndex,
+          created_at: Date.now(),
+        });
+        ids.push(turnId);
       }
     });
     insertMany();
@@ -146,7 +157,7 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
    *   - userId is null      → WHERE user_id IS NULL
    *   - userId is undefined → no user_id filter (all users)
    */
-  searchByQuery(query: string, opts: KnowledgeTurnSearchOptions): KnowledgeTurnHit[] {
+  async searchByQuery(query: string, opts: KnowledgeTurnSearchOptions): Promise<KnowledgeTurnHit[]> {
     if (!query || query.trim().length === 0) return [];
     const ftsQuery = sanitizeFtsQuery(query);
     if (ftsQuery.length === 0) return [];
@@ -189,21 +200,21 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
 
   // ── getBySessionId ─────────────────────────────────────────────────────────
 
-  getBySessionId(sessionId: string): KnowledgeTurnRow[] {
+  async getBySessionId(sessionId: string): Promise<KnowledgeTurnRow[]> {
     const rows = this.stmtGetBySession.all(sessionId) as Record<string, unknown>[];
     return rows.map(rowToKnowledgeTurn);
   }
 
   // ── deleteBySessionId ──────────────────────────────────────────────────────
 
-  deleteBySessionId(sessionId: string): void {
+  async deleteBySessionId(sessionId: string): Promise<void> {
     this.stmtDeleteBySession.run(sessionId);
     // The knowledge_turns_ad trigger automatically removes from knowledge_turns_fts.
   }
 
   // ── count ──────────────────────────────────────────────────────────────────
 
-  count(): number {
+  async count(): Promise<number> {
     const row = this.stmtCount.get() as { cnt: number };
     return row.cnt;
   }

@@ -20,6 +20,7 @@
 import { randomUUID } from "node:crypto";
 import type { PgPool } from "./pg-types.js";
 import type {
+  IKnowledgeTurnStore,
   KnowledgeTurnInput,
   KnowledgeTurnRow,
   KnowledgeTurnHit,
@@ -76,16 +77,13 @@ function rowToKnowledgeTurn(row: Record<string, unknown>): KnowledgeTurnRow {
 // ── store ─────────────────────────────────────────────────────────────────────
 
 /**
- * Async contract for PgKnowledgeTurnStore.
+ * Async Postgres implementation of IKnowledgeTurnStore.
  *
- * IKnowledgeTurnStore (from storage/interfaces/knowledge-turn-store.ts) uses
- * synchronous return types because it was designed for the SQLite (better-sqlite3)
- * backend. The pg library is inherently async, so this class mirrors the same
- * method signatures with all return types wrapped in Promise<>. The class does
- * NOT claim `implements IKnowledgeTurnStore` at the TypeScript level to avoid
- * a compile error, but its runtime contract is identical.
+ * IKnowledgeTurnStore now uses Promise<T> return types (TIRQDP async-ify
+ * refactor), so this class can safely claim `implements IKnowledgeTurnStore`.
+ * All methods were already async — this is a type-system-only change.
  */
-export class PgKnowledgeTurnStore {
+export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
   // No module-level caches (D2). All state scoped to this instance.
   constructor(private readonly pool: PgPool) {}
 

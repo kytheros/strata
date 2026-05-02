@@ -299,7 +299,7 @@ export class IncrementalIndexer {
             content: msg.text,     // verbatim turn text
             messageIndex: idx,     // ordinal in messages array (0-based)
           }));
-          this.turnStore.bulkInsert(turnInputs);
+          await this.turnStore.bulkInsert(turnInputs);
         }
         // ── end TIRQDP-1.8 ───────────────────────────────────────────────
       }

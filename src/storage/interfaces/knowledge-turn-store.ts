@@ -55,33 +55,33 @@ export interface IKnowledgeTurnStore {
   /**
    * Insert a single turn. Returns the generated turn_id UUID.
    */
-  insert(turn: KnowledgeTurnInput): string;
+  insert(turn: KnowledgeTurnInput): Promise<string>;
 
   /**
    * Insert multiple turns atomically (single transaction).
    * Returns the generated turn_id UUIDs in insertion order.
    */
-  bulkInsert(turns: KnowledgeTurnInput[]): string[];
+  bulkInsert(turns: KnowledgeTurnInput[]): Promise<string[]>;
 
   /**
    * FTS5 search scoped by user_id (and optionally project).
    * Returns rows ordered by relevance descending (higher score = better match).
    */
-  searchByQuery(query: string, opts: KnowledgeTurnSearchOptions): KnowledgeTurnHit[];
+  searchByQuery(query: string, opts: KnowledgeTurnSearchOptions): Promise<KnowledgeTurnHit[]>;
 
   /**
    * Retrieve all turns for a session, ordered by message_index ASC.
    */
-  getBySessionId(sessionId: string): KnowledgeTurnRow[];
+  getBySessionId(sessionId: string): Promise<KnowledgeTurnRow[]>;
 
   /**
    * Delete all turns belonging to a session.
    * The FTS5 delete trigger keeps `knowledge_turns_fts` consistent.
    */
-  deleteBySessionId(sessionId: string): void;
+  deleteBySessionId(sessionId: string): Promise<void>;
 
   /**
    * Total count of all turns in the store (across all users/projects).
    */
-  count(): number;
+  count(): Promise<number>;
 }

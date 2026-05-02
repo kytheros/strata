@@ -216,7 +216,7 @@ describe("IncrementalIndexer turn-write branch (TIRQDP-1.8)", () => {
 
     await (indexer as any).handleFileChange("test-project/session-001.jsonl", "claude-code");
 
-    expect(turnStore.count()).toBe(session.messages.length);
+    expect(await turnStore.count()).toBe(session.messages.length);
   });
 
   it("turns have correct session_id", async () => {
@@ -231,7 +231,7 @@ describe("IncrementalIndexer turn-write branch (TIRQDP-1.8)", () => {
 
     await (indexer as any).handleFileChange("test-project/abc-session.jsonl", "claude-code");
 
-    const turns = turnStore.getBySessionId("abc-session");
+    const turns = await turnStore.getBySessionId("abc-session");
     expect(turns.length).toBe(session.messages.length);
     for (const turn of turns) {
       expect(turn.sessionId).toBe("abc-session");
@@ -250,7 +250,7 @@ describe("IncrementalIndexer turn-write branch (TIRQDP-1.8)", () => {
 
     await (indexer as any).handleFileChange("test-project/session-001.jsonl", "claude-code");
 
-    const turns = turnStore.getBySessionId(session.sessionId);
+    const turns = await turnStore.getBySessionId(session.sessionId);
     const speakers = turns.map(t => t.speaker);
     expect(speakers[0]).toBe("user");
     expect(speakers[1]).toBe("assistant");
@@ -269,7 +269,7 @@ describe("IncrementalIndexer turn-write branch (TIRQDP-1.8)", () => {
 
     await (indexer as any).handleFileChange("test-project/session-001.jsonl", "claude-code");
 
-    const turns = turnStore.getBySessionId(session.sessionId);
+    const turns = await turnStore.getBySessionId(session.sessionId);
     expect(turns[0].content).toBe(session.messages[0].text);
     expect(turns[1].content).toBe(session.messages[1].text);
     expect(turns[2].content).toBe(session.messages[2].text);
@@ -287,7 +287,7 @@ describe("IncrementalIndexer turn-write branch (TIRQDP-1.8)", () => {
 
     await (indexer as any).handleFileChange("test-project/session-001.jsonl", "claude-code");
 
-    const turns = turnStore.getBySessionId(session.sessionId);
+    const turns = await turnStore.getBySessionId(session.sessionId);
     for (let i = 0; i < turns.length; i++) {
       expect(turns[i].messageIndex).toBe(i);
     }
@@ -305,7 +305,7 @@ describe("IncrementalIndexer turn-write branch (TIRQDP-1.8)", () => {
 
     await (indexer as any).handleFileChange("test-project/session-001.jsonl", "claude-code");
 
-    const turns = turnStore.getBySessionId(session.sessionId);
+    const turns = await turnStore.getBySessionId(session.sessionId);
     for (const turn of turns) {
       expect(turn.project).toBe("my-special-project");
     }
@@ -339,7 +339,7 @@ describe("IncrementalIndexer turn-write branch (TIRQDP-1.8)", () => {
     // The knowledge store must have been called (existing path untouched)
     expect(knowledgeStore.addEntry).toHaveBeenCalledTimes(1);
     // AND turns were also written
-    expect(turnStore.count()).toBe(session.messages.length);
+    expect(await turnStore.count()).toBe(session.messages.length);
   });
 });
 
