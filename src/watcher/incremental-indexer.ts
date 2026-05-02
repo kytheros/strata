@@ -19,6 +19,7 @@ import type { SessionFileInfo, ParsedSession } from "../parsers/session-parser.j
 import { extractKnowledge } from "../knowledge/knowledge-extractor.js";
 import type { KnowledgeEntry } from "../knowledge/knowledge-store.js";
 import type { SynthesisStore } from "../knowledge/learning-synthesizer.js";
+import type { IKnowledgeTurnStore } from "../storage/interfaces/knowledge-turn-store.js";
 
 /** Minimal interface for knowledge stores used by the indexer. */
 export interface IndexerKnowledgeStore extends SynthesisStore {
@@ -79,19 +80,28 @@ export class IncrementalIndexer {
   private knowledgeStore: IndexerKnowledgeStore;
   private entityStore: IEntityStore | null;
   private parserRegistry: ParserRegistry | null;
+  /**
+   * Optional turn store for the TIR (Turn Isolation Retrieval) lane.
+   * When set, handleFileChange() writes raw conversation turns to
+   * knowledge_turns via bulkInsert() after the existing chunk-extraction
+   * path runs. When null, the branch is a no-op (D3 invisible-by-default).
+   */
+  private turnStore: IKnowledgeTurnStore | null;
   private processing = new Set<string>();
 
   constructor(
     indexManager: IndexManagerLike,
     knowledgeStore: IndexerKnowledgeStore,
     entityStore?: IEntityStore,
-    parserRegistry?: ParserRegistry
+    parserRegistry?: ParserRegistry,
+    turnStore?: IKnowledgeTurnStore
   ) {
     this.watcher = new FileWatcher();
     this.indexManager = indexManager;
     this.knowledgeStore = knowledgeStore;
     this.entityStore = entityStore ?? null;
     this.parserRegistry = parserRegistry ?? null;
+    this.turnStore = turnStore ?? null;
   }
 
   /**
@@ -275,6 +285,23 @@ export class IncrementalIndexer {
           ? await smartSummarize(session, summaryProvider, this.indexManager.db)
           : summarizeSession(session);
         cacheSummary(summary);
+
+        // ── TIRQDP-1.8: TIR turn-write branch ────────────────────────────
+        // Runs AFTER the existing knowledge-extraction lane (chunk path above
+        // is byte-identical). No-op when turnStore is absent (D3 flag-off).
+        // bulkInsert() wraps all turns in a single transaction for performance.
+        if (this.turnStore && session.messages.length > 0) {
+          const turnInputs = session.messages.map((msg, idx) => ({
+            sessionId: session.sessionId,
+            project: session.project ?? null,
+            userId: null,          // user_id not carried by IndexerOptions today — always null
+            speaker: msg.role,     // 'user' | 'assistant'
+            content: msg.text,     // verbatim turn text
+            messageIndex: idx,     // ordinal in messages array (0-based)
+          }));
+          this.turnStore.bulkInsert(turnInputs);
+        }
+        // ── end TIRQDP-1.8 ───────────────────────────────────────────────
       }
     } finally {
       this.processing.delete(key);
