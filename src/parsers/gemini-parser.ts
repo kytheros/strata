@@ -83,6 +83,11 @@ export class GeminiParser implements ConversationParser {
     return results;
   }
 
+  /** TIRQDP-1.7: return the flat turn list by delegating to parse(). */
+  parseTurns(file: SessionFileInfo): import("./session-parser.js").SessionMessage[] {
+    return this.parse(file)?.messages ?? [];
+  }
+
   parse(file: SessionFileInfo): ParsedSession | null {
     if (!existsSync(file.filePath)) return null;
 

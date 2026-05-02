@@ -92,6 +92,11 @@ export class AiderParser implements ConversationParser {
     return results;
   }
 
+  /** TIRQDP-1.7: return the flat turn list by delegating to parse(). */
+  parseTurns(file: SessionFileInfo): import("./session-parser.js").SessionMessage[] {
+    return this.parse(file)?.messages ?? [];
+  }
+
   /**
    * Parse an .aider.chat.history.md file into a unified session.
    */

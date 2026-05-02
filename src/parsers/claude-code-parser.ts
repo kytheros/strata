@@ -55,6 +55,11 @@ export class ClaudeCodeParser implements ConversationParser {
       tool: this.id,
     };
   }
+
+  /** TIRQDP-1.7: return the flat turn list by delegating to parse(). */
+  parseTurns(file: SessionFileInfo): import("./session-parser.js").SessionMessage[] {
+    return this.parse(file)?.messages ?? [];
+  }
 }
 
 /**
