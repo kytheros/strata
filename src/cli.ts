@@ -281,6 +281,9 @@ export async function runSearch(
   );
   let knowledgeResults: typeof docResults = [];
   try {
+    // Pass the raw `query` here, NOT `searchQuery` — the FTS5 engine understands
+    // `tool:X` inline filters, but the knowledge store does plain-text search over
+    // summary+details and would treat "tool:X" as a literal substring (zero matches).
     const entries = await indexManager.knowledge.search(query, project, undefined);
     knowledgeResults = knowledgeEntriesToSearchResults(entries);
   } catch {

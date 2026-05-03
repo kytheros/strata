@@ -17,6 +17,11 @@ import type { SearchResult } from "./sqlite-search-engine.js";
  *   - importance range [0, 1] → score range [0, 10]
  *   - Matches the formula used in search-history.ts (searchKnowledge & searchKnowledgeViaStore)
  *     so merged lists sort consistently.
+ *
+ * `confidence` is mathematically redundant with `score` here (always `score / 10`
+ * given importance ∈ [0, 1]). Kept for parity with the FTS5 SearchResult shape and
+ * as forward-compat: if the score formula ever adds bonuses that push past 10,
+ * confidence would diverge from a direct `score / 10` and the field becomes load-bearing.
  */
 export function knowledgeEntryToSearchResult(entry: KnowledgeEntry): SearchResult {
   const text =
