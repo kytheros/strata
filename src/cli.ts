@@ -234,7 +234,7 @@ function parseArgs(argv: string[]): {
   return { command, args, flags };
 }
 
-async function runSearch(
+export async function runSearch(
   query: string,
   flags: Record<string, string | boolean>
 ): Promise<void> {
@@ -312,7 +312,7 @@ function proFeatureMessage(feature: string): void {
   process.exit(1);
 }
 
-async function runStoreMemory(
+export async function runStoreMemory(
   memoryText: string,
   flags: Record<string, string | boolean>
 ): Promise<void> {
