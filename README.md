@@ -11,6 +11,19 @@
 
 **81.1% on LongMemEval-500** with the same BM25 + vector + RRF stack documented below — see [Benchmarks](docs/benchmarks.md). Runs locally on SQLite, on Cloudflare Workers + D1, or on Google Cloud Run.
 
+```mermaid
+sequenceDiagram
+    participant A as Claude Code<br/>(today)
+    participant S as Strata
+    participant B as Gemini CLI<br/>(3 weeks later)
+
+    A->>S: store_memory<br/>"Use bcrypt cost factor 12"
+    Note over S: Quality gates +<br/>BM25 index +<br/>vector embedding
+    Note over A,B: context window rolls<br/>session ends<br/>tools change
+    B->>S: search_history<br/>"password hashing decision"
+    S-->>B: [HIGH] Use bcrypt cost factor 12
+```
+
 **For AI coding assistants:** Strata auto-indexes your conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a shared knowledge base. Store a decision in Claude Code, recall it from Gemini CLI.
 
 **For agents you build:** Deploy Strata as memory infrastructure via HTTP or multi-tenant transport. Ingest conversations from any source, search with BM25 + vector hybrid ranking, and give your agents the ability to learn from their own history. Deploy on [Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) or [Google Cloud Run](#deploy-on-gcp-cloud-run).
@@ -409,14 +422,30 @@ STRATA_REQUIRE_AUTH_PROXY=1
 STRATA_AUTH_PROXY_TOKEN=$(openssl rand -hex 32)   # ≥32 chars
 ```
 
-The upstream proxy (Cloudflare Worker, Kong, Envoy, nginx + auth_request, etc.) is responsible for:
+The upstream proxy (Cloudflare Worker, Kong, Envoy, nginx + auth_request, etc.) is responsible for authenticating the caller, mapping them to a Strata user UUID, and vouching for the request:
 
-1. Authenticating the caller — JWT, session cookie, mTLS, OAuth, whatever fits your stack
-2. Mapping that identity to a Strata user UUID
-3. Setting `X-Strata-User: <uuid>` on the upstream request
-4. Setting `X-Strata-Verified: <STRATA_AUTH_PROXY_TOKEN>` to vouch that step 1 succeeded
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client
+    participant Proxy as Auth Proxy<br/>(Worker / Kong / nginx)
+    participant Strata as Strata<br/>(multi-tenant)
+    participant DB as User DB<br/>(isolated SQLite)
 
-Strata verifies `X-Strata-Verified` in constant time and rejects any `/mcp` request that's missing or mismatched. Without `STRATA_REQUIRE_AUTH_PROXY=1`, the backend assumes it's behind a private network boundary — fine for `localhost` and single-user self-hosted deployments, **not** safe to expose publicly.
+    Client->>Proxy: Request + JWT / cookie / mTLS
+    Note over Proxy: Authenticate caller<br/>Resolve user UUID
+    Proxy->>Strata: POST /mcp<br/>X-Strata-User: <uuid><br/>X-Strata-Verified: <token>
+    Note over Strata: Constant-time compare<br/>X-Strata-Verified vs<br/>STRATA_AUTH_PROXY_TOKEN
+    alt token missing or mismatched
+        Strata-->>Client: 401 Unauthorized
+    else verified
+        Strata->>DB: route to user's isolated DB
+        DB-->>Strata: result
+        Strata-->>Client: MCP response
+    end
+```
+
+Without `STRATA_REQUIRE_AUTH_PROXY=1`, the backend assumes it's behind a private network boundary — fine for `localhost` and single-user self-hosted deployments, **not** safe to expose publicly.
 
 The REST transport (`strata serve --rest`) has a separate token model: it signs player bearer tokens with HMAC and refuses to start unless `STRATA_TOKEN_SECRET` is set. See [Game Engine REST API](https://strata.kytheros.dev/docs/game-engine-api) for the two-tier admin/player flow.
 
