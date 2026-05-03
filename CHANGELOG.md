@@ -5,6 +5,16 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] - 2026-05-03
+
+### Removed
+
+- **Cloudflare D1 deploy template no longer scaffolds an unreleased tier.** The Team-tier worker entry point (`templates/cloudflare-d1/src/index.team.ts`) and the corresponding `tier === "team"` branch in `strata deploy cloudflare` were premature — the upstream Team package isn't published yet, so a user with `tier: "team"` in `~/.strata/config.json` would have produced a worker scaffold whose `npm install` failed. Removed both. Pro and community paths are unchanged. The branch will return when Team launches.
+
+### Documentation
+
+- `downloadAndInstall` JSDoc no longer lists `team` as a valid `tier` value.
+
 ## [2.1.2] - 2026-05-03
 
 ### Documentation
