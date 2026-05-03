@@ -8,6 +8,7 @@ import { truncatePreview } from "../utils/response.js";
 import { CONFIG } from "../config.js";
 import { recordGap, getGapOccurrences } from "../search/evidence-gaps.js";
 import { parseDate } from "../search/query-processor.js";
+import { knowledgeEntryToSearchResult } from "../search/knowledge-to-search-result.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -121,23 +122,7 @@ async function searchKnowledgeViaStore(
 ): Promise<SearchResult[]> {
   try {
     const entries = await store.search(query, options.project, options.user);
-    return entries.map(entry => {
-      const text = entry.details && entry.details !== entry.summary
-        ? `[${entry.type}] ${entry.summary}\n${entry.details}`
-        : `[${entry.type}] ${entry.summary}`;
-      const tags = entry.tags ?? [];
-      const baseScore = (entry.importance ?? 0.5) * 10;
-      return {
-        sessionId: entry.sessionId || "knowledge",
-        project: entry.project,
-        text,
-        score: baseScore,
-        confidence: Math.min(baseScore / 10, 1),
-        timestamp: entry.timestamp,
-        toolNames: tags.length > 0 ? [`tags:${tags.join(",")}`] : [],
-        role: "assistant" as const,
-      };
-    });
+    return entries.map(knowledgeEntryToSearchResult);
   } catch {
     return [];
   }

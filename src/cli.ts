@@ -265,18 +265,43 @@ export async function runSearch(
     searchQuery += ` tool:${flags.tool}`;
   }
 
+  const limit = flags.limit ? parseInt(String(flags.limit), 10) : 20;
+  const project = flags.project ? String(flags.project) : undefined;
+
   const start = performance.now();
-  const results = await searchEngine.search(searchQuery, {
-    limit: flags.limit ? parseInt(String(flags.limit), 10) : 20,
-    project: flags.project ? String(flags.project) : undefined,
-  });
+
+  // Query 1: FTS5 conversation index (existing behavior)
+  const docResults = await searchEngine.search(searchQuery, { limit, project });
+
+  // Query 2: knowledge table (stored memories via store-memory)
+  // The knowledge store is the source of truth for explicit memories; it is
+  // never indexed into the FTS5 document store so must be queried separately.
+  const { knowledgeEntriesToSearchResults } = await import(
+    "./search/knowledge-to-search-result.js"
+  );
+  let knowledgeResults: typeof docResults = [];
+  try {
+    const entries = await indexManager.knowledge.search(query, project, undefined);
+    knowledgeResults = knowledgeEntriesToSearchResults(entries);
+  } catch {
+    // If the knowledge table query fails, continue with document results only.
+  }
+
+  // Merge and sort by score descending; apply the --limit cap to the combined list.
+  const merged = [...docResults, ...knowledgeResults]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
   const elapsed = ((performance.now() - start) / 1000).toFixed(2);
 
-  if (results.length === 0) {
+  if (merged.length === 0) {
     console.log("No results found.");
     indexManager.close();
     process.exit(1);
   }
+
+  // Shadow `results` with the merged list for the formatter below.
+  const results = merged;
 
   if (flags.json) {
     console.log(JSON.stringify(results, null, 2));
