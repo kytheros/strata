@@ -5,6 +5,26 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-05-03
+
+### Added
+
+- **TIR+QDP early access.** New turn-level retrieval lane plus query-driven pruning, opt-in via `search.useTirQdp` (default `false`). Adds the `knowledge_turns` table (FTS5 + porter tokenizer on SQLite, tsvector + GIN on Postgres, mirrored on D1) alongside the existing chunk lane. New `KnowledgeTurnStore` (SQLite + Postgres adapters), `fuseCommunityLanes` RRF wrapper byte-identical to the NPC fusion math, `recallQdpCommunity` pruner mirroring NPC QDP rules. `IncrementalIndexer` writes both lanes per ingest when a `KnowledgeTurnStore` is wired.
+- **`strata index --rebuild-turns` CLI.** Backfills the `knowledge_turns` table from existing session files. Idempotent (delete-then-reinsert per session). `--project` and `--dry-run` flags supported. Run this before flipping `search.useTirQdp = true`.
+- **Frozen Community retrieval eval.** New 10-scenario eval at `evals/community-recall-tir-qdp/` covering buried-fact recall, distractor saturation, near-duplicate redundancy, cross-project / cross-user isolation, solution bias, recency-on-conflict, multi-session merge, query-coverage floor, and seed-only baseline. Initial score: 10/10. NPC frozen eval regression check: 16/16.
+- **Upgrade guide.** New `docs/upgrade-guide.md` covers the two-step opt-in (`strata index --rebuild-turns`, then `strata config set search.useTirQdp true`) and the rollback path. Web docs site mirrors the same.
+- **`parseTurns()` on the parser interface.** All five conversation parsers (Claude Code, Codex, Aider, Cline, Gemini) now expose `parseTurns()` for the turn-write path.
+
+### Changed
+
+- **`IKnowledgeTurnStore` is async.** All store methods return `Promise<T>`. Lets the SQLite and Postgres adapters share one interface contract; runtime behavior on SQLite is unchanged (the wrapped sync calls resolve immediately).
+
+### Notes
+
+- All Phase 1 changes are **invisible to MCP callers** until the flag is flipped. `search_history`, `find_solutions`, and `semantic_search` continue to operate against the existing chunk lane only. Phase 2 will wire the turn lane behind the flag.
+- LongMemEval validation of the recall improvement is deferred to [#5](https://github.com/kytheros/strata/issues/5) (TIRQDP-2.3 follow-up).
+- Two follow-up tickets were filed during the release pass: [#6](https://github.com/kytheros/strata/issues/6) (`CommunityChunkResult.createdAt` plumbing — must be fixed before `search_history` integration) and [#7](https://github.com/kytheros/strata/issues/7) (eval scenario 01 assertion documentation).
+
 ## [2.0.2] - 2026-05-01
 
 ### Changed
