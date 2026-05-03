@@ -50,12 +50,11 @@ export function generateGatewayToken(): string {
 }
 
 /** Detect installed tier from ~/.strata/config.json. */
-export function detectTier(configPath?: string): "community" | "pro" | "team" {
+export function detectTier(configPath?: string): "community" | "pro" {
   const p = configPath ?? join(homedir(), ".strata", "config.json");
   if (!existsSync(p)) return "community";
   try {
     const config = JSON.parse(readFileSync(p, "utf-8"));
-    if (config.tier === "team") return "team";
     if (config.tier === "pro") return "pro";
   } catch { /* malformed */ }
   return "community";
@@ -163,9 +162,6 @@ export async function runDeployCloudflare(
   if (tier === "pro") {
     tierDeps = ',\n    "@kytheros/strata-pro": "latest"';
     tierSecretsComment = "# POLAR_LICENSE_KEY  -- Pro license key";
-  } else if (tier === "team") {
-    tierDeps = ',\n    "@kytheros/strata-pro": "latest",\n    "@kytheros/strata-team": "latest"';
-    tierSecretsComment = "# POLAR_LICENSE_KEY  -- Team license key";
   }
 
   // Patch and write templates

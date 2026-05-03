@@ -139,7 +139,7 @@ export async function fetchVersionInfo(key: string): Promise<VersionInfo> {
  * Download an artifact from the releases Worker and install it.
  *
  * @param options.key      - Polar license key
- * @param options.tier     - Package tier (pro, team)
+ * @param options.tier     - Package tier (pro)
  * @param options.binary   - If true, download standalone binary; otherwise tarball
  * @param options.platform - Override auto-detected platform (binary mode only)
  */
