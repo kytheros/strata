@@ -51,6 +51,7 @@ Usage:
   strata store-memory <text> --type <t>   Store an explicit memory
   strata migrate                          Migrate legacy data to SQLite
   strata status                           Print index statistics
+  strata index --rebuild-turns            Backfill knowledge_turns from session files (TIR+QDP opt-in)
   strata activate <key>                   Activate a license (JWT or Polar key)
   strata update                           Check for and install newer versions
   strata license                          Show current license status
@@ -214,6 +215,8 @@ function parseArgs(argv: string[]): {
       flags["player-id"] = argv[++i];
     } else if (arg === "--dry-run") {
       flags["dry-run"] = true;
+    } else if (arg === "--rebuild-turns") {
+      flags["rebuild-turns"] = true;
     } else if (arg === "--task" && i + 1 < argv.length) {
       flags.task = argv[++i];
     } else if (arg === "--output" && i + 1 < argv.length) {
