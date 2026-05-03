@@ -5,6 +5,12 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-05-03
+
+### Documentation
+
+- Code-review follow-ups from 2.1.1: comment on `runSearch` explains why the knowledge-store query receives the raw `query` while the FTS5 engine receives `searchQuery` (the engine understands `tool:X` inline filters; the knowledge store does plain-text search and would match `"tool:X"` literally). JSDoc on `knowledgeEntryToSearchResult` notes that `confidence` is currently redundant with `score / 10` and explains why the field is kept (forward-compat for future bonus terms).
+
 ## [2.1.1] - 2026-05-03
 
 ### Fixed
