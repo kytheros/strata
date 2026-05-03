@@ -14,7 +14,7 @@ TIR+QDP is **off by default** in this release. It will flip to default-on in a f
 strata index --rebuild-turns
 ```
 
-This reads your existing session files and populates the `knowledge_turns` table from them. On a 100K-turn corpus this takes a few minutes. Progress is printed as it runs. The command is **idempotent** — you can run it again safely; turns that are already indexed are skipped.
+This reads your existing session files and populates the `knowledge_turns` table from them. On a 100K-turn corpus this takes a few minutes. Progress is printed as it runs. The command is **idempotent** — you can run it again safely; existing turns for each session are replaced (delete-then-reinsert, per session).
 
 Optional flags:
 
