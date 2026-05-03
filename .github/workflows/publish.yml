@@ -21,6 +21,32 @@ jobs:
       - run: npm run rebuild:native
       - run: npm run build
       - run: npm test
+
+      # Pack-and-test: install the about-to-publish tarball in a scratch dir
+      # and exercise the CLI surface. Catches regressions that integration tests
+      # miss because they import library functions directly and bypass:
+      #   - The arg parser (e.g. a new flag missing from parseArgs)
+      #   - The help text registry (e.g. a new subcommand not advertised)
+      #   - The packaged file set (e.g. a runtime file excluded from package.json `files`)
+      #   - Native rebuild artifacts in the published shape
+      # Aborts publish on smoke failure.
+      - name: Pack-and-test smoke
+        run: |
+          set -euo pipefail
+          npm pack
+          TARBALL=$(ls strata-mcp-*.tgz | head -1)
+          SCRATCH=$(mktemp -d)
+          cd "$SCRATCH"
+          npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE/$TARBALL"
+          # Smoke 1: version reports correctly
+          ./node_modules/.bin/strata --version
+          # Smoke 2: --help advertises the index subcommand (1.9 regression guard)
+          ./node_modules/.bin/strata --help | grep -q "strata index --rebuild-turns"
+          # Smoke 3: index --rebuild-turns parses and runs (parseArgs guard)
+          # An empty ~/.strata is fine; the command should exit 0 with "no sessions" or similar.
+          ./node_modules/.bin/strata index --rebuild-turns --dry-run
+
       - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
