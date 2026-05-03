@@ -5,6 +5,12 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-05-03
+
+### Fixed
+
+- **`strata search` (CLI) now surfaces explicit memories.** Memories written via `strata store-memory` were invisible to the CLI's `search` command — `runSearch` only queried the FTS5 document index and never consulted the `knowledge` table. The MCP-tool path (`search_history`) was unaffected. Fix routes the CLI through the same knowledge-store query the MCP tool uses, with a new shared `knowledgeEntryToSearchResult` util in `src/search/` so both paths share one mapping. Document and knowledge results are merged, sorted by score descending, and `--limit` is applied to the merged list.
+
 ## [2.1.0] - 2026-05-03
 
 ### Added
