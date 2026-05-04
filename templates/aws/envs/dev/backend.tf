@@ -8,14 +8,14 @@
 # Prereq: `strata/templates/aws/bootstrap/examples/dev/` has been applied
 # successfully against account 624990353897. Confirm via:
 #
-#   aws s3 ls | grep terraform-state-dev-us-east-1
+#   aws s3 ls | grep terraform-state-624990353897-dev
 #   aws dynamodb describe-table --table-name terraform-state-locks
 #
 # To expand to staging/prod once those accounts exist:
 #
 #   1. Create envs/staging/backend.tf and envs/prod/backend.tf as copies of
 #      this file, changing:
-#        - bucket  → terraform-state-{env}-us-east-1
+#        - bucket  → terraform-state-{account_id}-{env}
 #        - key     → unchanged (state-key namespace is per-bucket already)
 #      (Both DynamoDB and the bucket live in the env's own AWS account, so
 #      the lock-table name does not need to change — accounts isolate them.)
@@ -35,7 +35,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-dev-us-east-1"
+    bucket         = "terraform-state-624990353897-dev"
     key            = "envs/dev/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"

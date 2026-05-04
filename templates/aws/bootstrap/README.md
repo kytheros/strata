@@ -6,7 +6,7 @@
 
 | Resource | Name | Purpose |
 |---|---|---|
-| S3 bucket | `terraform-state-{env}-us-east-1` | Remote state storage. Versioned, SSE-S3 encrypted, public access blocked, deny-non-TLS bucket policy, noncurrent versions expire after 90 days. |
+| S3 bucket | `terraform-state-{account_id}-{env}` | Remote state storage. Versioned, SSE-S3 encrypted, public access blocked, deny-non-TLS bucket policy, noncurrent versions expire after 90 days. Account-id suffix guarantees global uniqueness — S3 bucket names share a single global namespace, so plain `{env}` collides. |
 | DynamoDB table | `terraform-state-locks` | Lock table (`LockID` string PK), PAY_PER_REQUEST, SSE on. |
 | IAM OIDC provider | `token.actions.githubusercontent.com` | Trust anchor for GitHub Actions. Account-wide singleton. |
 | IAM role | `strata-cicd-deploy-role` | Assumed by `mkavalich/strata` GitHub Actions workflows on `main`. **Currently has `AdministratorAccess`** — see "Known sharp edges" below. |
@@ -64,7 +64,7 @@ The module is account-agnostic. When the AWS Organization is created and dev/sta
    - `allowed_environments = ["staging"]` (or whatever you want to gate)
 4. **Run** the same `terraform init / plan / apply` cycle against the new profile (`AWS_PROFILE=strata-staging terraform apply`).
 5. **Add `envs/staging/backend.tf`** as a copy of `envs/dev/backend.tf`, changing:
-   - `bucket = "terraform-state-staging-us-east-1"`
+   - `bucket = "terraform-state-<staging-account-id>-staging"`
    - `key   = "envs/staging/terraform.tfstate"`
    - `allowed_account_ids = ["<staging-account-id>"]`
 6. Repeat for prod.
@@ -96,10 +96,10 @@ The role currently has `AdministratorAccess` so the rest of Phase 1 (network, EC
 After a successful apply, sanity check:
 
 ```bash
-aws s3api get-bucket-versioning --bucket terraform-state-dev-us-east-1
+aws s3api get-bucket-versioning --bucket terraform-state-624990353897-dev
 # → "Status": "Enabled"
 
-aws s3api get-bucket-encryption --bucket terraform-state-dev-us-east-1
+aws s3api get-bucket-encryption --bucket terraform-state-624990353897-dev
 # → "SSEAlgorithm": "AES256"
 
 aws dynamodb describe-table --table-name terraform-state-locks --query 'Table.TableStatus'

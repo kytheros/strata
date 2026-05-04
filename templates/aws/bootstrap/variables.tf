@@ -43,7 +43,7 @@ variable "create_oidc_provider" {
 }
 
 variable "state_bucket_name_override" {
-  description = "Optional override for the state bucket name. When empty, defaults to terraform-state-{env_name}-{aws_region}."
+  description = "Optional override for the state bucket name. When empty, defaults to terraform-state-{account_id}-{env_name} (account-id suffix guarantees global uniqueness)."
   type        = string
   default     = ""
 }

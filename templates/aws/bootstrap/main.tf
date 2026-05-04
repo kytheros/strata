@@ -21,10 +21,11 @@ data "aws_partition" "current" {}
 locals {
   partition = data.aws_partition.current.partition
 
+  # Account-id suffix guarantees global uniqueness (S3 bucket names are a global namespace).
   state_bucket_name = (
     var.state_bucket_name_override != ""
     ? var.state_bucket_name_override
-    : "terraform-state-${var.env_name}-${var.aws_region}"
+    : "terraform-state-${data.aws_caller_identity.current.account_id}-${var.env_name}"
   )
 
   default_tags = {
