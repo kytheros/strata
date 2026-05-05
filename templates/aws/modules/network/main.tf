@@ -420,6 +420,16 @@ resource "aws_vpc_security_group_ingress_rule" "vpce_https_from_vpc" {
 # checkov:skip=CKV_AWS_382 — tracked: outbound is unrestricted on the endpoint
 # SG by design; the endpoint ENI is a stub that returns AWS API traffic only.
 
+# Interface endpoint services are not available in every AZ. cognito-idp in
+# us-east-1, for example, only runs in 1a + 1b — deploying it into a 1c subnet
+# yields InvalidParameter at apply time. We resolve the supported AZs per
+# service via data lookup and intersect with our private subnet AZs.
+data "aws_vpc_endpoint_service" "interface" {
+  for_each = toset(local.interface_endpoint_services)
+
+  service_name = "com.amazonaws.${var.aws_region}.${each.key}"
+}
+
 resource "aws_vpc_endpoint" "interface" {
   for_each = toset(local.interface_endpoint_services)
 
@@ -428,7 +438,11 @@ resource "aws_vpc_endpoint" "interface" {
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
 
-  subnet_ids         = aws_subnet.private[*].id
+  # Filter to private subnets whose AZ is supported by this specific service.
+  subnet_ids = [
+    for s in aws_subnet.private :
+    s.id if contains(data.aws_vpc_endpoint_service.interface[each.key].availability_zones, s.availability_zone)
+  ]
   security_group_ids = [aws_security_group.vpce.id]
 
   tags = merge(local.tags, {

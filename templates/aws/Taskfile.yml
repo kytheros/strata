@@ -34,9 +34,9 @@ tasks:
     silent: true
     cmds:
       - |
-        ACCT=$(aws sts get-caller-identity --profile {{.AWS_PROFILE}} --query Account --output text)
+        ACCT=$(aws sts get-caller-identity --profile {{.AWS_PROFILE}} --query Account --output text | tr -d '[:space:]')
         if [ "$ACCT" != "{{.EXPECTED_ACCOUNT}}" ]; then
-          echo "ERROR: expected account {{.EXPECTED_ACCOUNT}}, got $ACCT" >&2
+          echo "ERROR: expected account {{.EXPECTED_ACCOUNT}}, got '$ACCT'" >&2
           exit 1
         fi
         echo "AWS account: $ACCT (OK)"
