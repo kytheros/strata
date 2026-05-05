@@ -267,12 +267,112 @@ tasks:
       - terraform state list
 
   # -------------------------------------------------------------------------
+  # Aurora Postgres — AWS-1.4. ~$17–28/mo idle (RDS Proxy is the floor — Aurora itself pauses to ~$0).
+  # -------------------------------------------------------------------------
+
+  aurora-postgres:plan:
+    desc: 'Plan aurora-postgres example/basic changes'
+    dir: modules/aurora-postgres/examples/basic
+    cmds:
+      - terraform init -upgrade
+      - terraform plan -out plan.tfplan
+
+  aurora-postgres:up:
+    desc: 'Apply aurora-postgres module (Serverless v2 + RDS Proxy + scale-to-zero). ~10–15 min. +$17–28/mo.'
+    dir: modules/aurora-postgres/examples/basic
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  aurora-postgres:down:
+    desc: 'Destroy aurora-postgres example. Cluster + proxy deleted; CMK enters 7-day deletion window. skip_final_snapshot=true so no snapshot left behind in dev.'
+    dir: modules/aurora-postgres/examples/basic
+    deps: [preflight]
+    cmds:
+      - terraform destroy -auto-approve
+
+  aurora-postgres:status:
+    desc: 'Show aurora-postgres resources currently deployed'
+    dir: modules/aurora-postgres/examples/basic
+    cmds:
+      - terraform state list
+
+  # -------------------------------------------------------------------------
+  # Ingress — AWS-1.11. Dev defaults backend=apigw (~$0/mo idle).
+  # -------------------------------------------------------------------------
+
+  ingress:plan:
+    desc: 'Plan ingress example/apigw changes'
+    dir: modules/ingress/examples/apigw
+    cmds:
+      - terraform init -upgrade
+      - terraform plan -out plan.tfplan
+
+  ingress:up:
+    desc: 'Apply ingress module — APIGW backend (HTTP API + VPC link). ~$0/mo idle.'
+    dir: modules/ingress/examples/apigw
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  ingress:down:
+    desc: 'Destroy ingress example.'
+    dir: modules/ingress/examples/apigw
+    deps: [preflight]
+    cmds:
+      - terraform destroy -auto-approve
+
+  ingress:status:
+    desc: 'Show ingress resources currently deployed'
+    dir: modules/ingress/examples/apigw
+    cmds:
+      - terraform state list
+
+  # -------------------------------------------------------------------------
+  # CloudFront — AWS-1.7. ~$8/mo idle ($5 WAF ACL + $3 managed rule groups).
+  # examples/basic uses a placeholder ACM cert — apply requires a real cert in us-east-1.
+  # -------------------------------------------------------------------------
+
+  cloudfront-dist:plan:
+    desc: 'Plan cloudfront-dist example/basic changes (validation only without real cert)'
+    dir: modules/cloudfront-dist/examples/basic
+    cmds:
+      - terraform init -upgrade
+      - terraform validate
+
+  cloudfront-dist:up:
+    desc: 'Apply cloudfront-dist module (CloudFront + WAF + Route53). REQUIRES real ACM cert ARN passed via tfvars.'
+    dir: modules/cloudfront-dist/examples/basic
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  cloudfront-dist:down:
+    desc: 'Destroy cloudfront-dist example. CloudFront takes ~20 min to fully disable+delete.'
+    dir: modules/cloudfront-dist/examples/basic
+    deps: [preflight]
+    cmds:
+      - terraform destroy -auto-approve
+
+  cloudfront-dist:status:
+    desc: 'Show cloudfront-dist resources currently deployed'
+    dir: modules/cloudfront-dist/examples/basic
+    cmds:
+      - terraform state list
+
+  # -------------------------------------------------------------------------
   # Stack — bring the full dev stack up or down in dependency order.
   # Add modules to up:/down: as Phase 1 tickets land.
   # -------------------------------------------------------------------------
 
   up:
-    desc: 'Apply the full dev stack (sequenced). Currently: network + ecs-cluster + s3-bucket + secrets + cognito-user-pool + elasticache-redis. ~15 min.'
+    desc: 'Apply the full dev stack (sequenced). Currently: network + ecs-cluster + s3-bucket + secrets + cognito-user-pool + elasticache-redis + aurora-postgres + ingress. ~30 min.'
     cmds:
       - task: network:up
       - task: ecs-cluster:up
@@ -280,10 +380,10 @@ tasks:
       - task: secrets:up
       - task: cognito-user-pool:up
       - task: elasticache-redis:up
+      - task: aurora-postgres:up
+      - task: ingress:up
       # Future modules (uncomment as they land):
-      # - task: aurora:up             # AWS-1.4 (needs secrets up first for rotation)
-      # - task: cloudfront:up         # AWS-1.7 (needs s3-bucket)
-      # - task: ingress:up            # AWS-1.11
+      # - task: cloudfront-dist:up    # AWS-1.7 — needs real ACM cert; not in default `up` until cert provisioning lands
       # - task: ecs-service:up        # AWS-1.3 (needs cluster + ingress)
       # - task: observability:up      # AWS-1.10 (needs cluster + aurora + redis)
 
@@ -293,9 +393,9 @@ tasks:
       # Future modules first (reverse dependency order):
       # - task: observability:down
       # - task: ecs-service:down
-      # - task: ingress:down
-      # - task: cloudfront:down
-      # - task: aurora:down
+      # - task: cloudfront-dist:down
+      - task: ingress:down
+      - task: aurora-postgres:down
       - task: elasticache-redis:down
       - task: cognito-user-pool:down
       - task: secrets:down
@@ -321,6 +421,12 @@ tasks:
       - task: cognito-user-pool:status
       - 'echo --- ElastiCache Redis (example) ---'
       - task: elasticache-redis:status
+      - 'echo --- Aurora Postgres (example) ---'
+      - task: aurora-postgres:status
+      - 'echo --- Ingress (example) ---'
+      - task: ingress:status
+      - 'echo --- CloudFront (example) ---'
+      - task: cloudfront-dist:status
 
   # -------------------------------------------------------------------------
   # Cost — quick reminder of what is burning money right now.
