@@ -1,0 +1,252 @@
+###############################################################################
+# Inputs for the example-agent service composition.
+#
+# This module is a *composition* — it stitches together the cognito-user-pool
+# module, the ecs-service module, and a thin SSM-allowlist resource set. Most
+# inputs flow straight through to the underlying modules.
+###############################################################################
+
+variable "env_name" {
+  description = "Environment short name (dev|staging|prod). Used in resource naming and tags."
+  type        = string
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.env_name)
+    error_message = "env_name must be one of: dev, staging, prod."
+  }
+}
+
+variable "aws_region" {
+  description = "AWS region. Cognito and SSM are regional; pass the same region the rest of the deploy uses."
+  type        = string
+  default     = "us-east-1"
+}
+
+###############################################################################
+# Cognito federation — Google
+###############################################################################
+
+variable "google_client_id" {
+  description = "Google OAuth client ID. Caller creates the OAuth app in GCP console; this module passes the ID through to the cognito-user-pool module's Google IdP wiring. Empty (default) means Google federation is skipped — the Hosted UI shows local-account sign-in only."
+  type        = string
+  default     = ""
+}
+
+variable "google_client_secret_arn" {
+  description = "Secrets Manager ARN holding the Google OAuth client secret. Caller stores the secret separately (per cognito-user-pool README); this module passes the ARN through. Empty means Google federation is skipped."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
+# Pre-signup + Post-confirmation Lambdas
+#
+# AWS-3.1 leaves these empty — the cognito-user-pool module ships inert
+# pass-through stubs that work for dev sign-ins. AWS-3.2 replaces them with
+# the real allowlist enforcer + group-assigner Lambdas.
+###############################################################################
+
+variable "pre_signup_lambda_arn" {
+  description = "ARN of the PreSignUp Lambda (allowlist enforcer). Empty (default) → cognito-user-pool ships an inert stub. AWS-3.2 wires the real handler."
+  type        = string
+  default     = ""
+}
+
+variable "post_confirmation_lambda_arn" {
+  description = "ARN of the PostConfirmation Lambda (group-assigner). Empty (default) → cognito-user-pool ships an inert stub. AWS-3.2 wires the real handler."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
+# Allowlist seed
+###############################################################################
+
+variable "initial_allowlist" {
+  description = "Initial list of email addresses allowed to sign up. Stored as a JSON-encoded array in SSM Parameter Store at /example-agent/{env}/allowed-emails (KMS-encrypted SecureString). Operators edit the parameter directly post-apply — no redeploy needed for allowlist changes. Default seeds the dev account with mkavalich@gmail.com per the design spec."
+  type        = list(string)
+  default     = ["mkavalich@gmail.com"]
+
+  validation {
+    condition     = length(var.initial_allowlist) >= 1
+    error_message = "initial_allowlist must have at least one entry — an empty array would lock everyone out."
+  }
+}
+
+###############################################################################
+# Hosted UI URLs — env-specific public URL
+###############################################################################
+
+variable "app_url" {
+  description = "Public URL of the example-agent (the front-door from the user's browser). Used as the Cognito callback_urls / logout_urls base and as APP_URL in the container env. Dev defaults to https://localhost:3000 because the example-agent runs locally during AWS-3.1 plan-only validation; staging/prod tfvars set it to the real public hostname (e.g. https://agent.strata-aws.kytheros.dev)."
+  type        = string
+  default     = "https://localhost:3000"
+}
+
+###############################################################################
+# ECS service wiring
+#
+# Caller passes the cluster + network + ingress outputs. This module composes
+# them into an ecs-service module call.
+###############################################################################
+
+variable "container_image" {
+  description = "Container image URI for the Next.js app (typically an ECR-pushed tag built from services/example-agent/app/Dockerfile). Sentinel default keeps `terraform validate` happy — real applies must override."
+  type        = string
+  default     = "public.ecr.aws/example/example-agent:placeholder"
+}
+
+variable "cluster_arn" {
+  description = "ECS cluster ARN. Pass the ecs-cluster module's cluster_arn output."
+  type        = string
+}
+
+variable "execution_role_arn" {
+  description = "ECS task execution role ARN. Used by the agent to pull images and write logs."
+  type        = string
+}
+
+variable "log_group_name" {
+  description = "CloudWatch log group name for container logs."
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC ID. Pass the network module's vpc_id output."
+  type        = string
+}
+
+variable "vpc_cidr" {
+  description = "VPC CIDR block. Pass the network module's vpc_cidr output."
+  type        = string
+}
+
+variable "subnet_ids" {
+  description = "Private subnet IDs for Fargate task ENIs."
+  type        = list(string)
+}
+
+###############################################################################
+# Ingress backend — ALB or API GW (matches the ingress module's backend var)
+###############################################################################
+
+variable "ingress_backend" {
+  description = "Which ingress backend the service attaches to. `alb` → pass attach_to_alb_listener_arn + alb_listener_priority. `apigw` → pass attach_to_apigw_vpc_link_id + apigw_api_id."
+  type        = string
+  default     = "apigw"
+
+  validation {
+    condition     = contains(["alb", "apigw"], var.ingress_backend)
+    error_message = "ingress_backend must be 'alb' or 'apigw'."
+  }
+}
+
+variable "attach_to_alb_listener_arn" {
+  description = "ALB HTTPS listener ARN (when ingress_backend = alb)."
+  type        = string
+  default     = ""
+}
+
+variable "alb_listener_priority" {
+  description = "Listener-rule priority within the ALB (when ingress_backend = alb)."
+  type        = number
+  default     = 200
+}
+
+variable "attach_to_apigw_vpc_link_id" {
+  description = "API GW VPC Link ID (when ingress_backend = apigw)."
+  type        = string
+  default     = ""
+}
+
+variable "apigw_api_id" {
+  description = "API GW HTTP API ID (when ingress_backend = apigw)."
+  type        = string
+  default     = ""
+}
+
+variable "apigw_integration_uri" {
+  description = "Backend URI for the API GW HTTP_PROXY integration (when ingress_backend = apigw). Typically a private NLB or Service Connect endpoint."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
+# Cognito federation — App Client URLs flow through to the cognito-user-pool
+# module. Default to localhost so a first plan-only apply works; real
+# deployments override via terraform.tfvars.
+###############################################################################
+
+variable "callback_urls" {
+  description = "OAuth callback URLs for the Cognito App Client. Defaults to localhost; tfvars override with the real domain. The /api/auth/callback route reads this value at request time, so adding new URLs here doesn't require a code change."
+  type        = list(string)
+  default     = ["https://localhost:3000/api/auth/callback"]
+}
+
+variable "logout_urls" {
+  description = "OAuth logout URLs for the Cognito App Client."
+  type        = list(string)
+  default     = ["https://localhost:3000"]
+}
+
+###############################################################################
+# Strata-on-AWS internal endpoint — used by AWS-3.3 to dogfood Strata as
+# the conversational memory backend. AWS-3.1 just passes the value through
+# as an env var so the container can find Strata once AWS-2.1 ships.
+###############################################################################
+
+variable "strata_internal_url" {
+  description = "Strata-on-AWS internal Service Connect URL (e.g. http://strata.svc.local:3000). Empty in dev until AWS-2.1 + Service Connect wiring lands."
+  type        = string
+  default     = ""
+}
+
+variable "strata_auth_proxy_token_secret_arn" {
+  description = "Secrets Manager ARN holding the STRATA_AUTH_PROXY_TOKEN (the shared secret the upstream proxy adds to X-Strata-Verified). Empty for AWS-3.1."
+  type        = string
+  default     = ""
+}
+
+variable "anthropic_api_key_secret_arn" {
+  description = "Secrets Manager ARN holding the Anthropic API key. AWS-3.3 wires the actual SDK call. Empty for AWS-3.1."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
+# Capacity / autoscaling — hand off to the ecs-service module
+###############################################################################
+
+variable "cpu" {
+  description = "Fargate task CPU units. 512 is the AWS-3.1 default (Next.js standalone has modest CPU needs at idle)."
+  type        = number
+  default     = 512
+}
+
+variable "memory" {
+  description = "Fargate task memory (MiB)."
+  type        = number
+  default     = 1024
+}
+
+variable "desired_count" {
+  description = "Desired running task count. Dev = 1; staging/prod tfvars override to 2 for AZ redundancy."
+  type        = number
+  default     = 1
+}
+
+variable "container_port" {
+  description = "Container port the Next.js app listens on. Matches the Dockerfile's EXPOSE."
+  type        = number
+  default     = 3000
+}
+
+###############################################################################
+# Tags
+###############################################################################
+
+variable "extra_tags" {
+  description = "Additional tags merged into the default tag set."
+  type        = map(string)
+  default     = {}
+}

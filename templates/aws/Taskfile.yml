@@ -437,6 +437,41 @@ tasks:
       - terraform state list
 
   # -------------------------------------------------------------------------
+  # Example-agent service — AWS-3.1. ~$6/mo (1 Fargate Spot task + allowlist CMK).
+  # Composition under services/example-agent/infrastructure/. Plan-only until
+  # Phase 1 modules + AWS-2.1 are applied (sentinel ARNs in the dev example).
+  # -------------------------------------------------------------------------
+
+  example-agent:plan:
+    desc: 'Plan example-agent service composition (validate-only — sentinel ARNs prevent plan)'
+    dir: services/example-agent/infrastructure/examples/dev
+    cmds:
+      - terraform init -upgrade
+      - terraform validate
+
+  example-agent:up:
+    desc: 'Apply example-agent service (Cognito + SSM allowlist + Fargate task). +$6/mo. Requires Phase 1 + AWS-2.1 applied.'
+    dir: services/example-agent/infrastructure/examples/dev
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  example-agent:down:
+    desc: 'Destroy example-agent service. Cognito user pool deleted; allowlist CMK enters 7-day deletion window.'
+    dir: services/example-agent/infrastructure/examples/dev
+    deps: [preflight]
+    cmds:
+      - terraform destroy -auto-approve
+
+  example-agent:status:
+    desc: 'Show example-agent resources currently deployed'
+    dir: services/example-agent/infrastructure/examples/dev
+    cmds:
+      - terraform state list
+
+  # -------------------------------------------------------------------------
   # Observability — AWS-1.10. ~$2/mo idle (alarms + CMK + SNS).
   # examples/basic wires only NAT anomaly alarms against the live VPC.
   # -------------------------------------------------------------------------
@@ -488,6 +523,7 @@ tasks:
       - task: ingress:up
       - task: ecs-service:up
       - task: strata-service:up
+      - task: example-agent:up
       - task: observability:up
       # Excluded by default — requires real ACM cert in us-east-1:
       # - task: cloudfront-dist:up
@@ -496,6 +532,7 @@ tasks:
     desc: 'Destroy the full Phase 1 dev stack (reverse order). Frees the entire footprint to ~$0/mo.'
     cmds:
       - task: observability:down
+      - task: example-agent:down
       - task: strata-service:down
       - task: ecs-service:down
       # cloudfront-dist:down only if previously applied
@@ -536,6 +573,8 @@ tasks:
       - task: ecs-service:status
       - 'echo --- Strata service (example) ---'
       - task: strata-service:status
+      - 'echo --- Example-agent service (example) ---'
+      - task: example-agent:status
       - 'echo --- Observability (example) ---'
       - task: observability:status
 
