@@ -201,20 +201,53 @@ tasks:
       - terraform state list
 
   # -------------------------------------------------------------------------
+  # ElastiCache Redis Serverless — AWS-1.5. ~$11–12/mo idle (Serverless floor + CMK + secret).
+  # -------------------------------------------------------------------------
+
+  elasticache-redis:plan:
+    desc: 'Plan elasticache-redis example/basic changes'
+    dir: modules/elasticache-redis/examples/basic
+    cmds:
+      - terraform init -upgrade
+      - terraform plan -out plan.tfplan
+
+  elasticache-redis:up:
+    desc: 'Apply elasticache-redis module (Serverless Redis + TLS + AUTH + per-cache CMK). ~5–7 min. +$11–12/mo.'
+    dir: modules/elasticache-redis/examples/basic
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  elasticache-redis:down:
+    desc: 'Destroy elasticache-redis example. CMK + AUTH-token secret enter 7-day recovery window.'
+    dir: modules/elasticache-redis/examples/basic
+    deps: [preflight]
+    cmds:
+      - terraform destroy -auto-approve
+
+  elasticache-redis:status:
+    desc: 'Show elasticache-redis resources currently deployed'
+    dir: modules/elasticache-redis/examples/basic
+    cmds:
+      - terraform state list
+
+  # -------------------------------------------------------------------------
   # Stack — bring the full dev stack up or down in dependency order.
   # Add modules to up:/down: as Phase 1 tickets land.
   # -------------------------------------------------------------------------
 
   up:
-    desc: 'Apply the full dev stack (sequenced). Currently: network + ecs-cluster + s3-bucket + secrets. ~10 min.'
+    desc: 'Apply the full dev stack (sequenced). Currently: network + ecs-cluster + s3-bucket + secrets + elasticache-redis. ~15 min.'
     cmds:
       - task: network:up
       - task: ecs-cluster:up
       - task: s3-bucket:up
       - task: secrets:up
+      - task: elasticache-redis:up
       # Future modules (uncomment as they land):
       # - task: cognito:up            # AWS-1.8
-      # - task: redis:up              # AWS-1.5
       # - task: aurora:up             # AWS-1.4 (needs secrets up first for rotation)
       # - task: cloudfront:up         # AWS-1.7 (needs s3-bucket)
       # - task: ingress:up            # AWS-1.11
@@ -230,8 +263,8 @@ tasks:
       # - task: ingress:down
       # - task: cloudfront:down
       # - task: aurora:down
-      # - task: redis:down
       # - task: cognito:down
+      - task: elasticache-redis:down
       - task: secrets:down
       - task: s3-bucket:down
       - task: ecs-cluster:down
@@ -251,6 +284,8 @@ tasks:
       - task: s3-bucket:status
       - 'echo --- Secrets (example) ---'
       - task: secrets:status
+      - 'echo --- ElastiCache Redis (example) ---'
+      - task: elasticache-redis:status
 
   # -------------------------------------------------------------------------
   # Cost — quick reminder of what is burning money right now.
@@ -270,7 +305,7 @@ tasks:
         echo "  secrets (per sec):   ~\$1.40/mo (CMK + secret floor)"
         echo "  ecs-service x 2:     ~\$18/mo (Strata + example-agent on Fargate Spot)"
         echo "  aurora + rds-proxy:  ~\$25/mo (v2 auto-pauses; proxy does not)"
-        echo "  redis serverless:    ~\$10/mo (ECPU + storage minimums)"
+        echo "  redis serverless:    ~\$11–12/mo (ECPU + storage minimums + CMK + AUTH-token secret)"
         echo "  alb (via ingress):   ~\$16/mo (always-on when backend=alb)"
         echo "  cloudwatch logs:     ~\$3/mo"
         echo "                       --------"
