@@ -1,0 +1,17 @@
+# Lambda zip artifacts produced by archive_file. They land next to the source
+# directories at apply time; we don't commit them — Terraform regenerates
+# deterministically from source on every plan.
+lambdas/*.zip
+
+# Standard Terraform working dirs.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.lock.hcl
