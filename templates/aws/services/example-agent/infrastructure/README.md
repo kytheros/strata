@@ -9,7 +9,11 @@
 | `aws_kms_key` (allowlist CMK) | this composition | 7-day deletion window, key rotation on. |
 | `aws_kms_alias` | this composition | `alias/example-agent-{env}-allowlist`. |
 | `aws_ssm_parameter` (SecureString) | this composition | `/example-agent/{env}/allowed-emails`. JSON-encoded array. `lifecycle.ignore_changes = [value]` so operators can edit it post-apply without `terraform plan` fighting the change. |
-| `module.cognito_user_pool` | `modules/cognito-user-pool` | User pool, App Client, 5 groups, 3 Lambda triggers (2 inert stubs in AWS-3.1). Federation IdPs wired when `var.google_client_id` + `var.google_client_secret_arn` are set. |
+| `module.cognito_user_pool` | `modules/cognito-user-pool` | User pool, App Client, 5 groups, 3 Lambda triggers. AWS-3.2 wires the real PreSignUp + PostConfirmation handlers (replacing the module's inert stubs). Federation IdPs wired when `var.google_client_id` + `var.google_client_secret_arn` are set. |
+| `aws_lambda_function.pre_signup` | this composition | Allowlist-enforcer Lambda (AWS-3.2). Source under `../lambdas/pre-signup/`. Throws `"Not authorized"` for non-allowlisted federated emails. |
+| `aws_lambda_function.post_confirmation` | this composition | Group-assigner Lambda (AWS-3.2). Source under `../lambdas/post-confirmation/`. Adds confirmed users to the `approved` group; logs (does not throw) on AdminAddUserToGroup failure. |
+| `module.cognito_client_secret` | `modules/secrets` | Wraps the Cognito App Client secret as a Secrets Manager entry; consumed by the task definition's `secrets[]` block as `COGNITO_CLIENT_SECRET`. |
+| `module.anthropic_api_key` | `modules/secrets` | Empty Secrets Manager entry reserved for the Anthropic API key. Operator seeds the value post-apply; AWS-3.3 reads it at runtime. |
 | `module.ecs_service` | `modules/ecs-service` | Task definition, ECS service, autoscaling, IAM task role, security group, ALB / API GW attachment. Container image is the Next.js standalone build from `services/example-agent/app/`. |
 
 ## AWS-3.1 scope vs AWS-3.2 / AWS-3.3 scope
@@ -97,8 +101,6 @@ See `variables.tf` for the full set with descriptions.
 | `aws_region` | no | `us-east-1` | Cognito + SSM region. |
 | `google_client_id` | no | `""` | Google OAuth app — empty skips Google federation. |
 | `google_client_secret_arn` | no | `""` | Secrets Manager ARN. |
-| `pre_signup_lambda_arn` | no | `""` | Empty → cognito-user-pool's inert stub. AWS-3.2 wires the real handler. |
-| `post_confirmation_lambda_arn` | no | `""` | Empty → cognito-user-pool's inert stub. AWS-3.2 wires the real handler. |
 | `initial_allowlist` | no | `["mkavalich@gmail.com"]` | Seeded into the SSM parameter. Mutate in-place after apply. |
 | `app_url` | no | `https://localhost:3000` | Public URL — used as Cognito callback base + APP_URL container env. |
 | `container_image` | no | sentinel | Real applies pass an ECR-pushed image tag. |
@@ -112,9 +114,10 @@ See `variables.tf` for the full set with descriptions.
 | `attach_to_alb_listener_arn` / `alb_listener_priority` | conditional | `""` / `200` | When `ingress_backend = alb`. |
 | `attach_to_apigw_vpc_link_id` / `apigw_api_id` / `apigw_integration_uri` | conditional | `""` | When `ingress_backend = apigw`. |
 | `callback_urls` / `logout_urls` | no | localhost defaults | Override per-env. |
-| `strata_internal_url` | no | `""` | AWS-3.2 + AWS-2.1 wire this. |
-| `strata_auth_proxy_token_secret_arn` | no | `""` | AWS-3.2. |
-| `anthropic_api_key_secret_arn` | no | `""` | AWS-3.3. |
+| `strata_internal_url` | no | `""` | Explicit override. When unset, derived from `cluster_service_connect_namespace` + `strata_internal_port`. |
+| `cluster_service_connect_namespace` | no | `""` | Cloud Map namespace for ECS Service Connect (e.g. `strata-dev`). |
+| `strata_internal_port` | no | `3000` | Strata service port for the derived URL. |
+| `strata_auth_proxy_token_secret_arn` | no | `""` | Pass `module.strata.auth_proxy_secret_arn` from the Phase 2 strata service. |
 | `cpu` / `memory` / `desired_count` / `container_port` | no | `512` / `1024` / `1` / `3000` | Fargate task shape. |
 | `extra_tags` | no | `{}` | Merged into default tag set. |
 

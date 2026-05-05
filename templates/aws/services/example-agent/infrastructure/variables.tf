@@ -41,22 +41,11 @@ variable "google_client_secret_arn" {
 ###############################################################################
 # Pre-signup + Post-confirmation Lambdas
 #
-# AWS-3.1 leaves these empty — the cognito-user-pool module ships inert
-# pass-through stubs that work for dev sign-ins. AWS-3.2 replaces them with
-# the real allowlist enforcer + group-assigner Lambdas.
+# AWS-3.2 made these composition-owned: the source lives at
+# services/example-agent/lambdas/{pre-signup,post-confirmation}/ and the
+# composition packages, deploys, and wires them into the cognito-user-pool
+# module. No caller-facing variable is exposed for the ARNs anymore.
 ###############################################################################
-
-variable "pre_signup_lambda_arn" {
-  description = "ARN of the PreSignUp Lambda (allowlist enforcer). Empty (default) → cognito-user-pool ships an inert stub. AWS-3.2 wires the real handler."
-  type        = string
-  default     = ""
-}
-
-variable "post_confirmation_lambda_arn" {
-  description = "ARN of the PostConfirmation Lambda (group-assigner). Empty (default) → cognito-user-pool ships an inert stub. AWS-3.2 wires the real handler."
-  type        = string
-  default     = ""
-}
 
 ###############################################################################
 # Allowlist seed
@@ -196,19 +185,25 @@ variable "logout_urls" {
 ###############################################################################
 
 variable "strata_internal_url" {
-  description = "Strata-on-AWS internal Service Connect URL (e.g. http://strata.svc.local:3000). Empty in dev until AWS-2.1 + Service Connect wiring lands."
+  description = "Strata-on-AWS internal Service Connect URL (e.g. http://strata.strata-dev.local:3000). When non-empty, takes precedence over var.cluster_service_connect_namespace. When empty AND cluster_service_connect_namespace is set, the composition derives the URL as `http://strata.{namespace}.local:{strata_internal_port}`."
   type        = string
   default     = ""
+}
+
+variable "cluster_service_connect_namespace" {
+  description = "Cloud Map namespace name used for ECS Service Connect (e.g. `strata-dev`). When non-empty AND var.strata_internal_url is empty, the composition derives STRATA_INTERNAL_URL as `http://strata.{namespace}.local:{strata_internal_port}` and surfaces it to the container. Empty (default) means Service Connect is not in use; caller must set strata_internal_url directly."
+  type        = string
+  default     = ""
+}
+
+variable "strata_internal_port" {
+  description = "Port the Strata service listens on inside Service Connect. Matches the strata service's container_port (default 3000)."
+  type        = number
+  default     = 3000
 }
 
 variable "strata_auth_proxy_token_secret_arn" {
   description = "Secrets Manager ARN holding the STRATA_AUTH_PROXY_TOKEN (the shared secret the upstream proxy adds to X-Strata-Verified). Empty for AWS-3.1."
-  type        = string
-  default     = ""
-}
-
-variable "anthropic_api_key_secret_arn" {
-  description = "Secrets Manager ARN holding the Anthropic API key. AWS-3.3 wires the actual SDK call. Empty for AWS-3.1."
   type        = string
   default     = ""
 }

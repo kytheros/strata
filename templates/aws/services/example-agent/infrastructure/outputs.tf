@@ -111,3 +111,46 @@ output "allowlist_kms_alias" {
   description = "Friendly alias for the allowlist CMK."
   value       = aws_kms_alias.allowlist.name
 }
+
+###############################################################################
+# Lambda surface (AWS-3.2)
+###############################################################################
+
+output "pre_signup_lambda_arn" {
+  description = "ARN of the PreSignUp Lambda enforcing the SSM allowlist. Wired into the Cognito user pool's PreSignUp trigger."
+  value       = aws_lambda_function.pre_signup.arn
+}
+
+output "pre_signup_lambda_role_arn" {
+  description = "ARN of the PreSignUp Lambda's execution role. Useful for auditing the IAM scope (ssm:GetParameter on the allowlist parameter + kms:Decrypt on the allowlist CMK)."
+  value       = aws_iam_role.pre_signup.arn
+}
+
+output "post_confirmation_lambda_arn" {
+  description = "ARN of the PostConfirmation Lambda assigning users to the `approved` group. Wired into the Cognito user pool's PostConfirmation trigger."
+  value       = aws_lambda_function.post_confirmation.arn
+}
+
+output "post_confirmation_lambda_role_arn" {
+  description = "ARN of the PostConfirmation Lambda's execution role. Useful for auditing the IAM scope (cognito-idp:AdminAddUserToGroup on the user pool ARN)."
+  value       = aws_iam_role.post_confirmation.arn
+}
+
+###############################################################################
+# Secrets surface (AWS-3.2)
+###############################################################################
+
+output "cognito_client_secret_arn" {
+  description = "Secrets Manager ARN holding the Cognito App Client secret. Wired into the ECS task definition's secrets[] block as COGNITO_CLIENT_SECRET."
+  value       = module.cognito_client_secret.secret_arn
+}
+
+output "anthropic_api_key_secret_arn" {
+  description = "Secrets Manager ARN reserved for the Anthropic API key. Created empty by AWS-3.2; AWS-3.3 reads it from the task at runtime. Operator seeds the value via `aws secretsmanager put-secret-value`."
+  value       = module.anthropic_api_key.secret_arn
+}
+
+output "strata_internal_url_effective" {
+  description = "Resolved Strata internal Service Connect URL surfaced into the container env. Equal to var.strata_internal_url when set; otherwise derived from var.cluster_service_connect_namespace + var.strata_internal_port; otherwise empty (Strata wiring not yet active)."
+  value       = local.strata_internal_url_effective
+}

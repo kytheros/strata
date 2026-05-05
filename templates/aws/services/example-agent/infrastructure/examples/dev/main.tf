@@ -32,6 +32,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }
 
@@ -107,10 +111,9 @@ module "example_agent" {
   google_client_id         = ""
   google_client_secret_arn = ""
 
-  # Lambdas left empty — cognito-user-pool ships inert stubs that work
-  # for dev sign-ins. AWS-3.2 wires the real handlers.
-  pre_signup_lambda_arn        = ""
-  post_confirmation_lambda_arn = ""
+  # AWS-3.2: Lambdas are now owned by the composition itself; no override
+  # needed. The composition packages them from services/example-agent/lambdas/
+  # and threads the ARNs into the cognito-user-pool module.
 
   initial_allowlist = ["mkavalich@gmail.com"]
 

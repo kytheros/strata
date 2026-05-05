@@ -1,0 +1,14 @@
+{
+  "name": "example-agent-post-confirmation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cognito PostConfirmation Lambda for the example-agent — adds the confirmed user to the `approved` group.",
+  "main": "index.mjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "3.682.0"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "example-agent-pre-signup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cognito PreSignUp Lambda for the example-agent — enforces SSM-backed email allowlist for federated signups.",
+  "main": "index.mjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ssm": "3.682.0"
+  }
+}
