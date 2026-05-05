@@ -401,6 +401,42 @@ tasks:
       - terraform state list
 
   # -------------------------------------------------------------------------
+  # Strata service — AWS-2.1. ~$8/mo (1 Fargate Spot task + 2 secrets w/ CMKs).
+  # Composition over modules/ecs-service + secrets + (optional) s3-bucket.
+  # The service consumes the live VPC/cluster/Aurora/Redis/Cognito/ingress
+  # outputs — apply only AFTER all of those are up.
+  # -------------------------------------------------------------------------
+
+  strata-service:plan:
+    desc: 'Plan strata-service example/dev changes'
+    dir: services/strata/examples/dev
+    cmds:
+      - terraform init -upgrade
+      - terraform plan -out plan.tfplan
+
+  strata-service:up:
+    desc: 'Apply strata-service example/dev (1 Fargate Spot task running ghcr.io/kytheros/strata-mcp). +$8/mo. Requires Phase 1 stack up.'
+    dir: services/strata/examples/dev
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  strata-service:down:
+    desc: 'Destroy strata-service example. Service-scoped secrets enter 7-day recovery window.'
+    dir: services/strata/examples/dev
+    deps: [preflight]
+    cmds:
+      - terraform destroy -auto-approve
+
+  strata-service:status:
+    desc: 'Show strata-service resources currently deployed'
+    dir: services/strata/examples/dev
+    cmds:
+      - terraform state list
+
+  # -------------------------------------------------------------------------
   # Observability — AWS-1.10. ~$2/mo idle (alarms + CMK + SNS).
   # examples/basic wires only NAT anomaly alarms against the live VPC.
   # -------------------------------------------------------------------------
@@ -451,6 +487,7 @@ tasks:
       - task: aurora-postgres:up
       - task: ingress:up
       - task: ecs-service:up
+      - task: strata-service:up
       - task: observability:up
       # Excluded by default — requires real ACM cert in us-east-1:
       # - task: cloudfront-dist:up
@@ -459,6 +496,7 @@ tasks:
     desc: 'Destroy the full Phase 1 dev stack (reverse order). Frees the entire footprint to ~$0/mo.'
     cmds:
       - task: observability:down
+      - task: strata-service:down
       - task: ecs-service:down
       # cloudfront-dist:down only if previously applied
       - task: ingress:down
@@ -496,6 +534,8 @@ tasks:
       - task: cloudfront-dist:status
       - 'echo --- ECS service (example) ---'
       - task: ecs-service:status
+      - 'echo --- Strata service (example) ---'
+      - task: strata-service:status
       - 'echo --- Observability (example) ---'
       - task: observability:status
 
@@ -516,6 +556,7 @@ tasks:
         echo "  s3-bucket (per buc): ~\$1/mo  (CMK; storage = use-based)"
         echo "  secrets (per sec):   ~\$1.40/mo (CMK + secret floor)"
         echo "  ecs-service x 2:     ~\$18/mo (Strata + example-agent on Fargate Spot)"
+        echo "  strata-service:      ~\$8/mo  (1 Fargate Spot task + 2 secrets w/ CMKs)"
         echo "  aurora + rds-proxy:  ~\$25/mo (v2 auto-pauses; proxy does not)"
         echo "  redis serverless:    ~\$11–12/mo (ECPU + storage minimums + CMK + AUTH-token secret)"
         echo "  alb (via ingress):   ~\$16/mo (always-on when backend=alb)"

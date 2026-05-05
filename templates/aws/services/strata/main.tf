@@ -1,0 +1,311 @@
+###############################################################################
+# Strata-on-AWS service composition (AWS-2.1).
+#
+# Instantiates the Phase 1 modules with the wiring needed to run the community
+# Strata MCP server (ghcr.io/kytheros/strata-mcp:latest) in multi-tenant
+# Postgres mode behind a Cognito-authenticating ingress.
+#
+# This module DOES NOT define new low-level resources (no aws_ecs_*, no
+# aws_db_*) directly — it composes the existing modules' contracts. The only
+# things that live here are:
+#   - The synthesized DATABASE_URL secret (because no Phase 1 module owns
+#     "compose this URL from these parts and inject it as a secret").
+#   - The STRATA_AUTH_PROXY_TOKEN secret (the per-deployment shared sentinel
+#     that the ingress sets on `X-Strata-Verified` after JWT verification —
+#     see README §"Auth flow").
+#   - The optional user-data S3 bucket (off by default; v2 Litestream path).
+###############################################################################
+
+locals {
+  service_name = "strata-${var.env_name}"
+
+  # DATABASE_URL value as Strata's pg adapter expects:
+  # postgres://{user}:{password}@{proxy_endpoint}:5432/{db}?sslmode=require
+  #
+  # The password component is a Secrets Manager dynamic reference — ECS resolves
+  # it at task-launch time, plaintext never lands in plan output. We use the
+  # JSON pointer form for the AWS-managed Aurora master credential, which stores
+  # `{"username": "...", "password": "..."}` JSON.
+  database_url_value = format(
+    "postgres://%s:{{resolve:secretsmanager:%s:SecretString:password}}@%s:5432/%s?sslmode=require",
+    var.aurora_master_username,
+    var.aurora_master_secret_arn,
+    var.aurora_proxy_endpoint,
+    var.aurora_database_name,
+  )
+
+  # ALB vs API GW backend gating — drives which subset of ecs-service variables
+  # we populate. Only one of the two attach paths is active per apply.
+  is_alb   = var.ingress_backend == "alb"
+  is_apigw = var.ingress_backend == "apigw"
+
+  default_tags = merge(
+    {
+      Project     = "strata"
+      Component   = "strata-service"
+      Environment = var.env_name
+      Service     = local.service_name
+      ManagedBy   = "terraform"
+    },
+    var.extra_tags,
+  )
+}
+
+###############################################################################
+# Auth-proxy shared secret.
+#
+# Strata's multi-tenant HTTP transport refuses to trust the X-Strata-User
+# header unless the upstream proxy also sets X-Strata-Verified to a known
+# shared secret. We mint a 32-byte secret once at apply time, store it in
+# Secrets Manager, and let the ingress read the same secret to inject it on
+# every request after JWT verification succeeds.
+#
+# See strata/CLAUDE.md §"REST transport token secret" / §"multi-tenant
+# deployments" for the contract this satisfies on the Strata side.
+###############################################################################
+
+resource "random_password" "auth_proxy_token" {
+  length  = 48
+  special = false
+}
+
+module "auth_proxy_secret" {
+  source = "../../modules/secrets"
+
+  env_name    = var.env_name
+  aws_region  = var.aws_region
+  secret_name = "strata-service/auth-proxy-token"
+  description = "Shared sentinel set by the ${var.ingress_backend} ingress on X-Strata-Verified after Cognito JWT verification. Strata's multi-tenant HTTP transport rejects any request whose X-Strata-Verified does not match this value."
+
+  create_initial_version = true
+  initial_value          = random_password.auth_proxy_token.result
+
+  extra_tags = local.default_tags
+}
+
+###############################################################################
+# DATABASE_URL secret.
+#
+# Strata's Postgres adapter reads DATABASE_URL on boot. Rather than parsing
+# host/user/db/password into separate env vars in the task definition, we
+# synthesize the URL into a single Secrets Manager entry and expose it as the
+# DATABASE_URL secret in the ECS task definition. ECS resolves the
+# secretsmanager dynamic reference at task launch — the password never crosses
+# Terraform state.
+#
+# See README §"Why DATABASE_URL is a synthesized secret".
+###############################################################################
+
+module "database_url_secret" {
+  source = "../../modules/secrets"
+
+  env_name    = var.env_name
+  aws_region  = var.aws_region
+  secret_name = "strata-service/database-url"
+  description = "Synthesized Postgres connection string for Strata. References the Aurora master password from ${var.aurora_master_secret_arn} via Secrets Manager dynamic reference; not a copy."
+
+  create_initial_version = true
+  initial_value          = local.database_url_value
+
+  extra_tags = local.default_tags
+}
+
+###############################################################################
+# Optional: per-tenant SQLite user-data bucket.
+#
+# v1 ships pure-Postgres mode — this bucket is unused. Reserved for the v2
+# Litestream-on-AWS path where each tenant gets a SQLite + S3 replica pair.
+###############################################################################
+
+module "user_data_bucket" {
+  source = "../../modules/s3-bucket"
+  count  = var.create_user_data_bucket ? 1 : 0
+
+  env_name   = var.env_name
+  aws_region = var.aws_region
+  purpose    = "user-data"
+
+  versioning_enabled     = true
+  cloudfront_oac_enabled = false
+
+  extra_tags = local.default_tags
+}
+
+###############################################################################
+# Inline IAM policy granting the task role the rights to read its own
+# secrets-module-managed secrets (DATABASE_URL synthesizer + auth-proxy token).
+# Aurora and Redis ship their own consumer policy JSON via module outputs;
+# we attach those alongside this one on the task role.
+###############################################################################
+
+data "aws_iam_policy_document" "service_secrets_consumer" {
+  statement {
+    sid    = "ReadServiceSecrets"
+    effect = "Allow"
+    actions = [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:DescribeSecret",
+    ]
+    resources = [
+      module.database_url_secret.secret_arn,
+      module.auth_proxy_secret.secret_arn,
+    ]
+  }
+
+  statement {
+    sid    = "DecryptServiceSecretCmks"
+    effect = "Allow"
+    actions = [
+      "kms:Decrypt",
+    ]
+    resources = [
+      module.database_url_secret.kms_key_arn,
+      module.auth_proxy_secret.kms_key_arn,
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+    }
+  }
+}
+
+###############################################################################
+# ECS service composition.
+#
+# All ALB-vs-APIGW switching happens here via the module's attach_to_*_listener
+# / attach_to_apigw_vpc_link variables. Each service module call exercises
+# exactly one ingress path.
+###############################################################################
+
+module "service" {
+  source = "../../modules/ecs-service"
+
+  env_name     = var.env_name
+  aws_region   = var.aws_region
+  service_name = local.service_name
+
+  cluster_arn        = var.cluster_arn
+  execution_role_arn = var.cluster_execution_role_arn
+  log_group_name     = var.cluster_log_group_name
+
+  vpc_id     = var.vpc_id
+  vpc_cidr   = var.vpc_cidr
+  subnet_ids = var.private_subnet_ids
+
+  cpu              = var.cpu
+  memory           = var.memory
+  desired_count    = var.desired_count
+  autoscaling_min  = var.autoscaling_min
+  autoscaling_max  = var.autoscaling_max
+  runtime_platform = "LINUX/X86_64"
+
+  containers = [
+    {
+      name      = "strata"
+      image     = var.container_image
+      essential = true
+      port_mappings = [
+        {
+          container_port = var.container_port
+          protocol       = "tcp"
+        },
+      ]
+      environment = [
+        # ---- Storage backend ----------------------------------------------
+        { name = "STORAGE_BACKEND", value = "pg" },
+        { name = "NODE_ENV", value = "production" },
+        { name = "STRATA_LOG_LEVEL", value = var.log_level },
+
+        # ---- Multi-tenant HTTP transport ----------------------------------
+        # Strata's `serve --multi-tenant` accepts these as env-var equivalents
+        # of the CLI flags. The image's entrypoint maps them onto the right
+        # CLI invocation. See strata/CLAUDE.md §"Transport Modes".
+        { name = "STRATA_TRANSPORT", value = "http" },
+        { name = "STRATA_MULTI_TENANT", value = "1" },
+        { name = "STRATA_PORT", value = tostring(var.container_port) },
+        { name = "STRATA_MAX_DBS", value = tostring(var.max_dbs) },
+        { name = "STRATA_DATA_DIR", value = "/var/strata" },
+
+        # ---- Auth-proxy enforcement ---------------------------------------
+        # Strata refuses the X-Strata-User header unless X-Strata-Verified
+        # matches STRATA_AUTH_PROXY_TOKEN. The ingress is responsible for
+        # injecting both headers after Cognito JWT verification.
+        { name = "STRATA_REQUIRE_AUTH_PROXY", value = "1" },
+
+        # ---- Cognito context (informational, NOT used for verification) --
+        # Strata itself does not call Cognito at runtime; ingress does the JWT
+        # work. These are surfaced for log/diagnostic emission only.
+        { name = "STRATA_COGNITO_USER_POOL_ID", value = var.cognito_user_pool_id },
+        { name = "STRATA_COGNITO_CLIENT_ID", value = var.cognito_user_pool_client_id },
+        { name = "STRATA_COGNITO_JWKS_URI", value = var.cognito_jwks_uri },
+
+        # ---- Redis ---------------------------------------------------------
+        # Endpoint + port; the AUTH token lands as a secret below.
+        { name = "STRATA_REDIS_HOST", value = var.redis_endpoint },
+        { name = "STRATA_REDIS_PORT", value = tostring(var.redis_port) },
+        { name = "STRATA_REDIS_TLS", value = "1" },
+      ]
+      secrets = [
+        {
+          name       = "DATABASE_URL"
+          value_from = module.database_url_secret.secret_arn
+        },
+        {
+          name       = "STRATA_AUTH_PROXY_TOKEN"
+          value_from = module.auth_proxy_secret.secret_arn
+        },
+        {
+          name       = "REDIS_AUTH_TOKEN"
+          value_from = var.redis_auth_secret_arn
+        },
+      ]
+      health_check = {
+        command      = ["CMD-SHELL", "wget -qO- http://localhost:${var.container_port}/health || exit 1"]
+        interval     = 30
+        timeout      = 5
+        retries      = 3
+        start_period = 30
+      }
+    },
+  ]
+
+  container_port_for_ingress = var.container_port
+
+  # ---- ALB attachment (active when backend=alb) ----------------------------
+  attach_to_alb_listener_arn = local.is_alb ? var.ingress_listener_arn : ""
+  alb_path_patterns          = var.ingress_alb_path_patterns
+  alb_host_headers           = var.ingress_alb_host_headers
+  alb_listener_priority      = var.ingress_alb_listener_priority
+  target_group_port          = var.container_port
+  health_check_path          = "/health"
+
+  # ---- API GW attachment (active when backend=apigw) -----------------------
+  attach_to_apigw_vpc_link_id = local.is_apigw ? var.ingress_vpc_link_id : ""
+  apigw_integration_uri       = local.is_apigw ? var.ingress_apigw_integration_uri : ""
+  apigw_api_id                = local.is_apigw ? var.ingress_apigw_api_id : ""
+
+  # ---- Egress to Aurora + Redis -------------------------------------------
+  allowed_egress_security_group_ids = [
+    var.aurora_security_group_id,
+    var.redis_security_group_id,
+  ]
+
+  # ---- IAM task role inline policies ---------------------------------------
+  task_role_inline_policies = [
+    {
+      name        = "aurora-consumer"
+      policy_json = var.aurora_consumer_iam_policy_json
+    },
+    {
+      name        = "redis-consumer"
+      policy_json = var.redis_consumer_iam_policy_json
+    },
+    {
+      name        = "service-secrets-consumer"
+      policy_json = data.aws_iam_policy_document.service_secrets_consumer.json
+    },
+  ]
+
+  extra_tags = local.default_tags
+}
