@@ -65,12 +65,12 @@ locals {
   env        = "dev"
 
   # network module
-  vpc_id   = "vpc-0699c5389404c9e47"
+  vpc_id   = "vpc-0da4fadaa6e653c5b"
   vpc_cidr = "10.40.0.0/16"
   private_subnet_ids = [
-    "subnet-054d3b36eb91aa163",
-    "subnet-01ac5f3b23d41fb10",
-    "subnet-0844bdf32b17593a4",
+    "subnet-0d73b510d4f133e39",
+    "subnet-026485c08d8165cb1",
+    "subnet-0f4d29d6534a7b9d0",
   ]
 
   # ecs-cluster module

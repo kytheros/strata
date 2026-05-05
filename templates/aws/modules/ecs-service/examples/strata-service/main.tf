@@ -112,12 +112,12 @@ module "strata_service" {
   execution_role_arn = "arn:aws:iam::624990353897:role/strata-dev-task-exec"
   log_group_name     = "/ecs/strata-dev"
 
-  vpc_id   = "vpc-0699c5389404c9e47"
+  vpc_id   = "vpc-0da4fadaa6e653c5b"
   vpc_cidr = "10.40.0.0/16"
   subnet_ids = [
-    "subnet-054d3b36eb91aa163",
-    "subnet-01ac5f3b23d41fb10",
-    "subnet-0844bdf32b17593a4",
+    "subnet-0d73b510d4f133e39",
+    "subnet-026485c08d8165cb1",
+    "subnet-0f4d29d6534a7b9d0",
   ]
 
   # Strata MCP server: 0.5 vCPU / 1 GiB. Sized for a small dev workload; prod

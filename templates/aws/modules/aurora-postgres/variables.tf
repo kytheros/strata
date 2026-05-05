@@ -53,7 +53,7 @@ variable "allowed_security_group_ids" {
 variable "engine_version" {
   description = "Aurora PostgreSQL major.minor version. 15.x is the current Strata target. Aurora Serverless v2 supports 13.x+; 15.x is the active default. Change tracks the AWS-published `DescribeDBEngineVersions` list — pin a value here rather than letting AWS auto-select to keep plans stable."
   type        = string
-  default     = "15.5"
+  default     = "15.13"
 }
 
 variable "min_capacity" {

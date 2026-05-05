@@ -243,7 +243,7 @@ resource "aws_security_group" "cache" {
   # checkov:skip=CKV2_AWS_5:SG is attached to the aws_elasticache_serverless_cache below via security_group_ids — checkov sometimes misses the attachment because it reads SGs and ElastiCache resources separately.
 
   name        = "${local.cache_name}-sg"
-  description = "Strata ElastiCache Redis Serverless cache security group — ingress 6379 from approved consumers only."
+  description = "Strata ElastiCache Redis Serverless cache security group - ingress 6379 from approved consumers only."
   vpc_id      = var.vpc_id
 
   tags = merge(local.tags, {
@@ -287,7 +287,7 @@ resource "aws_vpc_security_group_ingress_rule" "from_vpc_cidr_fallback" {
   ip_protocol       = "tcp"
   from_port         = 6379
   to_port           = 6379
-  description       = "Redis 6379 from VPC CIDR (fallback — no consumer SG supplied)"
+  description       = "Redis 6379 from VPC CIDR (fallback - no consumer SG supplied)"
 
   tags = local.tags
 }

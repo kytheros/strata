@@ -1,5 +1,5 @@
 ###############################################################################
-# strata ingress — ALB or API GW HTTP API (one-flag swap).
+# strata ingress - ALB or API GW HTTP API (one-flag swap).
 #
 # What this module does:
 #
@@ -16,12 +16,12 @@
 #     1. Internet-facing (or internal) Application Load Balancer.
 #     2. Security group: 443 from the world or the CloudFront prefix list,
 #        plus port-80 redirect listener. Egress to VPC CIDR only.
-#     3. HTTPS listener with default 404 fixed-response — services attach
+#     3. HTTPS listener with default 404 fixed-response - services attach
 #        their own listener rules pointing at their own target groups.
-#     4. HTTP→HTTPS 301 redirect listener.
+#     4. HTTP->HTTPS 301 redirect listener.
 #     5. Optional Cognito-protected listener rules for var.cognito_protected_paths.
 #
-# Outputs are deliberately uniform across both backends — values that don't
+# Outputs are deliberately uniform across both backends - values that don't
 # apply to the active backend are emitted as `null`. Consumer modules can
 # treat the output object as a single shape and switch via try() / coalesce().
 ###############################################################################
@@ -46,7 +46,7 @@ locals {
   cognito_enabled_apigw = local.is_apigw && var.cognito_user_pool_id != "" && var.cognito_user_pool_client_id != ""
   cognito_enabled_alb   = local.is_alb && var.cognito_user_pool_arn != "" && var.cognito_user_pool_client_id != "" && var.cognito_user_pool_domain != ""
 
-  # CORS coalescing — surface the optional() defaults as concrete values for
+  # CORS coalescing - surface the optional() defaults as concrete values for
   # the apigw resource block.
   cors = {
     allow_origins     = coalesce(var.cors_config.allow_origins, ["*"])
@@ -67,7 +67,7 @@ locals {
 }
 
 ###############################################################################
-# Pre-flight validation — caught at plan time so apply doesn't half-create.
+# Pre-flight validation - caught at plan time so apply doesn't half-create.
 #
 # We can't express "required when X" purely in `validation` blocks, so we use
 # a check{} block (TF 1.5+) to surface the failure mode clearly.
@@ -112,7 +112,7 @@ data "aws_ec2_managed_prefix_list" "cloudfront" {
 #     CloudFront origin-facing prefix list.
 #
 # Inbound 80: 0.0.0.0/0 (the only traffic we accept on :80 is the redirect-to-
-# HTTPS — bare HTTP requests are responded to with a 301 and dropped).
+# HTTPS - bare HTTP requests are responded to with a 301 and dropped).
 #
 # Egress: VPC CIDR on 1024-65535 (target traffic to ECS Fargate ENIs).
 ###############################################################################
@@ -122,7 +122,7 @@ resource "aws_security_group" "alb" {
 
   # checkov:skip=CKV_AWS_23:Per-rule descriptions are inlined on each aws_vpc_security_group_*_rule below.
   name        = "strata-${var.env_name}-alb-sg"
-  description = "Strata ${var.env_name} ALB security group — 443/80 ingress, VPC-CIDR egress."
+  description = "Strata ${var.env_name} ALB security group - 443/80 ingress, VPC-CIDR egress."
   vpc_id      = var.vpc_id
 
   tags = merge(local.tags, {
@@ -130,7 +130,7 @@ resource "aws_security_group" "alb" {
   })
 }
 
-# --- Inbound 443 — open to internet ---
+# --- Inbound 443 - open to internet ---
 resource "aws_vpc_security_group_ingress_rule" "alb_https_open" {
   count = local.is_alb && !var.restrict_to_cloudfront_prefix_list ? 1 : 0
 
@@ -144,7 +144,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https_open" {
   tags = local.tags
 }
 
-# --- Inbound 443 — scoped to CloudFront prefix list ---
+# --- Inbound 443 - scoped to CloudFront prefix list ---
 resource "aws_vpc_security_group_ingress_rule" "alb_https_cloudfront" {
   count = local.is_alb && var.restrict_to_cloudfront_prefix_list ? 1 : 0
 
@@ -158,13 +158,13 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https_cloudfront" {
   tags = local.tags
 }
 
-# --- Inbound 80 — only used by the HTTP→HTTPS redirect listener ---
+# --- Inbound 80 - only used by the HTTP->HTTPS redirect listener ---
 resource "aws_vpc_security_group_ingress_rule" "alb_http_redirect" {
   count = local.is_alb ? 1 : 0
 
   # checkov:skip=CKV_AWS_260:0.0.0.0/0 on :80 is required so the redirect listener can intercept bare HTTP and 301 it to HTTPS. The rule does not allow application traffic on :80.
   security_group_id = aws_security_group.alb[0].id
-  description       = "HTTP from the public internet — solely for the HTTP→HTTPS 301 redirect listener. No application traffic served on :80."
+  description       = "HTTP from the public internet (HTTP to HTTPS 301 redirect listener only)"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"
   from_port         = 80
@@ -225,8 +225,8 @@ resource "aws_lb" "this" {
 ###############################################################################
 # 3. ALB listeners
 #
-# :80  → 301 to https://#{host}:443/#{path}?#{query}
-# :443 → default fixed-response 404 ("Strata"). Services attach their own
+# :80  -> 301 to https://#{host}:443/#{path}?#{query}
+# :443 -> default fixed-response 404 ("Strata"). Services attach their own
 #        aws_lb_listener_rule resources pointing at their own target groups,
 #        OR the consumer enables Cognito-protected paths via
 #        var.cognito_protected_paths (rules created below).
@@ -279,7 +279,7 @@ resource "aws_lb_listener" "https" {
 #
 # For each path in var.cognito_protected_paths:
 #   - authenticate_cognito (uses module-supplied user-pool/client/domain)
-#   - then a second action — a fixed-response 401, since the module doesn't
+#   - then a second action - a fixed-response 401, since the module doesn't
 #     own a target group. Consumer service modules that DO have a target
 #     group should add their own aws_lb_listener_rule with priority < these.
 #
@@ -336,7 +336,7 @@ resource "aws_lb_listener_rule" "cognito_protected" {
 # 5. VPC-Link security group (only when consumer didn't pass their own)
 #
 # Default surface: open to VPC CIDR. The VPC Link ENIs sit in private subnets
-# and never get a public IP — the SG is the second perimeter, not the first.
+# and never get a public IP - the SG is the second perimeter, not the first.
 ###############################################################################
 
 resource "aws_security_group" "vpc_link" {
@@ -344,7 +344,7 @@ resource "aws_security_group" "vpc_link" {
 
   # checkov:skip=CKV_AWS_23:Per-rule descriptions are inlined on the rule resources below.
   name        = "strata-${var.env_name}-apigw-vpclink-sg"
-  description = "Strata ${var.env_name} apigw VPC-Link ENIs — VPC-CIDR ingress only."
+  description = "Strata ${var.env_name} apigw VPC-Link ENIs - VPC-CIDR ingress only."
   vpc_id      = var.vpc_id
 
   tags = merge(local.tags, {
@@ -356,7 +356,7 @@ resource "aws_vpc_security_group_ingress_rule" "vpc_link_from_vpc" {
   count = local.vpc_link_use_module_sg ? 1 : 0
 
   security_group_id = aws_security_group.vpc_link[0].id
-  description       = "All TCP from the VPC CIDR — the VPC Link's ENI accepts traffic from the API GW backplane and forwards into the VPC."
+  description       = "All TCP from the VPC CIDR (VPC Link ENI accepts traffic from API GW backplane)"
   cidr_ipv4         = var.vpc_cidr
   ip_protocol       = "tcp"
   from_port         = 0
@@ -369,7 +369,7 @@ resource "aws_vpc_security_group_egress_rule" "vpc_link_to_vpc" {
   count = local.vpc_link_use_module_sg ? 1 : 0
 
   security_group_id = aws_security_group.vpc_link[0].id
-  description       = "Egress to anywhere in the VPC — the link must reach service ENIs across all private subnets."
+  description       = "Egress to anywhere in the VPC - the link must reach service ENIs across all private subnets."
   cidr_ipv4         = var.vpc_cidr
   ip_protocol       = "tcp"
   from_port         = 0
@@ -386,7 +386,7 @@ resource "aws_apigatewayv2_api" "this" {
   count = local.is_apigw ? 1 : 0
 
   name          = "strata-${var.env_name}-api"
-  description   = "Strata ${var.env_name} HTTP API — consumer modules attach routes pointing at their integrations."
+  description   = "Strata ${var.env_name} HTTP API - consumer modules attach routes pointing at their integrations."
   protocol_type = "HTTP"
 
   # Dev convenience: keep the default execute-api endpoint reachable. Custom
@@ -468,7 +468,7 @@ resource "aws_cloudwatch_log_group" "apigw" {
 resource "aws_apigatewayv2_stage" "default" {
   count = local.is_apigw ? 1 : 0
 
-  # checkov:skip=CKV_AWS_120:Caching is route-level on HTTP APIs, not stage-level — defer to the consumer module that defines the routes.
+  # checkov:skip=CKV_AWS_120:Caching is route-level on HTTP APIs, not stage-level - defer to the consumer module that defines the routes.
   api_id      = aws_apigatewayv2_api.this[0].id
   name        = "$default"
   auto_deploy = true

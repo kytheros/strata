@@ -1,5 +1,5 @@
 ###############################################################################
-# strata ecs-service — Fargate task def + service + autoscaling + LB/APIGW
+# strata ecs-service - Fargate task def + service + autoscaling + LB/APIGW
 #
 # What this module owns:
 #
@@ -17,7 +17,7 @@
 #                 wires in via variables.
 #
 # Per-spec defaults: 80% FARGATE_SPOT / 20% FARGATE on-demand. Deployment
-# circuit breaker is non-negotiable — always on with rollback. ECS Exec on by
+# circuit breaker is non-negotiable - always on with rollback. ECS Exec on by
 # default. Service Connect opt-in.
 #
 # LB-attachment branching: when var.attach_to_alb_listener_arn is non-empty
@@ -110,7 +110,7 @@ locals {
           }
         }
       },
-      # Optional fields — only included when set so the rendered JSON stays
+      # Optional fields - only included when set so the rendered JSON stays
       # minimal and diff-clean.
       c.command != null ? { command = c.command } : {},
       c.health_check != null ? {
@@ -145,10 +145,10 @@ check "service_connect_consistency" {
 }
 
 ###############################################################################
-# 1. Task role — assumed by the running container via the task metadata service
+# 1. Task role - assumed by the running container via the task metadata service
 #
 # Trust policy: ecs-tasks.amazonaws.com only. Inline policies are the primary
-# integration point for upstream modules — callers pass in the
+# integration point for upstream modules - callers pass in the
 # `consumer_iam_policy_json` outputs from aurora-postgres, elasticache-redis,
 # and secrets to grant least-privilege access without leaking permissions
 # across services.
@@ -190,7 +190,7 @@ resource "aws_iam_role_policy_attachment" "task_managed" {
 }
 
 ###############################################################################
-# 2. Task security group — VPC-level perimeter for the task ENIs
+# 2. Task security group - VPC-level perimeter for the task ENIs
 ###############################################################################
 
 resource "aws_security_group" "this" {
@@ -205,20 +205,20 @@ resource "aws_security_group" "this" {
 }
 
 ###############################################################################
-# 2a. Ingress rules — from ALB SG, API-GW VPC-link SG, and caller list
+# 2a. Ingress rules - from ALB SG, API-GW VPC-link SG, and caller list
 #
 # We rely on the ingress module's published outputs as the source of the SG
 # ID. Both rules are emitted only when the corresponding attach_* var is set.
 ###############################################################################
 
-# When LB-attached, the caller's listener ARN comes from the ingress module —
+# When LB-attached, the caller's listener ARN comes from the ingress module -
 # which also exposes the ALB SG via output `security_group_id`. Rather than
 # require the caller to thread the SG separately, we additionally accept the
 # ALB SG as ingress when listed in var.ingress_security_group_ids. The simpler
-# pattern for v1 — make the caller pass the ingress source SG ID(s) explicitly
+# pattern for v1 - make the caller pass the ingress source SG ID(s) explicitly
 # in var.ingress_security_group_ids, regardless of attachment kind.
 resource "aws_vpc_security_group_ingress_rule" "from_caller_sgs" {
-  # checkov:skip=CKV_AWS_260:False positive — this rule uses referenced_security_group_id (not cidr_ipv4), so the source is always a specific SG (e.g. ALB SG, API GW VPC link SG, peer service SG). The container port is configurable via var.container_port_for_ingress; default 80 is the convention for HTTP services. CKV_AWS_260 only fires on 0.0.0.0/0 sources, but the static analyzer can't tell from the resource shape that a referenced-SG ingress is not internet-open.
+  # checkov:skip=CKV_AWS_260:False positive - this rule uses referenced_security_group_id (not cidr_ipv4), so the source is always a specific SG (e.g. ALB SG, API GW VPC link SG, peer service SG). The container port is configurable via var.container_port_for_ingress; default 80 is the convention for HTTP services. CKV_AWS_260 only fires on 0.0.0.0/0 sources, but the static analyzer can't tell from the resource shape that a referenced-SG ingress is not internet-open.
   for_each = toset(var.ingress_security_group_ids)
 
   security_group_id            = aws_security_group.this.id
@@ -232,15 +232,15 @@ resource "aws_vpc_security_group_ingress_rule" "from_caller_sgs" {
 }
 
 ###############################################################################
-# 2b. Egress rules — VPC-wide TCP, plus 443 to allowed CIDRs
+# 2b. Egress rules - VPC-wide TCP, plus 443 to allowed CIDRs
 ###############################################################################
 
-# All TCP to the VPC CIDR — covers Aurora (5432), Redis (6379), Service
+# All TCP to the VPC CIDR - covers Aurora (5432), Redis (6379), Service
 # Connect peers, and any future internal endpoint without naming each SG.
 # This is the same pattern the ALB SG uses for reaching tasks.
 resource "aws_vpc_security_group_egress_rule" "to_vpc" {
   security_group_id = aws_security_group.this.id
-  description       = "All TCP to the VPC interior — Aurora, Redis, Service Connect peers, internal endpoints."
+  description       = "All TCP to the VPC interior - Aurora, Redis, Service Connect peers, internal endpoints."
   cidr_ipv4         = var.vpc_cidr
   ip_protocol       = "tcp"
   from_port         = 0
@@ -249,7 +249,7 @@ resource "aws_vpc_security_group_egress_rule" "to_vpc" {
   tags = local.tags
 }
 
-# Per-SG egress to specific peer SGs — useful when the caller wants explicit
+# Per-SG egress to specific peer SGs - useful when the caller wants explicit
 # auditability over which downstream resources this service can reach (Aurora,
 # Redis, etc.). Stacks alongside the VPC-CIDR rule; redundancy is acceptable.
 resource "aws_vpc_security_group_egress_rule" "to_peer_sgs" {
@@ -274,7 +274,7 @@ resource "aws_vpc_security_group_egress_rule" "https_egress" {
 
   # checkov:skip=CKV_AWS_382:443/0.0.0.0/0 is required for AWS API and LLM-provider egress when VPC endpoints don't cover the destination. Caller can lock down further by passing only specific CIDRs.
   security_group_id = aws_security_group.this.id
-  description       = "HTTPS egress from ${var.service_name} to ${each.value} — AWS APIs (via NAT when VPC endpoints don't cover) and LLM-provider APIs."
+  description       = "HTTPS egress from ${var.service_name} to ${each.value} - AWS APIs and LLM provider APIs"
   cidr_ipv4         = each.value
   ip_protocol       = "tcp"
   from_port         = 443
@@ -316,7 +316,7 @@ resource "aws_ecs_task_definition" "this" {
 resource "aws_lb_target_group" "this" {
   count = local.alb_attached ? 1 : 0
 
-  # checkov:skip=CKV_AWS_378:HTTP between ALB and Fargate task is appropriate — TLS is terminated at the ALB and the VPC interior is the trust boundary. End-to-end TLS to tasks would require per-service ACM certs which is not warranted at this scale.
+  # checkov:skip=CKV_AWS_378:HTTP between ALB and Fargate task is appropriate - TLS is terminated at the ALB and the VPC interior is the trust boundary. End-to-end TLS to tasks would require per-service ACM certs which is not warranted at this scale.
   name        = local.tg_name
   port        = var.target_group_port
   protocol    = "HTTP"
@@ -344,7 +344,7 @@ resource "aws_lb_target_group" "this" {
   }
 
   # Avoid name collisions when target groups are recreated (e.g. health-check
-  # path changes that force replacement) — let TF spin up the new TG before
+  # path changes that force replacement) - let TF spin up the new TG before
   # destroying the old.
   lifecycle {
     create_before_destroy = true
@@ -388,7 +388,7 @@ resource "aws_lb_listener_rule" "this" {
 # 5. Optional API GW HTTP_PROXY integration (stub)
 #
 # Per spec §"API GW integration": v1 ships a stub that takes apigw_integration_uri
-# (the consumer provides the URL — typically a private NLB or Service Connect
+# (the consumer provides the URL - typically a private NLB or Service Connect
 # endpoint). Routes are caller-attached via aws_apigatewayv2_route separately.
 ###############################################################################
 
@@ -420,7 +420,7 @@ resource "aws_ecs_service" "this" {
 
   # When capacity_provider_strategy is set we MUST omit launch_type (the AWS
   # provider rejects setting both). The strategy here overrides the cluster's
-  # default strategy — services pin their own preferences.
+  # default strategy - services pin their own preferences.
   dynamic "capacity_provider_strategy" {
     for_each = var.capacity_provider_strategy
     content {
@@ -534,7 +534,7 @@ resource "aws_appautoscaling_policy" "cpu" {
   }
 }
 
-# Request-count target tracking — only meaningful when LB-attached. The
+# Request-count target tracking - only meaningful when LB-attached. The
 # `resource_label` format is documented at:
 #   https://docs.aws.amazon.com/autoscaling/application/APIReference/API_PredefinedMetricSpecification.html
 # Format: app/<load-balancer-name>/<lb-id>/targetgroup/<tg-name>/<tg-id>

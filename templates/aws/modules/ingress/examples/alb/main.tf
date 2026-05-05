@@ -51,13 +51,13 @@ provider "aws" {
 ###############################################################################
 
 locals {
-  dev_vpc_id   = "vpc-0699c5389404c9e47"
+  dev_vpc_id   = "vpc-0da4fadaa6e653c5b"
   dev_vpc_cidr = "10.40.0.0/16"
 
   dev_public_subnet_ids = [
-    "subnet-01350d2724632c95b",
-    "subnet-0cf780e30abc60b39",
-    "subnet-0e0846141f207e5bd",
+    "subnet-005e3c9cee20e3c45",
+    "subnet-0e5e641237d891e10",
+    "subnet-03aaeca1838f1ea4d",
   ]
 
   # SENTINEL — replace with a real ACM cert ARN before running `terraform plan`.

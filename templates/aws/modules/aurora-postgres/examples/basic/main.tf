@@ -70,7 +70,7 @@ provider "aws" {
 
 locals {
   # Network module outputs (dev account, captured 2026-05-04):
-  vpc_id   = "vpc-0699c5389404c9e47"
+  vpc_id   = "vpc-0da4fadaa6e653c5b"
   vpc_cidr = "10.40.0.0/16"
 
   # The three isolated subnets (10.40.64.0/22, 10.40.68.0/22, 10.40.72.0/22)
@@ -79,11 +79,11 @@ locals {
   # in the network example after every cycle and update this list.
   isolated_subnet_ids = [
     # us-east-1a — 10.40.64.0/22
-    "subnet-018157e69d5885c62",
+    "subnet-0d3d801e9e426956d",
     # us-east-1b — 10.40.68.0/22
-    "subnet-0bb4e9a6e6637d768",
+    "subnet-002102c33df797511",
     # us-east-1c — 10.40.72.0/22
-    "subnet-0957f3199718df40f",
+    "subnet-0642a35e5755f1431",
   ]
 }
 

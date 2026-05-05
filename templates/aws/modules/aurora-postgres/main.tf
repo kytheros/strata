@@ -1,5 +1,5 @@
 ###############################################################################
-# strata aurora-postgres — Aurora Serverless v2 Postgres + RDS Proxy + CMK
+# strata aurora-postgres - Aurora Serverless v2 Postgres + RDS Proxy + CMK
 #
 # What this module creates:
 #
@@ -7,25 +7,25 @@
 #      Performance Insights, and the auto-managed master credential secret.
 #      Account-root admin (escape hatch) + RDS service principal + Secrets
 #      Manager service principal. 7-day deletion window, key rotation on.
-#   2. A DB subnet group across var.subnet_ids — typically the network module's
+#   2. A DB subnet group across var.subnet_ids - typically the network module's
 #      three isolated subnets, so the cluster has no internet path.
 #   3. A security group for the cluster ENIs. Ingress on TCP/5432 from
 #      var.allowed_security_group_ids (preferred), or var.vpc_cidr (fallback
-#      when the SG list is empty). Egress is intentionally empty — Aurora
+#      when the SG list is empty). Egress is intentionally empty - Aurora
 #      ENIs do not initiate outbound traffic; response packets flow back
 #      implicitly.
 #   4. A DB cluster parameter group preloading pg_stat_statements. The actual
-#      `CREATE EXTENSION pg_stat_statements;` runs at first connect — the
+#      `CREATE EXTENSION pg_stat_statements;` runs at first connect - the
 #      module wires the GUC, not the SQL.
 #   5. The aws_rds_cluster (Aurora PostgreSQL Serverless v2) with:
 #        - Engine 15.x (var.engine_version), engine_mode = "provisioned" (the
-#          required mode for Serverless v2 — engine_mode "serverless" is the
+#          required mode for Serverless v2 - engine_mode "serverless" is the
 #          older v1 path).
 #        - serverlessv2_scaling_configuration: min/max ACU + auto-pause.
 #          Provider 5.92+ (Feb 2025) supports min_capacity = 0 with
 #          seconds_until_auto_pause; this module defaults to that combination
 #          for dev.
-#        - manage_master_user_password = true — AWS auto-generates and rotates
+#        - manage_master_user_password = true - AWS auto-generates and rotates
 #          the master credential in Secrets Manager. No rotation Lambda
 #          required (the historical pattern); see lambdas/rotation/README.md
 #          for the rationale.
@@ -46,10 +46,10 @@
 # Why no rotation Lambda:
 #   The plan ticket (AWS-1.4) called for a 30-day rotation Lambda. The
 #   manage_master_user_password = true path was added in late 2023 and
-#   handles rotation natively without a Lambda — AWS rotates the master
+#   handles rotation natively without a Lambda - AWS rotates the master
 #   credential on the schedule it controls. We choose this path for v1
 #   because (a) one fewer Lambda to maintain, (b) the rotated credential
-#   stays inside AWS — no Terraform state churn, and (c) RDS Proxy reads
+#   stays inside AWS - no Terraform state churn, and (c) RDS Proxy reads
 #   the new value transparently on next connection without app-side reload.
 #
 #   If a future spec demands operator-controlled rotation cadence or
@@ -94,22 +94,22 @@ data "aws_partition" "current" {}
 #    credential secret.
 #
 # Key policy:
-#   - Account root admin — AWS-recommended escape hatch so the key remains
+#   - Account root admin - AWS-recommended escape hatch so the key remains
 #     usable if all IAM admins are revoked. Pinned `kms:*` to this key only.
-#   - RDS service principal — encrypt/decrypt cluster storage + Performance
+#   - RDS service principal - encrypt/decrypt cluster storage + Performance
 #     Insights + automated backups via kms:ViaService = rds.{region}.amazonaws.com.
-#   - Secrets Manager service principal — encrypt the auto-managed master
+#   - Secrets Manager service principal - encrypt the auto-managed master
 #     credential secret via kms:ViaService = secretsmanager.{region}.amazonaws.com.
 #
 # RDS Proxy reads the master credential from Secrets Manager via its own
 # IAM role (created by the proxy resource), not via the KMS service principal.
 # It re-uses the Secrets Manager service principal's existing decrypt grant
-# transparently — no extra principal needed in this policy.
+# transparently - no extra principal needed in this policy.
 ###############################################################################
 
 data "aws_iam_policy_document" "kms" {
   # checkov:skip=CKV_AWS_109:Account-root admin statement is the AWS-recommended escape hatch (https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-default.html). Without it the key can become unmanageable if IAM admins are revoked.
-  # checkov:skip=CKV_AWS_111:Same — account-root admin is scoped to this key only (KMS key policies' Resource:"*" semantically scopes to the key the policy is attached to, NOT account-wide).
+  # checkov:skip=CKV_AWS_111:Same - account-root admin is scoped to this key only (KMS key policies' Resource:"*" semantically scopes to the key the policy is attached to, NOT account-wide).
   # checkov:skip=CKV_AWS_356:KMS key policies semantically scope Resource:"*" to the attached key per the AWS-published model. Service-principal statements are further narrowed via kms:ViaService.
 
   statement {
@@ -214,7 +214,7 @@ resource "aws_kms_alias" "aurora" {
 
 resource "aws_db_subnet_group" "aurora" {
   name        = "${local.cluster_name}-subnets"
-  description = "Strata Aurora subnet group — isolated subnets only (no internet path)."
+  description = "Strata Aurora subnet group - isolated subnets only (no internet path)."
   subnet_ids  = var.subnet_ids
 
   tags = merge(local.tags, {
@@ -226,7 +226,7 @@ resource "aws_db_subnet_group" "aurora" {
 # 3. Security group for the cluster ENIs.
 #
 # Ingress: TCP/5432 from var.allowed_security_group_ids (preferred) OR
-# var.vpc_cidr (fallback when the SG list is empty). Egress: none — cluster
+# var.vpc_cidr (fallback when the SG list is empty). Egress: none - cluster
 # ENIs don't initiate outbound traffic; response packets flow back implicitly.
 #
 # This SG fronts BOTH the Aurora cluster instances AND the RDS Proxy ENIs.
@@ -236,10 +236,10 @@ resource "aws_db_subnet_group" "aurora" {
 ###############################################################################
 
 resource "aws_security_group" "cluster" {
-  # checkov:skip=CKV2_AWS_5:SG is attached to the cluster, instances, and proxy below — checkov sometimes misses the attachment because it reads SGs and RDS resources separately.
+  # checkov:skip=CKV2_AWS_5:SG is attached to the cluster, instances, and proxy below - checkov sometimes misses the attachment because it reads SGs and RDS resources separately.
 
   name        = "${local.cluster_name}-sg"
-  description = "Strata Aurora cluster + RDS Proxy security group — ingress 5432 from approved consumers + self."
+  description = "Strata Aurora cluster + RDS Proxy security group - ingress 5432 from approved consumers + self."
   vpc_id      = var.vpc_id
 
   tags = merge(local.tags, {
@@ -295,20 +295,20 @@ resource "aws_vpc_security_group_ingress_rule" "from_vpc_cidr_fallback" {
   ip_protocol       = "tcp"
   from_port         = 5432
   to_port           = 5432
-  description       = "Postgres 5432 from VPC CIDR (fallback — no consumer SG supplied)"
+  description       = "Postgres 5432 from VPC CIDR (fallback - no consumer SG supplied)"
 
   tags = local.tags
 }
 
 ###############################################################################
-# 4. DB cluster parameter group — preload pg_stat_statements.
+# 4. DB cluster parameter group - preload pg_stat_statements.
 #
-# shared_preload_libraries is a "static" Postgres GUC — it requires a cluster
+# shared_preload_libraries is a "static" Postgres GUC - it requires a cluster
 # reboot to take effect. Aurora handles this transparently on first apply
 # (the cluster boots with the parameter group already attached). Subsequent
 # changes require apply_immediately = true OR a maintenance-window restart.
 #
-# `CREATE EXTENSION pg_stat_statements;` is NOT run by this module — it
+# `CREATE EXTENSION pg_stat_statements;` is NOT run by this module - it
 # requires an SQL connection and is a per-database operation. Document this
 # in the README so operators run it post-apply.
 ###############################################################################
@@ -316,7 +316,7 @@ resource "aws_vpc_security_group_ingress_rule" "from_vpc_cidr_fallback" {
 resource "aws_rds_cluster_parameter_group" "aurora" {
   name        = "${local.cluster_name}-cluster-pg"
   family      = "aurora-postgresql${local.engine_major_version}"
-  description = "Strata Aurora cluster parameter group — pg_stat_statements preloaded."
+  description = "Strata Aurora cluster parameter group - pg_stat_statements preloaded."
 
   parameter {
     name         = "shared_preload_libraries"
@@ -348,13 +348,13 @@ resource "aws_rds_cluster_parameter_group" "aurora" {
 }
 
 ###############################################################################
-# 5. Aurora cluster — Serverless v2 Postgres
+# 5. Aurora cluster - Serverless v2 Postgres
 ###############################################################################
 
 resource "aws_rds_cluster" "aurora" {
-  # checkov:skip=CKV_AWS_139:IAM auth is intentionally OFF in v1 — RDS Proxy with Secrets Manager auth is the canonical access path. IAM auth can be enabled per-consumer later by flipping iam_database_authentication_enabled and adding rds-db:connect grants. Documented in README §"Why no IAM database authentication in v1".
-  # checkov:skip=CKV_AWS_162:Same — IAM database authentication is intentionally disabled in v1 (duplicate rule of CKV_AWS_139). Reviewer: security-compliance.
-  # checkov:skip=CKV_AWS_324:Query logging beyond pg_stat_statements + log_statement=ddl is intentionally not enabled — full query logging on a multi-tenant DB has finops + privacy implications. Tune up via parameter group when audit demand justifies it.
+  # checkov:skip=CKV_AWS_139:IAM auth is intentionally OFF in v1 - RDS Proxy with Secrets Manager auth is the canonical access path. IAM auth can be enabled per-consumer later by flipping iam_database_authentication_enabled and adding rds-db:connect grants. Documented in README §"Why no IAM database authentication in v1".
+  # checkov:skip=CKV_AWS_162:Same - IAM database authentication is intentionally disabled in v1 (duplicate rule of CKV_AWS_139). Reviewer: security-compliance.
+  # checkov:skip=CKV_AWS_324:Query logging beyond pg_stat_statements + log_statement=ddl is intentionally not enabled - full query logging on a multi-tenant DB has finops + privacy implications. Tune up via parameter group when audit demand justifies it.
   # checkov:skip=CKV2_AWS_8:Backup-plan-integration via AWS Backup is out of scope for v1; backup_retention_period covers the primary need. Add an aws_backup_plan reference in a future ticket if cross-account vaulting becomes a requirement.
 
   cluster_identifier = local.cluster_name
@@ -367,7 +367,7 @@ resource "aws_rds_cluster" "aurora" {
   master_username = var.master_username
 
   # AWS auto-generates the master password and stores it in a managed secret
-  # encrypted under our CMK. AWS rotates it on a schedule it controls — no
+  # encrypted under our CMK. AWS rotates it on a schedule it controls - no
   # rotation Lambda required (see lambdas/rotation/README.md for rationale).
   manage_master_user_password   = true
   master_user_secret_kms_key_id = aws_kms_key.aurora.arn
@@ -417,13 +417,13 @@ resource "aws_rds_cluster" "aurora" {
 #
 # db.serverless is the Serverless v2 instance class. The first instance is
 # the writer; subsequent instances are readers. Auto minor version upgrade
-# is OFF — we want explicit upgrades to coordinate with parameter group
+# is OFF - we want explicit upgrades to coordinate with parameter group
 # changes.
 ###############################################################################
 
 resource "aws_rds_cluster_instance" "aurora" {
-  # checkov:skip=CKV_AWS_226:auto_minor_version_upgrade is intentionally OFF — engine bumps must coordinate with the cluster parameter group changes (shared_preload_libraries) that require pending-reboot apply. Operator drives upgrades explicitly via var.engine_version. Documented in README.
-  # checkov:skip=CKV_AWS_118:Enhanced Monitoring (monitoring_interval > 0) is OFF in v1 — Performance Insights at 7-day retention covers the per-query observability needs at no cost. Enabling Enhanced Monitoring adds ~$2/instance/mo plus CloudWatch metric volume. Bump to 60 via tfvars when finops budget allows. Reviewer: finops-analyst + observability-sre.
+  # checkov:skip=CKV_AWS_226:auto_minor_version_upgrade is intentionally OFF - engine bumps must coordinate with the cluster parameter group changes (shared_preload_libraries) that require pending-reboot apply. Operator drives upgrades explicitly via var.engine_version. Documented in README.
+  # checkov:skip=CKV_AWS_118:Enhanced Monitoring (monitoring_interval > 0) is OFF in v1 - Performance Insights at 7-day retention covers the per-query observability needs at no cost. Enabling Enhanced Monitoring adds ~$2/instance/mo plus CloudWatch metric volume. Bump to 60 via tfvars when finops budget allows. Reviewer: finops-analyst + observability-sre.
 
   count = var.instance_count
 
@@ -443,7 +443,7 @@ resource "aws_rds_cluster_instance" "aurora" {
   auto_minor_version_upgrade = false
   apply_immediately          = var.apply_immediately
 
-  monitoring_interval = 0 # Enhanced Monitoring off in v1 — Performance Insights covers the per-query needs without the additional CloudWatch metric cost. Bump to 60 in prod when finops budget allows.
+  monitoring_interval = 0 # Enhanced Monitoring off in v1 - Performance Insights covers the per-query needs without the additional CloudWatch metric cost. Bump to 60 in prod when finops budget allows.
 
   tags = merge(local.tags, {
     Name = "${local.cluster_name}-${count.index}"
@@ -457,7 +457,7 @@ resource "aws_rds_cluster_instance" "aurora" {
 # The proxy fronts the cluster and:
 #   - Holds a connection pool so Fargate cold starts don't slam Aurora with
 #     a connection storm (Postgres connections are expensive to set up).
-#   - Reads the master credential from Secrets Manager — when AWS rotates
+#   - Reads the master credential from Secrets Manager - when AWS rotates
 #     it, the proxy picks up the new value without app-side reload.
 #   - Pins per-tenant connections cleanly when consumers use SET-based
 #     session state (Strata's multi-tenant pattern).
@@ -491,7 +491,7 @@ resource "aws_iam_role" "proxy" {
 }
 
 # Read-only on the auto-managed master credential secret + decrypt with the
-# cluster CMK. Scope is exactly the secret + CMK — no wildcards.
+# cluster CMK. Scope is exactly the secret + CMK - no wildcards.
 data "aws_iam_policy_document" "proxy_secret_access" {
   statement {
     sid    = "ReadMasterCredentialSecret"
@@ -570,7 +570,7 @@ resource "aws_db_proxy_target" "aurora" {
 }
 
 ###############################################################################
-# 8. Consumer IAM policy template (output only — not a resource).
+# 8. Consumer IAM policy template (output only - not a resource).
 #
 # Consumers (ECS task roles, Lambda exec roles) attach this JSON to gain:
 #   - secretsmanager:GetSecretValue on the master credential secret
@@ -578,7 +578,7 @@ resource "aws_db_proxy_target" "aurora" {
 #     Manager backplane)
 #
 # This is the minimum needed to read the master credential and connect
-# through the proxy. Consumers also need network reachability — see the
+# through the proxy. Consumers also need network reachability - see the
 # README's "Consumer wiring pattern" section.
 ###############################################################################
 

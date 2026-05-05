@@ -22,8 +22,8 @@
 #
 # Live dev account references (from AWS-1.1 / AWS-1.2 applies):
 #   account     : 624990353897
-#   vpc         : vpc-0699c5389404c9e47
-#   private SGs : subnet-054d3b36eb91aa163, subnet-01ac5f3b23d41fb10, subnet-0844bdf32b17593a4
+#   vpc         : vpc-0da4fadaa6e653c5b
+#   private SGs : subnet-0d73b510d4f133e39, subnet-026485c08d8165cb1, subnet-0f4d29d6534a7b9d0
 #   cluster     : strata-dev (looked up via data source below)
 #   log group   : /ecs/strata-dev (same)
 ###############################################################################
@@ -122,12 +122,12 @@ module "ecs_service" {
   execution_role_arn = aws_iam_role.task_exec.arn
   log_group_name     = local.cluster_log_group
 
-  vpc_id   = "vpc-0699c5389404c9e47"
+  vpc_id   = "vpc-0da4fadaa6e653c5b"
   vpc_cidr = "10.40.0.0/16"
   subnet_ids = [
-    "subnet-054d3b36eb91aa163",
-    "subnet-01ac5f3b23d41fb10",
-    "subnet-0844bdf32b17593a4",
+    "subnet-0d73b510d4f133e39",
+    "subnet-026485c08d8165cb1",
+    "subnet-0f4d29d6534a7b9d0",
   ]
 
   cpu    = 256
