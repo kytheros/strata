@@ -1,0 +1,165 @@
+version: '3'
+
+# Strata-on-AWS deploy controller.
+#
+# Cost-control cadence: bring the dev stack up only when actively working,
+# tear it down between sessions. Bootstrap (state bucket + OIDC) stays up
+# always at ~$0/mo; the rest of Phase 1 costs ~$345/mo when applied and
+# ~$0/mo when destroyed.
+#
+# Install task (one-time, Windows): winget install Task.Task
+# Install task (any OS):             https://taskfile.dev/installation/
+#
+# Run `task` (no args) for the full task list.
+
+vars:
+  AWS_PROFILE: '{{.AWS_PROFILE | default "default"}}'
+  AWS_REGION: '{{.AWS_REGION | default "us-east-1"}}'
+  EXPECTED_ACCOUNT: '624990353897'
+
+tasks:
+  default:
+    desc: 'List available tasks'
+    silent: true
+    cmds:
+      - task --list
+
+  whoami:
+    desc: 'Print AWS identity (sanity check before any apply/destroy)'
+    cmds:
+      - aws sts get-caller-identity --profile {{.AWS_PROFILE}}
+
+  preflight:
+    desc: 'Verify AWS account is the expected dev account before mutating'
+    silent: true
+    cmds:
+      - |
+        ACCT=$(aws sts get-caller-identity --profile {{.AWS_PROFILE}} --query Account --output text)
+        if [ "$ACCT" != "{{.EXPECTED_ACCOUNT}}" ]; then
+          echo "ERROR: expected account {{.EXPECTED_ACCOUNT}}, got $ACCT" >&2
+          exit 1
+        fi
+        echo "AWS account: $ACCT (OK)"
+
+  # -------------------------------------------------------------------------
+  # Bootstrap — apply ONCE per account. Stays up. ~$0/mo.
+  # -------------------------------------------------------------------------
+
+  bootstrap:up:
+    desc: 'Apply bootstrap (state bucket + OIDC). Run once per account.'
+    dir: bootstrap/examples/dev
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  bootstrap:status:
+    desc: 'List bootstrap-managed resources'
+    dir: bootstrap/examples/dev
+    cmds:
+      - terraform state list
+
+  bootstrap:down:
+    desc: '(rarely) Destroy bootstrap. ONLY if you are tearing down the entire account.'
+    dir: bootstrap/examples/dev
+    deps: [preflight]
+    prompt: 'This destroys the state bucket and OIDC provider. Continue?'
+    cmds:
+      - terraform destroy
+
+  # -------------------------------------------------------------------------
+  # Network — Phase 1 module. ~$265/mo idle when up.
+  # -------------------------------------------------------------------------
+
+  network:plan:
+    desc: 'Plan network changes (no mutation)'
+    dir: modules/network/examples/basic
+    cmds:
+      - terraform init -upgrade
+      - terraform plan -out plan.tfplan
+
+  network:up:
+    desc: 'Apply network module (VPC + endpoints + NAT). ~6–8 min. +$265/mo.'
+    dir: modules/network/examples/basic
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  network:down:
+    desc: 'Destroy network module. ~5–7 min. Frees ~$265/mo.'
+    dir: modules/network/examples/basic
+    deps: [preflight]
+    cmds:
+      - terraform destroy -auto-approve
+
+  network:status:
+    desc: 'Show network resources currently deployed'
+    dir: modules/network/examples/basic
+    cmds:
+      - terraform state list
+
+  # -------------------------------------------------------------------------
+  # Stack — bring the full dev stack up or down in dependency order.
+  # Add modules to up:/down: as Phase 1 tickets land.
+  # -------------------------------------------------------------------------
+
+  up:
+    desc: 'Apply the full dev stack (sequenced). Currently: network. ~6–8 min.'
+    cmds:
+      - task: network:up
+      # Future modules (uncomment as they land):
+      # - task: ecs-cluster:up        # AWS-1.2
+      # - task: aurora:up             # AWS-1.4
+      # - task: redis:up              # AWS-1.5
+      # - task: alb:up                # AWS-1.6
+      # - task: cognito:up            # AWS-1.8
+      # - task: ecs-service:up        # AWS-1.3 (depends on cluster + alb)
+
+  down:
+    desc: 'Destroy the full dev stack (reverse order). Frees ~$345/mo when full Phase 1 lands.'
+    cmds:
+      # Future modules first (reverse dependency order):
+      # - task: ecs-service:down
+      # - task: cognito:down
+      # - task: alb:down
+      # - task: redis:down
+      # - task: aurora:down
+      # - task: ecs-cluster:down
+      - task: network:down
+
+  status:
+    desc: 'Show what is currently deployed'
+    cmds:
+      - task: whoami
+      - 'echo --- Bootstrap ---'
+      - task: bootstrap:status
+      - 'echo --- Network ---'
+      - task: network:status
+
+  # -------------------------------------------------------------------------
+  # Cost — quick reminder of what is burning money right now.
+  # -------------------------------------------------------------------------
+
+  cost:
+    desc: 'Print rough monthly idle cost of currently deployed modules'
+    silent: true
+    cmds:
+      - |
+        echo "Cost reference (always-on idle, dev account, no traffic):"
+        echo ""
+        echo "  bootstrap:           ~\$0/mo  (always up)"
+        echo "  network:             ~\$265/mo (NAT x2 + 9 endpoints x 3 AZ + flow logs)"
+        echo "  ecs-cluster:         ~\$0/mo  (Fargate has no cluster fee)"
+        echo "  ecs-service x 2:     ~\$18/mo (Strata + example-agent on Fargate Spot)"
+        echo "  aurora + rds-proxy:  ~\$25/mo (v2 auto-pauses; proxy does not)"
+        echo "  redis serverless:    ~\$10/mo (ECPU + storage minimums)"
+        echo "  alb:                 ~\$16/mo (always-on)"
+        echo "  kms cmks (5-8):      ~\$8/mo"
+        echo "  cloudwatch logs:     ~\$3/mo"
+        echo "                       --------"
+        echo "  full Phase 1 idle:   ~\$345/mo"
+        echo ""
+        echo "Use 'task down' between work sessions to drop to bootstrap-only (~\$0/mo)."
