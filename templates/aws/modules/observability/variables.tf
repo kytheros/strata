@@ -1,0 +1,194 @@
+variable "env_name" {
+  description = "Environment short name (dev|staging|prod). Used in resource naming and tags."
+  type        = string
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.env_name)
+    error_message = "env_name must be one of: dev, staging, prod."
+  }
+}
+
+variable "aws_region" {
+  description = "AWS region. Used to scope KMS key policy conditions and dashboard widget regions."
+  type        = string
+  default     = "us-east-1"
+}
+
+###############################################################################
+# Log groups + EMF metric filters
+###############################################################################
+
+variable "service_log_groups" {
+  description = "Additional service-specific CloudWatch log groups to provision. The cluster log group (/ecs/strata-<env>) is owned by AWS-1.2 (ecs-cluster) and is consumed via var.cluster_log_group_name; this variable is for per-service or per-component groups beyond the cluster default. Each entry: { name = '/strata/<env>/<service>', retention_days (1..3653, must be CloudWatch-supported), kms_key_arn (string, '' = AWS-managed key) }."
+  type = list(object({
+    name           = string
+    retention_days = number
+    kms_key_arn    = string
+  }))
+  default = []
+
+  validation {
+    condition = alltrue([
+      for g in var.service_log_groups :
+      contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653], g.retention_days)
+    ])
+    error_message = "Each service_log_groups[*].retention_days must be a CloudWatch-supported value (1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653)."
+  }
+}
+
+variable "cluster_log_group_name" {
+  description = "Name of the existing ECS cluster log group (e.g. /ecs/strata-dev) created by AWS-1.2. Pass through to allow EMF metric filters to attach to it. Empty string disables cluster-group EMF wiring."
+  type        = string
+  default     = ""
+}
+
+variable "metric_filters" {
+  description = "EMF / pattern metric filters to attach to log groups owned by this module or by the cluster. Each entry: { log_group = '<name>', name = 'mcp-tool-call-count', pattern = '{ $.event = \"tool_call\" }', namespace = 'Strata/MCP', metric_name = 'ToolCallCount', metric_value = '1', dimensions = { Tool = '$.tool' } }. Pattern uses the CloudWatch Logs filter language; dimensions map output dimension names → JSON pointer references in the log event."
+  type = list(object({
+    log_group    = string
+    name         = string
+    pattern      = string
+    namespace    = string
+    metric_name  = string
+    metric_value = string
+    dimensions   = map(string)
+  }))
+  default = []
+}
+
+###############################################################################
+# SNS alarm topic + subscribers
+###############################################################################
+
+variable "alarm_subscribers" {
+  description = "Subscribers to add to the alarm SNS topic. Each entry: { protocol = 'email'|'sms'|'https'|'lambda', endpoint = '<address>' }. Default empty — caller adds. For 'email', SNS sends a confirmation message that the recipient must accept before alerts are delivered."
+  type = list(object({
+    protocol = string
+    endpoint = string
+  }))
+  default = []
+
+  validation {
+    condition = alltrue([
+      for s in var.alarm_subscribers :
+      contains(["email", "sms", "https", "lambda"], s.protocol)
+    ])
+    error_message = "alarm_subscribers[*].protocol must be one of: email, sms, https, lambda."
+  }
+}
+
+variable "kms_deletion_window_days" {
+  description = "Deletion window (days) for the SNS-topic CMK on destroy. 7 is the AWS minimum and matches the portfolio-demo cycle cadence. Bump to 30 for production."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.kms_deletion_window_days >= 7 && var.kms_deletion_window_days <= 30
+    error_message = "kms_deletion_window_days must be between 7 and 30 (AWS-enforced bounds)."
+  }
+}
+
+###############################################################################
+# Alarm targets — every entry is a string ARN / identifier supplied by the
+# consumer module. Empty defaults mean "this alarm is not created" — keeps the
+# module composable when only some upstream resources exist (per-phase rollout).
+###############################################################################
+
+variable "alb_arn" {
+  description = "Full ARN of the ALB (e.g. arn:aws:elasticloadbalancing:...:loadbalancer/app/strata-dev/abc123). When non-empty, ALB 5xx-rate and p99-latency alarms are created. Empty disables both."
+  type        = string
+  default     = ""
+}
+
+variable "alb_arn_suffix" {
+  description = "ALB ARN suffix used as the LoadBalancer dimension on CloudWatch ALB metrics (e.g. 'app/strata-dev/abc123' — the part of the ARN after :loadbalancer/). Required when alb_arn is non-empty; the AWS provider can derive this from the ALB resource as `aws_lb.this.arn_suffix`."
+  type        = string
+  default     = ""
+}
+
+variable "ecs_cluster_arn" {
+  description = "Full ARN of the ECS cluster. When non-empty (and ecs_service_names non-empty), per-service task-shortfall alarms are created."
+  type        = string
+  default     = ""
+}
+
+variable "ecs_cluster_name" {
+  description = "Short name of the ECS cluster (e.g. strata-dev). Used for the ClusterName dimension on ECS metrics. Required when ecs_cluster_arn is non-empty."
+  type        = string
+  default     = ""
+}
+
+variable "ecs_service_names" {
+  description = "List of ECS service short names within ecs_cluster_arn to alarm on for task shortfall (RunningTaskCount < DesiredTaskCount). Empty disables ECS task-shortfall alarms."
+  type        = list(string)
+  default     = []
+}
+
+variable "aurora_cluster_arn" {
+  description = "Full ARN of the Aurora cluster. When non-empty, ACU-max and CPU-high alarms are created."
+  type        = string
+  default     = ""
+}
+
+variable "aurora_cluster_identifier" {
+  description = "DBClusterIdentifier (short name) for the Aurora cluster. Used as the DBClusterIdentifier dimension on RDS metrics. Required when aurora_cluster_arn is non-empty."
+  type        = string
+  default     = ""
+}
+
+variable "aurora_acu_alarm_threshold" {
+  description = "ServerlessDatabaseCapacity threshold (ACU) above which the aurora_acu_max alarm fires. Default 6 ACU sits just below the design max of 8 — gives early warning before we hit the cap. Tune up for production once steady-state load is known."
+  type        = number
+  default     = 6
+
+  validation {
+    condition     = var.aurora_acu_alarm_threshold >= 0.5 && var.aurora_acu_alarm_threshold <= 256
+    error_message = "aurora_acu_alarm_threshold must be within Aurora Serverless v2's supported ACU range (0.5..256)."
+  }
+}
+
+variable "redis_cache_arn" {
+  description = "Full ARN of the ElastiCache (Serverless) Redis cache. When non-empty, CPU-high and storage-high alarms are created."
+  type        = string
+  default     = ""
+}
+
+variable "redis_cache_name" {
+  description = "Short name of the ElastiCache cache (e.g. strata-dev-redis). Used as the CacheClusterId dimension. Required when redis_cache_arn is non-empty."
+  type        = string
+  default     = ""
+}
+
+variable "redis_max_data_storage_bytes" {
+  description = "Provisioned data-storage cap (bytes) for the Redis cache. The redis_storage_high alarm fires at 80% of this value. Default 1 GiB matches ElastiCache Serverless's 1-GiB default minimum. Override to the real cap of your cache."
+  type        = number
+  default     = 1073741824 # 1 GiB
+}
+
+variable "nat_gateway_ids" {
+  description = "List of NAT Gateway IDs for which to create a 3σ anomaly alarm on BytesOutToDestination. Catches design Risk #3 — chatty agent driving NAT data-processing cost through the roof. Empty disables the anomaly alarm."
+  type        = list(string)
+  default     = []
+}
+
+variable "cognito_user_pool_id" {
+  description = "User Pool ID (e.g. us-east-1_AbCdEf123). When non-empty, the auth-failure-rate alarm is created. Catches design Risk #1 — Cognito → Strata claims drift surfacing as auth-throttle spikes."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
+# Misc
+###############################################################################
+
+variable "runbook_base_url" {
+  description = "Base URL prepended to alarm runbook references in alarm_description. Each alarm's description ends with `Runbook: <runbook_base_url>/<alarm-name>.md`. Default points at the in-repo runbooks/ directory; override to a hosted runbook URL when the team has one."
+  type        = string
+  default     = "https://github.com/mkavalich/strata/blob/main/runbooks"
+}
+
+variable "extra_tags" {
+  description = "Additional tags merged into the default tag set."
+  type        = map(string)
+  default     = {}
+}

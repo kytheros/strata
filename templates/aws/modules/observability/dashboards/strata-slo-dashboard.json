@@ -1,0 +1,268 @@
+{
+  "widgets": [
+    {
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "# Strata ${env_name} — SLO Dashboard\nDesign SLOs: availability 99.9% (30d), p99 < 800ms (30d). Widgets keyed off empty targets show 'no data' until those resources are provisioned."
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 1,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "ALB request rate",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${alb_arn_suffix}", { "stat": "Sum", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 1,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "ALB 5xx error rate (%)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          [{ "expression": "(m_5xx / m_req) * 100", "label": "5xx rate (%)", "id": "e1" }],
+          ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", "${alb_arn_suffix}", { "id": "m_5xx", "stat": "Sum", "period": 300, "visible": false }],
+          ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${alb_arn_suffix}", { "id": "m_req", "stat": "Sum", "period": 300, "visible": false }]
+        ],
+        "annotations": {
+          "horizontal": [{ "label": "1% SLO threshold", "value": 1 }]
+        },
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 1,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "ALB p99 target response time (s)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", "${alb_arn_suffix}", { "stat": "p99", "period": 300 }]
+        ],
+        "annotations": {
+          "horizontal": [{ "label": "800ms SLO", "value": 0.8 }]
+        },
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 7,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## Compute (ECS Fargate)"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 8,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "ECS running vs desired task counts",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ECS", "RunningTaskCount", "ClusterName", "${ecs_cluster_name}", { "stat": "Average", "period": 300 }],
+          [".", "DesiredTaskCount", ".", ".", { "stat": "Average", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 8,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "ECS CPU + memory utilization (cluster avg)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ECS", "CPUUtilization", "ClusterName", "${ecs_cluster_name}", { "stat": "Average", "period": 300 }],
+          [".", "MemoryUtilization", ".", ".", { "stat": "Average", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0, "max": 100 } }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 14,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## Data tier (Aurora + Redis)"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 15,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Aurora ACU (Serverless v2 capacity)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/RDS", "ServerlessDatabaseCapacity", "DBClusterIdentifier", "${aurora_cluster_identifier}", { "stat": "Average", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 15,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Aurora CPU utilization (%)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/RDS", "CPUUtilization", "DBClusterIdentifier", "${aurora_cluster_identifier}", { "stat": "Average", "period": 300 }]
+        ],
+        "annotations": {
+          "horizontal": [{ "label": "80% threshold", "value": 80 }]
+        },
+        "yAxis": { "left": { "min": 0, "max": 100 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 15,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Aurora connections + read/write IOPS",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/RDS", "DatabaseConnections", "DBClusterIdentifier", "${aurora_cluster_identifier}", { "stat": "Average", "period": 300 }],
+          [".", "ReadIOPS", ".", ".", { "stat": "Sum", "period": 300, "yAxis": "right" }],
+          [".", "WriteIOPS", ".", ".", { "stat": "Sum", "period": 300, "yAxis": "right" }]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 21,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Redis EngineCPU + cache hit rate",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ElastiCache", "EngineCPUUtilization", "CacheClusterId", "${redis_cache_name}", { "stat": "Average", "period": 300 }],
+          [".", "CacheHitRate", ".", ".", { "stat": "Average", "period": 300, "yAxis": "right" }]
+        ],
+        "annotations": {
+          "horizontal": [{ "label": "75% CPU threshold", "value": 75 }]
+        },
+        "yAxis": { "left": { "min": 0, "max": 100 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 21,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Redis BytesUsedForCache",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ElastiCache", "BytesUsedForCache", "CacheClusterId", "${redis_cache_name}", { "stat": "Average", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 27,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## Network + Auth (NAT egress, Cognito)"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 28,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "NAT BytesIn + BytesOut (sum across NATs)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/NATGateway", "BytesInFromDestination", { "stat": "Sum", "period": 300 }],
+          [".", "BytesOutToDestination", { "stat": "Sum", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 28,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Cognito sign-in success vs throttles",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/Cognito", "SignInSuccesses", "UserPool", "${cognito_user_pool_id}", { "stat": "Sum", "period": 900 }],
+          [".", "SignInThrottles", ".", ".", { "stat": "Sum", "period": 900 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    }
+  ]
+}
