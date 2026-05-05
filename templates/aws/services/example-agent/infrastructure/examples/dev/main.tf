@@ -1,19 +1,26 @@
 ###############################################################################
+# MODULE-VALIDATION HARNESS — not the canonical apply target.
+#
+# As of AWS-1.5.1, the canonical apply path is `envs/dev/main.tf`, which
+# composes services/example-agent against the live network/cluster/cognito/
+# ingress modules with direct module-output wiring (no sentinels). This
+# file remains for `terraform validate` against the example-agent
+# composition surface in isolation. The sentinel ARNs below intentionally
+# do not resolve to live resources — `terraform plan` will fail. Use
+# `task dev:up` (envs/dev/) for a real apply.
+###############################################################################
+
+###############################################################################
 # Example: deploy the example-agent service composition to the dev account.
 #
 # This example uses sentinel ARNs for the cluster, log group, network, and
-# ingress wiring because Phase 1 modules are plan-only as of AWS-3.1.
-# `terraform validate` passes; `terraform plan` would fail at apply time
-# because the sentinel ARNs aren't real resources.
-#
-# When Phase 1 is applied, swap the sentinels for `terraform_remote_state`
-# lookups against each module's example backend (or for `data` resource
-# lookups by name).
+# ingress wiring. `terraform validate` passes; `terraform plan` would fail at
+# apply time because the sentinel ARNs aren't real resources.
 #
 # Run from this directory:
 #   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
 #   terraform init
-#   terraform validate            # AWS-3.1 verification stops here
+#   terraform validate            # validation stops here
 ###############################################################################
 
 terraform {

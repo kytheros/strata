@@ -1,4 +1,15 @@
 ###############################################################################
+# MODULE-VALIDATION HARNESS — not the canonical apply target.
+#
+# As of AWS-1.5.1, `envs/dev/main.tf` is the canonical apply path for the
+# dev account. This file is kept around for `terraform validate` / unit-
+# testing changes to aurora-postgres in isolation. The hardcoded VPC + subnet
+# IDs below are stale by design (the orchestrator's apply may rotate them
+# on each cycle) — re-discover them per the steps below if you need to run
+# this harness against a live network apply.
+###############################################################################
+
+###############################################################################
 # Example: deploy the aurora-postgres module to the dev account (624990353897).
 #
 # Prerequisite: the network module has already been applied via

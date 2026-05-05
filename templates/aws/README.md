@@ -8,11 +8,11 @@ This directory holds the Terraform that deploys Strata + the AWS-introspection e
 templates/aws/
 ├── bootstrap/              # AWS-0.1 — state bucket + OIDC. Apply once per account; never destroy.
 ├── modules/                # Reusable Phase 1 modules (network, ecs-*, aurora-postgres, etc.)
-│   └── network/            # AWS-1.1 — VPC + 3-AZ subnets + NAT + 11 endpoints + flow logs
-├── envs/                   # Per-environment backend wiring
-│   └── dev/                # Dev account = 624990353897
-├── services/               # Phase 2/3 — strata-aws-service, example-agent (not yet built)
-├── Taskfile.yml            # `task up` / `task down` controller (see "Operating cadence" below)
+│   └── */examples/basic/   # Standalone validation harnesses — NOT apply targets (sentinel-wired)
+├── services/               # Phase 2/3 service compositions (strata, example-agent)
+├── envs/                   # Per-environment ORCHESTRATORS (canonical apply path)
+│   └── dev/                # AWS-1.5.1 — composes every module with live module-output wiring
+├── Taskfile.yml            # `task dev:up` / `task dev:down` controller — see "Operating cadence"
 └── README.md               # This file
 ```
 
@@ -39,16 +39,39 @@ To keep monthly spend under ~$50, **destroy the stack when you aren't actively w
 # One-time per account: apply bootstrap (state bucket + OIDC). Stays up forever.
 task bootstrap:up
 
-# Start a work session — apply the full dev stack
-task up
+# One-time setup before first dev:up: copy + edit tfvars, push container
+# images. See envs/dev/README.md §"Operational setup before first apply".
+cp envs/dev/terraform.tfvars.example envs/dev/terraform.tfvars
+$EDITOR envs/dev/terraform.tfvars
 
-# Confirm what's deployed and what it costs
+# Start a work session — apply the full dev stack via the orchestrator.
+task dev:up      # alias: task up
+
+# Inspect orchestrator outputs (URLs, ARNs for post-apply commands).
+task dev:output
+
+# Confirm what's deployed and what it costs.
 task status
 task cost
 
-# End the work session — destroy everything except bootstrap
-task down
+# End the work session — destroy everything except bootstrap.
+task dev:down    # alias: task down
 ```
+
+### Two-pass apply on first deploy
+
+`example_agent_app_url` is a chicken-and-egg input — Cognito needs it at
+create time, but it's the API Gateway endpoint that this apply produces.
+Plan accordingly:
+
+1. First `task dev:up` with the placeholder URL in tfvars.
+2. `task dev:output` and copy `ingress_endpoint_dns`.
+3. Update `terraform.tfvars` → `example_agent_app_url = "https://<that>"`.
+4. Second `task dev:up` to wire Cognito callback / logout URLs.
+
+See `envs/dev/README.md` for the full operational setup checklist
+(7 steps including OAuth credentials, image push, post-apply secret
+seeding).
 
 ## Prerequisites
 
@@ -57,24 +80,29 @@ task down
 - `tflint`, `checkov` (optional but the modules document `# checkov:skip` annotations that expect checkov)
 - `task` (https://taskfile.dev) — wraps the destroy/recreate cadence
 
-## Module status (Phase 1 complete — 2026-05-05)
+## Module status (Phase 1.5 closed — 2026-05-05)
 
 | Ticket | Module | Status |
 |---|---|---|
 | AWS-0.1 | bootstrap | ✅ shipped, applied to dev account |
-| AWS-1.1 | modules/network | ✅ shipped + applied (~$265/mo idle while up) |
-| AWS-1.2 | modules/ecs-cluster | ✅ shipped, plan-only (~$1/mo idle CMK) |
-| AWS-1.3 | modules/ecs-service | ✅ shipped, plan-only (~$5/mo per Spot task) |
-| AWS-1.4 | modules/aurora-postgres | ✅ shipped, plan-only (~$17–28/mo idle — RDS Proxy is the floor) |
-| AWS-1.5 | modules/elasticache-redis | ✅ shipped, plan-only (~$11–12/mo idle Serverless floor) |
-| AWS-1.6 | modules/s3-bucket | ✅ shipped, plan-only (~$1/mo per bucket CMK) |
-| AWS-1.7 | modules/cloudfront-dist | ✅ shipped, plan-only (~$8/mo WAF; requires real ACM cert to apply) |
-| AWS-1.8 | modules/cognito-user-pool | ✅ shipped, plan-only (~$0/mo — 50K MAU free tier) |
-| AWS-1.9 | modules/secrets | ✅ shipped, plan-only (~$1.40/mo per secret CMK + secret) |
-| AWS-1.10 | modules/observability | ✅ shipped, plan-only (~$2/mo idle alarms + SNS + dashboard) |
-| AWS-1.11 | modules/ingress | ✅ shipped, plan-only (~$0/mo apigw / ~$16/mo alb) |
+| AWS-1.1 | modules/network | ✅ shipped, composed by orchestrator (~$265/mo idle) |
+| AWS-1.2 | modules/ecs-cluster | ✅ shipped, composed by orchestrator (~$1/mo idle CMK) |
+| AWS-1.3 | modules/ecs-service | ✅ shipped, consumed transitively by services/* |
+| AWS-1.4 | modules/aurora-postgres | ✅ shipped, composed by orchestrator (~$25/mo idle) |
+| AWS-1.5 | modules/elasticache-redis | ✅ shipped, composed by orchestrator (~$11–12/mo idle) |
+| AWS-1.5.1 | **envs/dev/ orchestrator** | ✅ shipped — canonical apply path |
+| AWS-1.6 | modules/s3-bucket | ✅ shipped, NOT in orchestrator (no v1 consumer) |
+| AWS-1.7 | modules/cloudfront-dist | ✅ shipped, NOT in orchestrator (needs real ACM cert) |
+| AWS-1.8 | modules/cognito-user-pool | ✅ shipped, owned by services/example-agent composition |
+| AWS-1.9 | modules/secrets | ✅ shipped, composed by orchestrator + service compositions |
+| AWS-1.10 | modules/observability | ✅ shipped, composed by orchestrator (~$2/mo idle) |
+| AWS-1.11 | modules/ingress | ✅ shipped, composed by orchestrator (apigw, ~$0/mo idle) |
+| AWS-2.1 | services/strata | ✅ shipped, composed by orchestrator (~$8/mo) |
+| AWS-3.1+ | services/example-agent | ✅ shipped, composed by orchestrator (~$6/mo) |
 
-**Phase 1 complete.** Bring the full stack up via `task up` (~35 min, excludes cloudfront-dist which requires a real ACM cert). Tear down via `task down` (~25 min). Idle when fully up: ~$345/mo. Idle when down: ~$0/mo (bootstrap stays up).
+Per-module `examples/basic/` are now **standalone validation harnesses only** — they wire to sentinel locals and are useful for unit-testing module changes in isolation. The canonical apply path is `task dev:up`, which goes through `envs/dev/`. Phase 1.5 closes the gap that blocked Phase 4 (CI/CD) — `AWS-4.1` can now target a single deploy entry point.
+
+Idle when fully up: ~$345/mo. Idle when down: ~$0/mo (bootstrap stays up).
 
 ## Multi-environment expansion (deferred)
 

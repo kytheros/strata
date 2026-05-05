@@ -69,18 +69,70 @@ tasks:
       - terraform destroy
 
   # -------------------------------------------------------------------------
-  # Network — Phase 1 module. ~$265/mo idle when up.
+  # Dev orchestrator (envs/dev/) — AWS-1.5.1. CANONICAL apply path.
+  # Composes every Phase 1 module + Phase 2 + Phase 3 service via direct
+  # module wiring — no sentinels, no remote-state lookups. Idle ~$345/mo.
+  # -------------------------------------------------------------------------
+
+  dev:plan:
+    desc: 'Plan the full dev orchestrator (envs/dev/) — module composition w/ live wiring.'
+    dir: envs/dev
+    deps: [preflight]
+    cmds:
+      - terraform init -upgrade
+      - terraform plan -out plan.tfplan
+
+  dev:up:
+    desc: 'Apply the full dev orchestrator. Brings up every Phase 1+2+3 module in dependency order. ~35 min. +$345/mo.'
+    dir: envs/dev
+    deps: [preflight]
+    cmds:
+      - terraform init
+      - terraform plan -out plan.tfplan
+      - terraform apply plan.tfplan
+
+  dev:down:
+    desc: 'Destroy the full dev orchestrator (reverse dependency order, single state). ~25 min. Frees the entire footprint to ~$0/mo.'
+    dir: envs/dev
+    deps: [preflight]
+    cmds:
+      - terraform destroy -auto-approve
+
+  dev:status:
+    desc: 'Show resources currently managed by the dev orchestrator.'
+    dir: envs/dev
+    cmds:
+      - terraform state list
+
+  dev:output:
+    desc: 'Show orchestrator outputs (URLs, ARNs operators copy into post-apply commands).'
+    dir: envs/dev
+    cmds:
+      - terraform output
+
+  # -------------------------------------------------------------------------
+  # Per-module validation harnesses (DEPRECATED as apply targets).
+  #
+  # The `*:up` / `*:down` tasks below remain for INDIVIDUAL MODULE testing
+  # (e.g. iterating on modules/aurora-postgres without bringing the full
+  # stack up). They wire to the per-module examples/basic/ directories,
+  # which use sentinel locals and do NOT compose with each other. The
+  # canonical apply path is `task dev:up`.
+  # -------------------------------------------------------------------------
+
+  # -------------------------------------------------------------------------
+  # Network — Phase 1 module. ~$265/mo idle when up. (validation harness)
   # -------------------------------------------------------------------------
 
   network:plan:
-    desc: 'Plan network changes (no mutation)'
+    desc: 'Plan network changes against the standalone validation harness (no mutation). For full-stack plans, use `task dev:plan`.'
     dir: modules/network/examples/basic
     cmds:
       - terraform init -upgrade
       - terraform plan -out plan.tfplan
 
   network:up:
-    desc: 'Apply network module (VPC + endpoints + NAT). ~6–8 min. +$265/mo.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone network harness (VPC + endpoints + NAT). ~6–8 min. +$265/mo.'
     dir: modules/network/examples/basic
     deps: [preflight]
     cmds:
@@ -113,7 +165,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   ecs-cluster:up:
-    desc: 'Apply ecs-cluster module (Fargate + Spot + KMS-encrypted logs). +$1/mo.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone ecs-cluster harness. +$1/mo.'
     dir: modules/ecs-cluster/examples/basic
     deps: [preflight]
     cmds:
@@ -146,7 +198,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   s3-bucket:up:
-    desc: 'Apply s3-bucket module (versioned + SSE-KMS + optional OAC). +$1/mo per bucket.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone s3-bucket harness. +$1/mo per bucket.'
     dir: modules/s3-bucket/examples/basic
     deps: [preflight]
     cmds:
@@ -179,7 +231,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   secrets:up:
-    desc: 'Apply secrets module example (Secrets Manager + per-secret CMK). +$1.40/mo per secret.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone secrets harness. +$1.40/mo per secret.'
     dir: modules/secrets/examples/basic
     deps: [preflight]
     cmds:
@@ -212,7 +264,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   elasticache-redis:up:
-    desc: 'Apply elasticache-redis module (Serverless Redis + TLS + AUTH + per-cache CMK). ~5–7 min. +$11–12/mo.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone elasticache-redis harness. ~5–7 min. +$11–12/mo.'
     dir: modules/elasticache-redis/examples/basic
     deps: [preflight]
     cmds:
@@ -245,7 +297,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   cognito-user-pool:up:
-    desc: 'Apply cognito-user-pool module (user pool + 5 groups + 3 Lambda triggers + Hosted UI). ~1 min. ~$0/mo.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone cognito-user-pool harness. ~1 min. ~$0/mo.'
     dir: modules/cognito-user-pool/examples/basic
     deps: [preflight]
     cmds:
@@ -278,7 +330,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   aurora-postgres:up:
-    desc: 'Apply aurora-postgres module (Serverless v2 + RDS Proxy + scale-to-zero). ~10–15 min. +$17–28/mo.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone aurora-postgres harness. ~10–15 min. +$17–28/mo.'
     dir: modules/aurora-postgres/examples/basic
     deps: [preflight]
     cmds:
@@ -311,7 +363,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   ingress:up:
-    desc: 'Apply ingress module — APIGW backend (HTTP API + VPC link). ~$0/mo idle.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone ingress harness (APIGW backend). ~$0/mo idle.'
     dir: modules/ingress/examples/apigw
     deps: [preflight]
     cmds:
@@ -379,7 +431,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   ecs-service:up:
-    desc: 'Apply ecs-service example/basic (1 Fargate Spot task, no LB). +$5/mo. Requires ecs-cluster:up first.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone ecs-service harness (1 Fargate Spot task, no LB). +$5/mo.'
     dir: modules/ecs-service/examples/basic
     deps: [preflight]
     cmds:
@@ -415,7 +467,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   strata-service:up:
-    desc: 'Apply strata-service example/dev (1 Fargate Spot task running ghcr.io/kytheros/strata-mcp). +$8/mo. Requires Phase 1 stack up.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone strata-service harness (sentinel-wired, validation-only). Use dev:up for the real composition.'
     dir: services/strata/examples/dev
     deps: [preflight]
     cmds:
@@ -450,7 +502,7 @@ tasks:
       - terraform validate
 
   example-agent:up:
-    desc: 'Apply example-agent service (Cognito + SSM allowlist + Fargate task). +$6/mo. Requires Phase 1 + AWS-2.1 applied.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone example-agent harness (sentinel-wired, validation-only). Use dev:up for the real composition.'
     dir: services/example-agent/infrastructure/examples/dev
     deps: [preflight]
     cmds:
@@ -496,7 +548,7 @@ tasks:
       - terraform plan -out plan.tfplan
 
   observability:up:
-    desc: 'Apply observability module (8 alarms incl. NAT anomaly + SLO dashboard + SNS topic). +$2/mo idle.'
+    desc: '[DEPRECATED — use dev:up] Apply standalone observability harness (NAT anomaly + SLO dashboard + SNS topic). +$2/mo idle.'
     dir: modules/observability/examples/basic
     deps: [preflight]
     cmds:
@@ -518,101 +570,57 @@ tasks:
       - terraform state list
 
   # -------------------------------------------------------------------------
-  # Stack — bring the full dev stack up or down in dependency order.
-  # Add modules to up:/down: as Phase 1 tickets land.
+  # Stack — top-level aliases. As of AWS-1.5.1 these delegate to the dev
+  # orchestrator (envs/dev/), a SINGLE Terraform state with module
+  # composition rather than a chain of per-module applies.
   # -------------------------------------------------------------------------
 
   up:
-    desc: 'Apply the full Phase 1 dev stack (sequenced). 10 modules; ~35 min total. Excludes cloudfront-dist (needs real ACM cert).'
+    desc: 'Apply the full dev stack via the orchestrator (envs/dev/). ~35 min. +$345/mo. Excludes cloudfront-dist (needs real ACM cert).'
     cmds:
-      - task: network:up
-      - task: ecs-cluster:up
-      - task: s3-bucket:up
-      - task: secrets:up
-      - task: cognito-user-pool:up
-      - task: elasticache-redis:up
-      - task: aurora-postgres:up
-      - task: ingress:up
-      - task: ecs-service:up
-      - task: strata-service:up
-      - task: example-agent:up
-      - task: observability:up
-      # Excluded by default — requires real ACM cert in us-east-1:
-      # - task: cloudfront-dist:up
+      - task: dev:up
 
   down:
-    desc: 'Destroy the full Phase 1 dev stack (reverse order). Frees the entire footprint to ~$0/mo.'
+    desc: 'Destroy the full dev stack via the orchestrator. ~25 min. Frees the entire footprint to ~$0/mo.'
     cmds:
-      - task: observability:down
-      - task: example-agent:down
-      - task: strata-service:down
-      - task: ecs-service:down
-      # cloudfront-dist:down only if previously applied
-      - task: ingress:down
-      - task: aurora-postgres:down
-      - task: elasticache-redis:down
-      - task: cognito-user-pool:down
-      - task: secrets:down
-      - task: s3-bucket:down
-      - task: ecs-cluster:down
-      - task: network:down
+      - task: dev:down
 
   status:
-    desc: 'Show what is currently deployed'
+    desc: 'Show what is currently deployed via the dev orchestrator + bootstrap.'
     cmds:
       - task: whoami
       - 'echo --- Bootstrap ---'
       - task: bootstrap:status
-      - 'echo --- Network ---'
-      - task: network:status
-      - 'echo --- ECS cluster ---'
-      - task: ecs-cluster:status
-      - 'echo --- S3 bucket (example) ---'
-      - task: s3-bucket:status
-      - 'echo --- Secrets (example) ---'
-      - task: secrets:status
-      - 'echo --- Cognito user pool (example) ---'
-      - task: cognito-user-pool:status
-      - 'echo --- ElastiCache Redis (example) ---'
-      - task: elasticache-redis:status
-      - 'echo --- Aurora Postgres (example) ---'
-      - task: aurora-postgres:status
-      - 'echo --- Ingress (example) ---'
-      - task: ingress:status
-      - 'echo --- CloudFront (example) ---'
-      - task: cloudfront-dist:status
-      - 'echo --- ECS service (example) ---'
-      - task: ecs-service:status
-      - 'echo --- Strata service (example) ---'
-      - task: strata-service:status
-      - 'echo --- Example-agent service (example) ---'
-      - task: example-agent:status
-      - 'echo --- Observability (example) ---'
-      - task: observability:status
+      - 'echo --- Dev orchestrator (envs/dev/) ---'
+      - task: dev:status
 
   # -------------------------------------------------------------------------
   # Cost — quick reminder of what is burning money right now.
   # -------------------------------------------------------------------------
 
   cost:
-    desc: 'Print rough monthly idle cost of currently deployed modules'
+    desc: 'Print rough monthly idle cost of the dev orchestrator stack.'
     silent: true
     cmds:
       - |
-        echo "Cost reference (always-on idle, dev account, no traffic):"
+        echo "Cost reference for the dev orchestrator (always-on idle, dev account, no traffic):"
         echo ""
-        echo "  bootstrap:           ~\$0/mo  (always up)"
-        echo "  network:             ~\$265/mo (NAT x2 + 9 endpoints x 3 AZ + flow logs)"
-        echo "  ecs-cluster:         ~\$1/mo  (CMK only; Fargate has no cluster fee)"
-        echo "  s3-bucket (per buc): ~\$1/mo  (CMK; storage = use-based)"
-        echo "  secrets (per sec):   ~\$1.40/mo (CMK + secret floor)"
-        echo "  ecs-service x 2:     ~\$18/mo (Strata + example-agent on Fargate Spot)"
-        echo "  strata-service:      ~\$8/mo  (1 Fargate Spot task + 2 secrets w/ CMKs)"
-        echo "  aurora + rds-proxy:  ~\$25/mo (v2 auto-pauses; proxy does not)"
-        echo "  redis serverless:    ~\$11–12/mo (ECPU + storage minimums + CMK + AUTH-token secret)"
-        echo "  alb (via ingress):   ~\$16/mo (always-on when backend=alb)"
-        echo "  cloudwatch logs:     ~\$3/mo"
-        echo "                       --------"
-        echo "  full Phase 1 idle:   ~\$345/mo"
+        echo "  bootstrap:               ~\$0/mo   (always up — S3 state + DynamoDB lock)"
+        echo "  network (1.1):           ~\$265/mo (NAT x2 + 9 interface endpoints x 3 AZ + flow logs)"
+        echo "  ecs-cluster (1.2):       ~\$1/mo   (per-cluster CMK only; Fargate has no cluster fee)"
+        echo "  aurora-postgres (1.4):   ~\$25/mo  (RDS Proxy floor; Aurora Serverless v2 auto-pauses to ~\$0)"
+        echo "  elasticache-redis (1.5): ~\$11–12/mo (ECPU + storage minimums + per-cache CMK + AUTH-token secret)"
+        echo "  cognito-user-pool (1.8): ~\$0/mo   (50K MAU free tier — owned by example-agent)"
+        echo "  ingress apigw (1.11):    ~\$0/mo   (HTTP API + VPC Link — request-priced, idle is free)"
+        echo "  observability (1.10):    ~\$2/mo   (8 alarms + SNS + dashboard + SNS-topic CMK)"
+        echo "  secrets module:          ~\$3/mo   (Anthropic API key + 2 strata-service synthesized secrets)"
+        echo "  strata-service (2.1):    ~\$8/mo   (1 Fargate Spot task)"
+        echo "  example-agent (3.x):     ~\$6/mo   (1 Fargate Spot task + allowlist CMK + 2 lambda log groups)"
+        echo "  cloudwatch logs:         ~\$3/mo"
+        echo "                           --------"
+        echo "  dev orchestrator idle:   ~\$345/mo"
+        echo ""
+        echo "  cloudfront-dist (1.7):   ~\$8/mo   (NOT in orchestrator — apply standalone with real ACM cert)"
+        echo "  alb (ingress backend):   ~\$16/mo  (NOT in dev — staging/prod tfvars override backend=alb)"
         echo ""
         echo "Use 'task down' between work sessions to drop to bootstrap-only (~\$0/mo)."

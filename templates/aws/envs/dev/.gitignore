@@ -1,0 +1,22 @@
+# Operator-supplied tfvars — never commit (may contain ARNs that leak account
+# layout, and we use lifecycle.ignore_changes for sensitive values).
+terraform.tfvars
+
+# Plan output — generated artifact. The PR comment captures plan summary;
+# binary plan files are large and flagged by GitHub for >10 MB diffs.
+plan.tfplan
+*.tfplan
+
+# Local-state spillover — should never appear when the S3 backend is wired,
+# but ignore as a safety net (a `terraform init` mistype could create one).
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate.*.backup
+
+# Provider plugin cache — re-downloaded on init.
+.terraform/
+.terraform.lock.hcl.bak
+
+# checkov / tflint output, if any tool drops it here.
+.checkov.yml.bak
+.tflint.d/

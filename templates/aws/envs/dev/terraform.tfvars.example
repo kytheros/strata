@@ -1,0 +1,80 @@
+###############################################################################
+# Strata-on-AWS dev orchestrator — example tfvars.
+#
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored — never
+# commit credential ARNs or operator-specific values to the repo.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#   $EDITOR terraform.tfvars
+#   task dev:plan
+###############################################################################
+
+aws_region = "us-east-1"
+vpc_cidr   = "10.40.0.0/16"
+
+# ---------------------------------------------------------------------------
+# Public URL where the example-agent UI is served.
+#
+# Two-pass apply pattern: on FIRST apply, leave this as a placeholder host
+# (any well-formed `https://<host>` is fine — Cognito just needs *something*
+# at create time). After the first apply lands the ingress, run:
+#
+#   terraform output -raw ingress_endpoint_dns
+#
+# ...and update this value to `https://<endpoint>`, then re-apply. Cognito
+# will reissue the callback / logout URLs to point at the live ingress.
+# ---------------------------------------------------------------------------
+example_agent_app_url = "https://placeholder.execute-api.us-east-1.amazonaws.com"
+
+# ---------------------------------------------------------------------------
+# Google OAuth federation. Optional — leave empty to ship Cognito local
+# accounts only. If enabled:
+#
+#   1. Create the OAuth app at https://console.cloud.google.com/apis/credentials
+#   2. Store the client SECRET in Secrets Manager:
+#        aws secretsmanager create-secret \
+#          --name google-oauth-client-secret \
+#          --secret-string "<the-secret>"
+#   3. Populate the ID + ARN below.
+# ---------------------------------------------------------------------------
+# google_client_id         = "1234567890-abcdefg.apps.googleusercontent.com"
+# google_client_secret_arn = "arn:aws:secretsmanager:us-east-1:624990353897:secret:google-oauth-client-secret-XXXXXX"
+
+# ---------------------------------------------------------------------------
+# Initial allowlist seed for example-agent dev access. Federated users not
+# in this list are rejected at PreSignUp. Operators add/remove post-apply
+# via:
+#
+#   aws ssm put-parameter \
+#     --name <allowlist_ssm_path> \
+#     --value '["a@b.com","c@d.com"]' \
+#     --type SecureString \
+#     --overwrite
+# ---------------------------------------------------------------------------
+allowlist_emails = [
+  "mkavalich@gmail.com",
+]
+
+# ---------------------------------------------------------------------------
+# Alarm subscribers — empty by default. Confirm SES/SNS the email before
+# expecting alerts.
+# ---------------------------------------------------------------------------
+# alarm_subscribers = [
+#   { protocol = "email", endpoint = "mkavalich@gmail.com" },
+# ]
+
+# ---------------------------------------------------------------------------
+# Container images.
+#
+# Strata uses the published community image — no build pipeline needed.
+# example-agent must be built + pushed to ECR before first apply:
+#
+#   cd templates/aws/services/example-agent/app
+#   aws ecr get-login-password --region us-east-1 | \
+#     docker login --username AWS --password-stdin 624990353897.dkr.ecr.us-east-1.amazonaws.com
+#   docker build -t example-agent:dev .
+#   docker tag example-agent:dev 624990353897.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev
+#   docker push 624990353897.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev
+# ---------------------------------------------------------------------------
+strata_container_image        = "ghcr.io/kytheros/strata-mcp:latest"
+example_agent_container_image = "624990353897.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev"

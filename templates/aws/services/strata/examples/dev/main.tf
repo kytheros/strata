@@ -1,4 +1,18 @@
 ###############################################################################
+# MODULE-VALIDATION HARNESS — not the canonical apply target.
+#
+# As of AWS-1.5.1, the canonical apply path is `envs/dev/main.tf`, which
+# composes services/strata against the live network/cluster/aurora/redis/
+# cognito/ingress modules with direct module-output wiring (no sentinels).
+# This file remains for `terraform init -backend=false && terraform
+# validate` checks against the services/strata composition surface in
+# isolation. The sentinel ARNs below intentionally do not resolve to live
+# resources — `terraform plan` from this directory will always need either
+# a real account with the AWS-1.x harnesses applied or the `envs/dev/`
+# orchestrator path.
+###############################################################################
+
+###############################################################################
 # Example: Strata-on-AWS service against the dev account (624990353897).
 #
 # This example wires `services/strata` against sentinel outputs that match
