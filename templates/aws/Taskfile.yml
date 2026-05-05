@@ -471,6 +471,18 @@ tasks:
     cmds:
       - terraform state list
 
+  example-agent:test:
+    desc: 'Run the per-tool unit tests for the example-agent SDK tool catalog (AWS-3.3).'
+    dir: services/example-agent/app
+    cmds:
+      - npm run test
+
+  example-agent:simulate-iam:
+    desc: 'Run the iam-policy-simulator regression check against the deployed example-agent task role.'
+    dir: services/example-agent/infrastructure
+    cmds:
+      - bash test/iam-policy-simulator.test.sh
+
   # -------------------------------------------------------------------------
   # Observability — AWS-1.10. ~$2/mo idle (alarms + CMK + SNS).
   # examples/basic wires only NAT anomaly alarms against the live VPC.

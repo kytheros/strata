@@ -237,6 +237,46 @@ variable "container_port" {
 }
 
 ###############################################################################
+# ElastiCache Redis (AWS-3.3) — LRU cache for the SDK tool catalog.
+#
+# The example-agent's tool wrappers cache every read-only AWS SDK call to
+# ElastiCache Redis Serverless with per-tool TTLs (30s for log tails,
+# 1h for STS/cost). Caller passes the elasticache-redis module's outputs:
+#   redis_endpoint   = module.cache.endpoint
+#   redis_port       = module.cache.port
+#   redis_auth_secret_arn = module.cache.auth_secret_arn
+#   redis_auth_secret_consumer_iam_policy_json =
+#     module.cache.auth_secret_consumer_iam_policy_json
+# Empty defaults keep `terraform validate` green when the cache module
+# isn't applied yet — the application gracefully falls through to direct
+# SDK calls when REDIS_ENDPOINT is unset.
+###############################################################################
+
+variable "redis_endpoint" {
+  description = "ElastiCache Redis Serverless endpoint hostname. Empty disables caching — every SDK call fires fresh."
+  type        = string
+  default     = ""
+}
+
+variable "redis_port" {
+  description = "Redis port. Defaults to 6379 (ElastiCache Serverless standard)."
+  type        = number
+  default     = 6379
+}
+
+variable "redis_auth_secret_arn" {
+  description = "Secrets Manager ARN holding the Redis AUTH token. Sourced from elasticache-redis module's auth_secret_arn output. Empty disables caching."
+  type        = string
+  default     = ""
+}
+
+variable "redis_auth_secret_consumer_iam_policy_json" {
+  description = "Pre-baked least-privilege policy JSON granting GetSecretValue + KMS Decrypt on the Redis AUTH secret + its CMK. Sourced from elasticache-redis module's auth_secret_consumer_iam_policy_json output. Empty when caching is disabled."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
 # Tags
 ###############################################################################
 

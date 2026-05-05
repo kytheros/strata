@@ -1,0 +1,87 @@
+// tail_recent_logs — CloudWatch Logs FilterLogEvents over a configurable
+// log group + lookback window. Returns the last 50 events.
+//
+// TTL: 30s. Log queries are time-sensitive enough that 30s is the
+// shortest reasonable cache; identical follow-up questions in the same
+// chat turn don't re-hit the API.
+
+import {
+  CloudWatchLogsClient,
+  FilterLogEventsCommand,
+} from '@aws-sdk/client-cloudwatch-logs';
+import type { Tool } from '@anthropic-ai/sdk/resources/messages';
+import type { ToolContext, ToolResult } from './context';
+import { shortHash } from '../cache';
+
+export const TOOL_DEFINITION: Tool = {
+  name: 'tail_recent_logs',
+  description: `**Purpose:** Tail the most recent log events from a CloudWatch log group, optionally filtered by a CloudWatch Logs filter pattern (e.g. \`ERROR\`, \`?WARN ?error\`).
+**When to use:** When investigating "what just happened" — a 500 a user reported, an alarm that just triggered, an unexpected restart. Pair with \`list_active_alarms\` (which alarm fired?) and \`list_ecs_services\` (is the service still running?).
+**Prerequisites:** None. Defaults to a curated log group prefix; pass \`logGroupName\` to override.
+**Anti-pattern:** Don't use this to count occurrences over a long window — call CloudWatch Logs Insights via a different tool (not yet shipped). Don't request more than 50 events; the wrapper caps at 50 to keep the tool result token-efficient.`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      logGroupName: {
+        type: 'string',
+        description:
+          'Log group name (e.g. /ecs/strata-dev). Defaults to the agent\'s curated group.',
+      },
+      lookbackMinutes: {
+        type: 'number',
+        description: 'How far back in minutes to scan. Default 15.',
+      },
+      filterPattern: {
+        type: 'string',
+        description:
+          'CloudWatch Logs filter pattern (e.g. ERROR, ?WARN ?error). Empty matches everything.',
+      },
+    },
+    additionalProperties: false,
+  },
+};
+
+interface Input {
+  logGroupName?: string;
+  lookbackMinutes?: number;
+  filterPattern?: string;
+}
+
+export async function execute(
+  input: Input,
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  const logGroupName = input.logGroupName ?? ctx.logGroupPrefix;
+  const lookbackMinutes = input.lookbackMinutes ?? 15;
+  const filterPattern = input.filterPattern ?? '';
+  const cacheKey = `tail_recent_logs:${shortHash({ logGroupName, lookbackMinutes, filterPattern })}`;
+  const cached = await ctx.cache.get<ToolResult>(cacheKey);
+  if (cached) return cached;
+
+  const startTime = Date.now() - lookbackMinutes * 60 * 1000;
+  const cwl = new CloudWatchLogsClient({ region: ctx.region });
+  const out = await cwl.send(
+    new FilterLogEventsCommand({
+      logGroupName,
+      startTime,
+      filterPattern: filterPattern || undefined,
+      limit: 50,
+    }),
+  );
+
+  const events = (out.events ?? []).map((e) => ({
+    timestamp: e.timestamp ? new Date(e.timestamp).toISOString() : null,
+    message: (e.message ?? '').slice(0, 500),
+    logStream: e.logStreamName ?? null,
+  }));
+
+  const result: ToolResult = {
+    logGroupName,
+    lookbackMinutes,
+    filterPattern,
+    eventCount: events.length,
+    events,
+  };
+  await ctx.cache.set(cacheKey, result, { ttlSec: 30 });
+  return result;
+}

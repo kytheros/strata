@@ -433,10 +433,46 @@ module "anthropic_api_key" {
 # task_role policy with the ReadOnlyAccess + deny-IAM/Secrets/KMS pair.
 ###############################################################################
 
-# Task role consumes (a) the SSM allowlist read (still useful for tooling
-# inside the agent), (b) the Cognito client secret + Anthropic API key via
-# the secrets module's consumer policies, and (c) — passed through —
-# the Strata auth-proxy token if the caller wired one.
+# Task role policy graph (AWS-3.3):
+#
+#   Managed:  ReadOnlyAccess  ── grants ~700 Get/List/Describe actions
+#                                  across most AWS services (ECS, RDS,
+#                                  EC2, S3, CloudWatch, etc.). This is
+#                                  the broad surface the SDK tool catalog
+#                                  needs for read-only introspection.
+#
+#   Inline:   deny-iam-secrets-kms-reads ── strips three sensitive
+#                                  surfaces back out (~30 actions) per
+#                                  the design spec §"Example-agent IAM
+#                                  scope". An explicit Deny always wins
+#                                  over the managed Allow, so the net
+#                                  scope is "ReadOnly minus
+#                                  IAM/Secrets/KMS reads".
+#
+#   Inline:   ssm-allowlist-read  ── allowlist parameter still useful
+#                                  for tooling inside the agent.
+#
+#   Inline:   secret-cognito-client + secret-anthropic-api-key + (opt)
+#             secret-strata-auth-proxy-token + secret-redis-auth ──
+#                                  the runtime-secret consumer policies
+#                                  the ECS task definition's secrets[]
+#                                  block needs to resolve at task start.
+#
+# The deny policy explicitly does NOT name the runtime secrets — the
+# secret-* consumer policies issue narrow Allow statements scoped to
+# specific ARNs, but a Deny that matches those ARNs would shadow them.
+# We use action-level denies (secretsmanager:Get*) only when not
+# overridden by a more specific Allow on a specific ARN. AWS evaluates
+# explicit Deny first; an explicit Deny on action ANY-ARN beats an
+# explicit Allow on action SPECIFIC-ARN. THAT IS A PROBLEM for the
+# runtime secrets — so the `deny-iam-secrets-kms-reads` policy below
+# uses a NotResource carve-out for the runtime-secret ARNs the task
+# legitimately needs.
+#
+# See iam-policy-simulator gate in infrastructure/test/ for the regression
+# check that confirms the deny works against arbitrary ARNs but not the
+# allowlisted runtime ones.
+
 data "aws_iam_policy_document" "task_role_stub" {
   statement {
     sid       = "AllowSsmGetAllowlist"
@@ -450,6 +486,72 @@ data "aws_iam_policy_document" "task_role_stub" {
     effect    = "Allow"
     actions   = ["kms:Decrypt"]
     resources = [aws_kms_key.allowlist.arn]
+  }
+}
+
+# ---- AWS-3.3: deny IAM/Secrets/KMS reads (with carve-outs) -----------------
+#
+# `iam:Get*/List*/Simulate*` — flat deny. The agent never needs to enumerate
+#   IAM. There is no carve-out: if a user asks "what roles do I have?", the
+#   agent is supposed to refuse and suggest the AWS Console.
+#
+# `secretsmanager:Get*/List*/Describe*` — deny-by-default with NotResource
+#   exceptions for the runtime secrets the task definition resolves at
+#   start: cognito-client-secret, anthropic-api-key, optionally
+#   strata-auth-proxy-token + redis-auth-secret. Without the carve-out
+#   the deny would shadow the secret-* consumer Allow statements and the
+#   task would fail to start.
+#
+# `kms:Get*/List*/Describe*` — flat deny. Decrypt is NOT denied (the
+#   ECS task execution role uses kms:Decrypt to unwrap secrets at start;
+#   our task role doesn't have it on arbitrary ARNs anyway).
+
+locals {
+  # Runtime-secret ARNs the deny policy must NOT shadow. Computed from
+  # the secrets-module outputs so they're always in sync.
+  runtime_secret_arns = compact([
+    module.cognito_client_secret.secret_arn,
+    module.anthropic_api_key.secret_arn,
+    var.strata_auth_proxy_token_secret_arn,
+    var.redis_auth_secret_arn,
+  ])
+}
+
+data "aws_iam_policy_document" "deny_iam_secrets_kms_reads" {
+  statement {
+    sid    = "DenyIAMReads"
+    effect = "Deny"
+    actions = [
+      "iam:Get*",
+      "iam:List*",
+      "iam:Simulate*",
+    ]
+    resources = ["*"]
+  }
+
+  # Secrets Manager: deny everything except the runtime ARNs the task
+  # legitimately needs. NotResource is a "match any resource other than
+  # these" — exactly what we want here.
+  statement {
+    sid    = "DenySecretsManagerReads"
+    effect = "Deny"
+    actions = [
+      "secretsmanager:Get*",
+      "secretsmanager:List*",
+      "secretsmanager:Describe*",
+    ]
+    not_resources = local.runtime_secret_arns
+  }
+
+  statement {
+    sid    = "DenyKmsReads"
+    effect = "Deny"
+    actions = [
+      "kms:Get*",
+      "kms:List*",
+      "kms:Describe*",
+    ]
+    resources = ["*"]
   }
 }
 
@@ -485,15 +587,25 @@ module "ecs_service" {
       environment = concat(
         [
           { name = "AWS_REGION", value = var.aws_region },
+          { name = "ENV_NAME", value = var.env_name },
           { name = "COGNITO_USER_POOL_ID", value = module.cognito_user_pool.user_pool_id },
           { name = "COGNITO_CLIENT_ID", value = module.cognito_user_pool.user_pool_client_id },
           { name = "COGNITO_HOSTED_UI_DOMAIN", value = module.cognito_user_pool.hosted_ui_domain },
           { name = "COGNITO_REQUIRED_GROUP", value = "approved" },
           { name = "APP_URL", value = var.app_url },
           { name = "ALLOWLIST_SSM_PATH", value = aws_ssm_parameter.allowlist.name },
+          # AWS-3.3: introspection defaults. Tools fall back to these
+          # when no explicit override is passed in the call.
+          { name = "ECS_CLUSTER_NAME", value = "strata-${var.env_name}" },
+          { name = "AURORA_CLUSTER_ID", value = "strata-${var.env_name}" },
+          { name = "LOG_GROUP_PREFIX", value = "/ecs/strata-${var.env_name}" },
         ],
         local.strata_internal_url_effective != "" ? [
           { name = "STRATA_INTERNAL_URL", value = local.strata_internal_url_effective },
+        ] : [],
+        var.redis_endpoint != "" ? [
+          { name = "REDIS_ENDPOINT", value = var.redis_endpoint },
+          { name = "REDIS_PORT", value = tostring(var.redis_port) },
         ] : [],
       )
       secrets = concat(
@@ -511,6 +623,12 @@ module "ecs_service" {
           {
             name       = "STRATA_AUTH_PROXY_TOKEN"
             value_from = var.strata_auth_proxy_token_secret_arn
+          },
+        ] : [],
+        var.redis_auth_secret_arn != "" ? [
+          {
+            name       = "REDIS_AUTH_TOKEN"
+            value_from = var.redis_auth_secret_arn
           },
         ] : [],
       )
@@ -535,24 +653,42 @@ module "ecs_service" {
   apigw_api_id                = var.ingress_backend == "apigw" ? var.apigw_api_id : ""
   apigw_integration_uri       = var.ingress_backend == "apigw" ? var.apigw_integration_uri : ""
 
-  # Stub task role — AWS-3.3 replaces with ReadOnlyAccess + deny.
-  task_role_inline_policies = [
-    {
-      name        = "ssm-allowlist-read"
-      policy_json = data.aws_iam_policy_document.task_role_stub.json
-    },
-    {
-      name        = "secret-cognito-client"
-      policy_json = module.cognito_client_secret.consumer_iam_policy_json
-    },
-    {
-      name        = "secret-anthropic-api-key"
-      policy_json = module.anthropic_api_key.consumer_iam_policy_json
-    },
-  ]
+  # AWS-3.3: ReadOnlyAccess (managed) + deny-iam-secrets-kms-reads (inline)
+  # + the runtime-secret consumer policies. The consumer policies issue
+  # narrow Allow on specific ARNs; the deny policy uses NotResource
+  # carve-outs for those same ARNs so the deny doesn't shadow them.
+  task_role_inline_policies = concat(
+    [
+      {
+        name        = "ssm-allowlist-read"
+        policy_json = data.aws_iam_policy_document.task_role_stub.json
+      },
+      {
+        name        = "deny-iam-secrets-kms-reads"
+        policy_json = data.aws_iam_policy_document.deny_iam_secrets_kms_reads.json
+      },
+      {
+        name        = "secret-cognito-client"
+        policy_json = module.cognito_client_secret.consumer_iam_policy_json
+      },
+      {
+        name        = "secret-anthropic-api-key"
+        policy_json = module.anthropic_api_key.consumer_iam_policy_json
+      },
+    ],
+    var.redis_auth_secret_consumer_iam_policy_json != "" ? [
+      {
+        name        = "secret-redis-auth"
+        policy_json = var.redis_auth_secret_consumer_iam_policy_json
+      },
+    ] : [],
+  )
 
-  # AWS-3.3 will add: arn:aws:iam::aws:policy/ReadOnlyAccess.
-  task_role_managed_policy_arns = []
+  # ReadOnlyAccess provides the ~700 Get/List/Describe actions the SDK
+  # tool catalog needs. Deny statements above strip ~30 of them back out.
+  task_role_managed_policy_arns = [
+    "arn:${data.aws_partition.current.partition}:iam::aws:policy/ReadOnlyAccess",
+  ]
 
   extra_tags = local.default_tags
 }

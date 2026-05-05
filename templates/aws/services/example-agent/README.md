@@ -153,24 +153,105 @@ Strata trusts the upstream proxy (this service): it requires `X-Strata-User` + `
 
 The internal URL is derived from `var.cluster_service_connect_namespace` + `var.strata_internal_port` (defaulting to 3000). When Service Connect isn't yet wired, callers can pass `var.strata_internal_url` directly to override.
 
-## Handoff to AWS-3.3
+## AWS-3.3 — SDK tool catalog + agent loop + IAM lockdown (shipped)
 
-AWS-3.3 lands the SDK tool catalog + the IAM policy + the Anthropic loop:
+Phase 3 closer. The chat backend at `/api/chat` is now an Anthropic SDK
+tool-use loop with 10 hand-tuned read-only AWS SDK wrappers, an
+ElastiCache LRU, and a hardened IAM policy.
 
-1. Replace `task_role_inline_policies` (currently a stub allowing only SSM allowlist read + KMS decrypt + the secrets-module consumer policies) with the real policy: `arn:aws:iam::aws:policy/ReadOnlyAccess` (managed) plus an inline deny statement covering `iam:Get*/List*/Simulate*`, `secretsmanager:Get*/List*/Describe*`, `kms:Get*/List*/Describe*` per the design spec §"Example-agent IAM scope."
-2. Implement the ~10 SDK tool wrappers under `app/app/lib/tools/` with rich descriptions, JSON-Schema inputs, post-processing, and per-tool ElastiCache TTLs.
-3. Wire the wrappers into the Anthropic SDK tool-use loop on `/api/chat/route.ts`. The Anthropic API key is already present at `process.env.ANTHROPIC_API_KEY`, sourced from `module.anthropic_api_key.secret_arn` (operator seeds the value via `aws secretsmanager put-secret-value` post-apply).
-4. Add a recall step that calls `strataClient.searchHistory({ query: userMessage })` and threads the results into the system prompt.
-5. Add `iam-policy-simulator` CI gate that asserts the deny statements actually deny against fixture principals.
+### Tool catalog
 
-## Handoff to AWS-3.3
+`app/app/lib/tools/` — 10 tools, one file each. Every tool follows the
+same shape: an Anthropic `Tool` definition (purpose / when-to-use /
+prerequisites / anti-pattern), an `execute(input, ctx)` async function,
+ElastiCache caching via the shared `ToolCache`. The dispatcher lives at
+`app/app/lib/tools/index.ts`.
 
-AWS-3.3 lands the SDK tool catalog + the IAM policy + the Anthropic loop:
+| Tool | Returns | TTL |
+|---|---|---|
+| `who_am_i` | STS GetCallerIdentity | 1h |
+| `list_ecs_services` | service summary + task counts | 60s |
+| `describe_aurora_cluster` | engine/version/endpoint/capacity/encryption | 5m |
+| `list_active_alarms` | CloudWatch alarms in ALARM | 60s |
+| `tail_recent_logs` | last 50 events from a log group | 30s |
+| `list_vpc_resources` | VPCs / subnets / NAT GWs / VPC endpoints | 5m |
+| `describe_load_balancers` | ELBv2 + target group bindings | 5m |
+| `s3_bucket_summary` | bucket inventory + encryption | 1h |
+| `cost_last_7_days` | top services by spend (Cost Explorer) | 1h |
+| `infrastructure_topology` | composite of vpc + ecs + aurora + lbs | 5m |
 
-1. Replace `task_role_inline_policies` (currently a stub allowing only SSM allowlist read + KMS decrypt) with the real policy: `arn:aws:iam::aws:policy/ReadOnlyAccess` (managed) plus an inline deny statement covering `iam:Get*/List*/Simulate*`, `secretsmanager:Get*/List*/Describe*`, `kms:Get*/List*/Describe*` per the design spec §"Example-agent IAM scope."
-2. Implement the ~10 SDK tool wrappers under `app/app/lib/tools/` with rich descriptions, JSON-Schema inputs, post-processing, and per-tool ElastiCache TTLs.
-3. Wire the wrappers into the Anthropic SDK tool-use loop on `/api/chat/route.ts`.
-4. Add `iam-policy-simulator` CI gate that asserts the deny statements actually deny against fixture principals.
+### Agent loop
+
+`app/app/lib/agent-loop.ts`. Sonnet-4-6, 4096 max-tokens,
+max 10 iterations. On `stop_reason === "tool_use"`, every `tool_use`
+block is dispatched through `executeTool()` and threaded back as a
+`tool_result` content block in the next user turn. Tool errors don't
+throw — `executeTool` returns `{ error, message }` so the model can
+recover or fall back.
+
+### Cache
+
+`app/app/lib/cache.ts` — Redis Serverless wrapper. Key shape:
+`awstool:${toolName}:${shortHash(input)}` (12-char SHA-256). Lazy
+singleton; reused across the Lambda / Fargate task lifetime.
+`InMemoryToolCache` is the unit-test substitute.
+
+### IAM task role (hardened)
+
+- **Managed:** `arn:aws:iam::aws:policy/ReadOnlyAccess`
+- **Inline `deny-iam-secrets-kms-reads`:** denies `iam:Get*/List*/Simulate*`,
+  `secretsmanager:Get*/List*/Describe*` (with `NotResource` carve-outs
+  for the runtime secrets the task definition resolves at start), and
+  `kms:Get*/List*/Describe*`.
+- **Inline `secret-cognito-client` / `secret-anthropic-api-key` /
+  `secret-redis-auth`:** narrow Allow on the runtime-secret ARNs the
+  task definition needs to start.
+
+The runtime-secret ARNs appear in the deny's `NotResource` list so the
+Allow on those ARNs isn't shadowed.
+
+### Policy simulator gate
+
+`infrastructure/test/iam-policy-simulator.test.sh` — runs
+`aws iam simulate-principal-policy` against the deployed task role:
+
+- DENIED: `iam:ListUsers`, `iam:GetRole`, `iam:SimulatePrincipalPolicy`
+- DENIED: `secretsmanager:GetSecretValue` (arbitrary ARN), `secretsmanager:ListSecrets`
+- DENIED: `kms:DescribeKey`, `kms:GetKeyPolicy`, `kms:ListAliases`
+- ALLOWED: `ecs:ListServices`, `rds:DescribeDBClusters`, `ec2:DescribeVpcs`,
+  `cloudwatch:DescribeAlarms`
+
+Run via `task example-agent:simulate-iam` once the role is applied.
+AWS-4.1 will wire this into the GitHub Actions PR workflow.
+
+### Per-tool unit tests
+
+`app/test/tools/*.test.ts` — vitest + `aws-sdk-client-mock`. Each tool
+asserts the post-processing shape and cache-hit behavior (no second
+SDK call after the first cached read). Run via:
+
+```powershell
+cd services\example-agent\app
+npm run test
+```
+
+Or `task example-agent:test` from `templates/aws/`.
+
+### Wiring it up
+
+The example-agent composition takes four new optional inputs that the
+caller threads in from the Phase 1 elasticache-redis module:
+
+| Variable | Source |
+|---|---|
+| `redis_endpoint` | `module.cache.endpoint` |
+| `redis_port` | `module.cache.port` (or 6379) |
+| `redis_auth_secret_arn` | `module.cache.auth_secret_arn` |
+| `redis_auth_secret_consumer_iam_policy_json` | `module.cache.auth_secret_consumer_iam_policy_json` |
+
+When Redis vars are empty (the AWS-3.3 dev example default until
+elasticache:up runs), the application falls back to direct SDK calls
+on every request — slower, but functional.
 
 ## Related tickets
 
