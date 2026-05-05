@@ -57,24 +57,24 @@ task down
 - `tflint`, `checkov` (optional but the modules document `# checkov:skip` annotations that expect checkov)
 - `task` (https://taskfile.dev) — wraps the destroy/recreate cadence
 
-## Module status
+## Module status (Phase 1 complete — 2026-05-05)
 
 | Ticket | Module | Status |
 |---|---|---|
 | AWS-0.1 | bootstrap | ✅ shipped, applied to dev account |
-| AWS-1.1 | modules/network | ✅ shipped, plan-only (apply via `task network:up`) |
-| AWS-1.2 | modules/ecs-cluster | not yet built |
-| AWS-1.3 | modules/ecs-service | not yet built |
-| AWS-1.4 | modules/aurora-postgres | not yet built |
-| AWS-1.5 | modules/elasticache-redis | not yet built |
-| AWS-1.6 | modules/alb | not yet built |
-| AWS-1.7 | modules/s3-bucket | not yet built |
-| AWS-1.8 | modules/cognito-user-pool | not yet built |
-| AWS-1.9 | modules/secrets-rotation | not yet built |
-| AWS-1.10 | modules/kms | not yet built |
-| AWS-1.11 | modules/ingress | not yet built |
+| AWS-1.1 | modules/network | ✅ shipped + applied (~$265/mo idle while up) |
+| AWS-1.2 | modules/ecs-cluster | ✅ shipped, plan-only (~$1/mo idle CMK) |
+| AWS-1.3 | modules/ecs-service | ✅ shipped, plan-only (~$5/mo per Spot task) |
+| AWS-1.4 | modules/aurora-postgres | ✅ shipped, plan-only (~$17–28/mo idle — RDS Proxy is the floor) |
+| AWS-1.5 | modules/elasticache-redis | ✅ shipped, plan-only (~$11–12/mo idle Serverless floor) |
+| AWS-1.6 | modules/s3-bucket | ✅ shipped, plan-only (~$1/mo per bucket CMK) |
+| AWS-1.7 | modules/cloudfront-dist | ✅ shipped, plan-only (~$8/mo WAF; requires real ACM cert to apply) |
+| AWS-1.8 | modules/cognito-user-pool | ✅ shipped, plan-only (~$0/mo — 50K MAU free tier) |
+| AWS-1.9 | modules/secrets | ✅ shipped, plan-only (~$1.40/mo per secret CMK + secret) |
+| AWS-1.10 | modules/observability | ✅ shipped, plan-only (~$2/mo idle alarms + SNS + dashboard) |
+| AWS-1.11 | modules/ingress | ✅ shipped, plan-only (~$0/mo apigw / ~$16/mo alb) |
 
-As each module lands, uncomment the corresponding line in the `up:` and `down:` tasks of `Taskfile.yml`.
+**Phase 1 complete.** Bring the full stack up via `task up` (~35 min, excludes cloudfront-dist which requires a real ACM cert). Tear down via `task down` (~25 min). Idle when fully up: ~$345/mo. Idle when down: ~$0/mo (bootstrap stays up).
 
 ## Multi-environment expansion (deferred)
 
