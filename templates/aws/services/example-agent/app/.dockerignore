@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.gitignore
+*.log
+.env*
+.DS_Store
+Thumbs.db
+README.md
+test
+coverage
+.vscode
+.idea

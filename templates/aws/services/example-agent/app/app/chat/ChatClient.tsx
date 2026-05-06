@@ -79,7 +79,7 @@ export default function ChatClient() {
         {turns.length === 0 && (
           <li className="hint">
             Ask anything about the AWS account this agent runs in. Try:{' '}
-            <em>"how many ECS services are running and what's the Aurora cluster status?"</em>
+            <em>&ldquo;how many ECS services are running and what&rsquo;s the Aurora cluster status?&rdquo;</em>
           </li>
         )}
         {turns.map((t, idx) => (

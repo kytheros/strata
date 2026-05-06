@@ -30,6 +30,15 @@ COPY . .
 # and avoids a network call to Vercel.
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Build-time placeholders so Next.js page collection passes the
+# requireEnv() checks in app/lib/config.ts. Real values are injected at
+# runtime by the ECS task definition. These don't propagate to the
+# runtime stage (separate FROM block).
+ENV COGNITO_USER_POOL_ID=us-east-1_BuildPlaceholder \
+    COGNITO_CLIENT_ID=BuildPlaceholderClientId \
+    COGNITO_HOSTED_UI_DOMAIN=build-placeholder \
+    APP_URL=https://build-placeholder.example.com
+
 RUN npm run build
 
 # Stage 3: runtime
