@@ -61,6 +61,7 @@ locals {
   # Branching helpers
   alb_attached   = var.attach_to_alb_listener_arn != ""
   apigw_attached = var.attach_to_apigw_vpc_link_id != ""
+  nlb_attached   = var.attach_to_nlb_target_group_arn != ""
   sc_enabled     = var.service_connect_namespace_arn != "" && var.service_connect_config != null
 
   # The container_definitions argument expects a JSON string. We render the
@@ -446,6 +447,18 @@ resource "aws_ecs_service" "this" {
     for_each = local.alb_attached ? [1] : []
     content {
       target_group_arn = aws_lb_target_group.this[0].arn
+      container_name   = var.containers[0].name
+      container_port   = var.container_port_for_ingress
+    }
+  }
+
+  # AWS-1.6.6: parallel NLB attachment. The caller owns the NLB + target
+  # group; this block just registers running task ENIs as targets so the
+  # API GW VPC-link integration can route to them via an L4 endpoint.
+  dynamic "load_balancer" {
+    for_each = local.nlb_attached ? [1] : []
+    content {
+      target_group_arn = var.attach_to_nlb_target_group_arn
       container_name   = var.containers[0].name
       container_port   = var.container_port_for_ingress
     }

@@ -312,6 +312,22 @@ variable "apigw_integration_uri" {
   default     = ""
 }
 
+###############################################################################
+# Ingress attachment — internal NLB target group (AWS-1.6.6)
+#
+# Caller (e.g. services/ingress-authorizer) creates the NLB + target group +
+# listener; this module just attaches running tasks to the supplied target
+# group via a second `load_balancer` block on the ECS service. Used to
+# back the API GW VPC-link integration with an L4 endpoint that the link
+# CAN resolve (it cannot resolve Service Connect aliases).
+###############################################################################
+
+variable "attach_to_nlb_target_group_arn" {
+  description = "ARN of an externally-created NLB target group (target_type=ip, protocol=TCP, port=container port) the ECS service should register tasks with. When non-empty, an additional `load_balancer` block is added to aws_ecs_service.this so each task ENI is registered as a target. The NLB itself, its listener, and its security group are owned by the caller. Empty disables this attachment."
+  type        = string
+  default     = ""
+}
+
 variable "apigw_api_id" {
   description = "API GW HTTP API ID the integration belongs to. Required when var.attach_to_apigw_vpc_link_id != \"\" — the consumer passes the same `api_id` output emitted by the `ingress` module."
   type        = string
