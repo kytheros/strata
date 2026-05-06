@@ -207,9 +207,15 @@ variable "ingress_endpoint_dns" {
 }
 
 variable "ingress_security_group_ids" {
-  description = "List of security-group IDs allowed to reach Strata's task port. Pass `[module.ingress.security_group_id]` so the API GW VPC Link / ALB can reach the tasks. Without this the SG fails closed and apigw -> Strata times out at runtime. Discovered by the security review of AWS-1.6.1."
+  description = "List of security-group IDs allowed to reach Strata's task port. Pass `[module.ingress.security_group_id, module.ingress_authorizer.strata_nlb_security_group_id]` so both the API GW VPC Link AND the internal NLB can reach the tasks. Without this the SG fails closed and the path times out at runtime. Discovered by the security review of AWS-1.6.1; expanded in AWS-1.6.6 to include the NLB SG."
   type        = list(string)
   default     = []
+}
+
+variable "attach_to_nlb_target_group_arn" {
+  description = "Optional. ARN of an externally-created NLB target group (from services/ingress-authorizer's `strata_nlb_target_group_arn` output). When set, Strata's tasks register as targets so the API GW VPC link can reach them via the NLB listener (the link cannot resolve Service Connect aliases). Empty disables the NLB attachment — only the Service Connect path is reachable, which means external MCP clients can't reach Strata via the API GW."
+  type        = string
+  default     = ""
 }
 
 ###############################################################################

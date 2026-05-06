@@ -92,25 +92,65 @@ variable "apigw_vpc_link_id" {
 }
 
 ###############################################################################
-# Strata service — Service Connect URL the JWT-authorized /mcp routes target.
+# Internal NLB (AWS-1.6.6) — closes the runtime gap surfaced in AWS-1.6.1.
 #
-# The Strata service module's own apigw integration (created by ecs-service)
-# is intentionally bypassed for /mcp; this composition creates a dedicated
-# integration with `request_parameters` injecting X-Strata-Verified, then
-# attaches /mcp + /health routes to it.
+# API GW VPC links cannot resolve Service Connect aliases (they only work
+# inside Envoy-sidecar-instrumented tasks). For external MCP clients to
+# reach Strata via the API GW, this composition stands up a private
+# internal NLB in front of Strata and targets the NLB listener ARN from
+# the JWT-authorized integration. Service Connect stays for internal
+# traffic — example-agent -> Strata is unchanged.
 #
-# The Strata integration_uri is deterministic: Service Connect publishes the
-# Strata service at <service_name>.<namespace>.local:<port>. The orchestrator
-# computes that string and passes it as a tfvar — no resource dependency.
+# The Strata integration_uri (var.strata_integration_uri below) is now
+# DEPRECATED for routing and kept only so existing examples don't break;
+# the routes target the NLB listener ARN this composition creates.
 ###############################################################################
 
-variable "strata_integration_uri" {
-  description = "Service Connect URL for the Strata service (e.g. http://strata.strata-dev.local:3000). Computed by the orchestrator from the cluster Service Connect namespace and the Strata container port."
+variable "vpc_id" {
+  description = "VPC ID for the internal NLB and its security group. Same VPC the ingress lives in."
+  type        = string
+}
+
+variable "vpc_cidr" {
+  description = "VPC CIDR block. Used to scope the NLB security group's egress allow-list to the VPC interior so the NLB can reach Strata's task ENIs."
   type        = string
 
   validation {
-    condition     = can(regex("^https?://[^/]+:[0-9]+$", var.strata_integration_uri))
-    error_message = "strata_integration_uri must be `http(s)://<host>:<port>` with no trailing path."
+    condition     = can(cidrnetmask(var.vpc_cidr))
+    error_message = "vpc_cidr must be a valid IPv4 CIDR block (e.g. 10.40.0.0/16)."
+  }
+}
+
+variable "private_subnet_ids" {
+  description = "Private subnet IDs the NLB attaches to (one per AZ). Same subnets the API GW VPC Link uses; the link reaches the NLB via these subnets."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.private_subnet_ids) >= 2
+    error_message = "private_subnet_ids must contain at least 2 subnets for AZ redundancy."
+  }
+}
+
+variable "strata_container_port" {
+  description = "Port Strata listens on inside its container. Default 3000. The NLB target group registers tasks at this port; the NLB listener exposes it on the same port so the integration URI reads cleanly."
+  type        = number
+  default     = 3000
+}
+
+variable "nlb_deletion_protection" {
+  description = "NLB deletion protection. Default false — dev cycles tear down freely. Staging/prod tfvars should set true."
+  type        = bool
+  default     = false
+}
+
+variable "strata_integration_uri" {
+  description = "DEPRECATED in v1.6.6 (kept as input for backwards-compat with examples). Service Connect URL for the Strata service (e.g. http://strata.strata-dev:3000). The actual integration_uri used by the API GW route is now the NLB listener ARN this composition creates. The variable is retained so example invocations don't break, but the value is unused for routing."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.strata_integration_uri == "" || can(regex("^https?://[^/]+:[0-9]+$", var.strata_integration_uri))
+    error_message = "strata_integration_uri, when set, must be `http(s)://<host>:<port>` with no trailing path."
   }
 }
 

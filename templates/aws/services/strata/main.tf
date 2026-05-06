@@ -335,9 +335,16 @@ module "service" {
   apigw_integration_uri       = local.is_apigw ? var.ingress_apigw_integration_uri : ""
   apigw_api_id                = local.is_apigw ? var.ingress_apigw_api_id : ""
 
+  # ---- Internal NLB attachment (AWS-1.6.6) --------------------------------
+  # Closes the runtime gap: API GW VPC links cannot resolve Service Connect
+  # aliases, so the JWT-authorized /mcp routes target an internal NLB the
+  # ingress-authorizer composition creates. Strata's tasks register on its
+  # target group via this pass-through.
+  attach_to_nlb_target_group_arn = var.attach_to_nlb_target_group_arn
+
   # ---- Ingress security-group allow-list (HIGH from AWS-1.6.1 review) -----
   # Without this the task SG accepts no inbound traffic and the API GW VPC
-  # link cannot reach Strata. See variables.tf §"ingress_security_group_ids".
+  # link / NLB cannot reach Strata. See variables.tf §"ingress_security_group_ids".
   ingress_security_group_ids = var.ingress_security_group_ids
 
   # ---- Service Connect (MEDIUM-1 from AWS-1.6.1 review) -------------------

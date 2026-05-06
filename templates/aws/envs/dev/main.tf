@@ -339,12 +339,19 @@ module "ingress_authorizer" {
   apigw_api_id      = module.ingress.api_id
   apigw_vpc_link_id = module.ingress.vpc_link_id
 
-  # ---- Strata Service Connect URL ----------------------------------------
-  # Deterministic — Service Connect publishes <dns_name>.<namespace_name>
-  # at the client_alias.port. Computed locally; no resource dependency.
-  # NOTE: API GW VPC links cannot resolve Service Connect aliases; this URI
-  # is structural for the integration object but the actual external-MCP
-  # path is blocked on AWS-1.6.6 (replace with NLB or Cloud Map service ARN).
+  # ---- Internal NLB (AWS-1.6.6) ------------------------------------------
+  # Closes the runtime gap: API GW VPC links cannot resolve Service Connect
+  # aliases. The composition stands up a private NLB and the JWT-authorized
+  # integration routes through it via the listener ARN. NLB lives in the
+  # same private subnets as the VPC link. Strata's tasks register on the
+  # NLB target group below (module.strata_service.attach_to_nlb_target_group_arn).
+  vpc_id                = module.network.vpc_id
+  vpc_cidr              = module.network.vpc_cidr
+  private_subnet_ids    = module.network.private_subnet_ids
+  strata_container_port = 3000
+
+  # ---- DEPRECATED in v1.6.6 — kept for example back-compat ---------------
+  # Routing now uses the NLB listener ARN above; this string is unused.
   strata_integration_uri = "http://strata.strata-${local.env_name}:3000"
 
   # ---- Example-agent integration target for $default ---------------------
@@ -405,7 +412,21 @@ module "strata_service" {
   ingress_apigw_api_id          = module.ingress.api_id
   ingress_apigw_integration_uri = "http://strata.strata-${local.env_name}:3000"
   ingress_endpoint_dns          = module.ingress.endpoint_dns
-  ingress_security_group_ids    = [module.ingress.security_group_id]
+
+  # Both the API GW VPC link SG and the NLB SG must be allowed to reach
+  # Strata's task port. The VPC link SG covers the example-agent path
+  # (still routed via Service Connect from inside the cluster, but the link
+  # SG is the legacy entry point for any direct-to-task fallbacks); the
+  # NLB SG covers the external-MCP path wired in AWS-1.6.6.
+  ingress_security_group_ids = [
+    module.ingress.security_group_id,
+    module.ingress_authorizer.strata_nlb_security_group_id,
+  ]
+
+  # ---- Internal NLB target group (AWS-1.6.6) -----------------------------
+  # Strata's tasks register here so the API GW VPC link can reach them via
+  # the NLB listener ARN. Separate from Service Connect; both paths coexist.
+  attach_to_nlb_target_group_arn = module.ingress_authorizer.strata_nlb_target_group_arn
 
   # ---- Service Connect (MEDIUM-1 from AWS-1.6.1 review) ------------------
   # Registers Strata under `strata.strata-{env}` so the example-agent's

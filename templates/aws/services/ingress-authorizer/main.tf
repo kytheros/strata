@@ -95,7 +95,137 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
 }
 
 ###############################################################################
-# 3. Strata-bound API GW integration with X-Strata-Verified injection.
+# 3. Internal NLB in front of Strata (AWS-1.6.6).
+#
+# API GW VPC links cannot resolve Service Connect aliases; they accept only
+# an NLB listener ARN or a Cloud Map service ARN as the integration URI.
+# We chose NLB (Option A) because:
+#   - The Service Connect plumbing was just blessed by security review;
+#     swapping to private DNS namespace + Cloud Map service registrations
+#     would re-touch wiring that's working today.
+#   - The NLB cleanly separates external-MCP traffic (this path) from
+#     internal example-agent -> Strata traffic (Service Connect via Envoy
+#     sidecars). Future per-path observability and rate-limiting attach
+#     here naturally.
+#   - Cost in the operating-cadence model is small: NLB only runs when the
+#     stack is up (~$16/mo at 24/7; ~$0.50/mo at 8 hr/wk).
+#
+# TLS terminates at the public edge (CloudFront/API GW); the NLB carries
+# plaintext TCP between the API GW VPC link and Strata's task ENI on the
+# private VPC interior. No NLB cert is needed.
+#
+# Source-IP preservation: NLBs preserve source addressing by default for
+# ip-target target groups. We do NOT enable client-IP preservation
+# (`preserve_client_ip = true`) because the source we care about is the
+# API GW VPC link's ENI, not the original public client — Strata reads
+# X-Forwarded-For for the public client when needed.
+###############################################################################
+
+resource "aws_security_group" "nlb" {
+  # checkov:skip=CKV_AWS_23:Per-rule descriptions are inlined on each aws_vpc_security_group_*_rule below.
+  name        = "strata-${var.env_name}-mcp-nlb-sg"
+  description = "Strata ${var.env_name} internal NLB security group. Ingress from VPC CIDR on the Strata port; egress to the same CIDR for target traffic. ASCII-only per AWS SG description charset."
+  vpc_id      = var.vpc_id
+
+  tags = merge(local.default_tags, {
+    Name = "strata-${var.env_name}-mcp-nlb-sg"
+  })
+}
+
+# Ingress: API GW VPC Link ENIs reach the NLB on the Strata container port
+# from inside the VPC. Scoped to the VPC CIDR — no internet exposure (the
+# NLB is internal-scheme, see aws_lb below).
+resource "aws_vpc_security_group_ingress_rule" "nlb_from_vpc" {
+  security_group_id = aws_security_group.nlb.id
+  description       = "TCP from the VPC CIDR (API GW VPC link ENIs forward MCP traffic in)"
+  cidr_ipv4         = var.vpc_cidr
+  ip_protocol       = "tcp"
+  from_port         = var.strata_container_port
+  to_port           = var.strata_container_port
+
+  tags = local.default_tags
+}
+
+# Egress to the VPC CIDR on the Strata port — the NLB forwards to task
+# ENIs whose security group accepts ingress from this NLB SG. The Strata
+# task SG must list this SG's id in its ingress_security_group_ids
+# (orchestrator wires that).
+resource "aws_vpc_security_group_egress_rule" "nlb_to_strata" {
+  security_group_id = aws_security_group.nlb.id
+  description       = "TCP to Strata task ENIs on the container port"
+  cidr_ipv4         = var.vpc_cidr
+  ip_protocol       = "tcp"
+  from_port         = var.strata_container_port
+  to_port           = var.strata_container_port
+
+  tags = local.default_tags
+}
+
+resource "aws_lb" "mcp" {
+  # checkov:skip=CKV_AWS_91:Access logging is not enabled by default for this internal NLB. v1.6.6 ships without it; AWS-1.6.4's access-log work covers the API GW edge where the JWT subject claim lives. Enabling NLB access logs would require an S3 bucket policy with the AWS-managed NLB-log-delivery principal — defer to a follow-up if needed.
+  # checkov:skip=CKV_AWS_150:Deletion protection is variable-driven (var.nlb_deletion_protection). Default false in dev to support the destroy/recreate cadence; staging/prod tfvars set true.
+  name               = "strata-${var.env_name}-mcp-nlb"
+  internal           = true
+  load_balancer_type = "network"
+  subnets            = var.private_subnet_ids
+  security_groups    = [aws_security_group.nlb.id]
+
+  enable_cross_zone_load_balancing = true
+  enable_deletion_protection       = var.nlb_deletion_protection
+
+  tags = merge(local.default_tags, {
+    Name = "strata-${var.env_name}-mcp-nlb"
+  })
+}
+
+resource "aws_lb_target_group" "mcp" {
+  # checkov:skip=CKV_AWS_378:HTTP between NLB and Fargate task is appropriate — TLS is terminated at the public edge. End-to-end TLS to tasks would require a per-service ACM cert; deferred. The internal NLB has no internet exposure.
+  name        = "strata-${var.env_name}-mcp-tg"
+  port        = var.strata_container_port
+  protocol    = "TCP"
+  target_type = "ip"
+  vpc_id      = var.vpc_id
+
+  # Health check: HTTP /health on the same port. Strata's health endpoint
+  # returns 200 when the process is up. The NLB only registers tasks that
+  # pass this check — failures are observable in CloudWatch.
+  health_check {
+    enabled             = true
+    protocol            = "HTTP"
+    path                = "/health"
+    port                = "traffic-port"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  # Avoid name collisions on health-check-induced replacement.
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = merge(local.default_tags, {
+    Name = "strata-${var.env_name}-mcp-tg"
+  })
+}
+
+resource "aws_lb_listener" "mcp" {
+  load_balancer_arn = aws_lb.mcp.arn
+  port              = var.strata_container_port
+  protocol          = "TCP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mcp.arn
+  }
+
+  tags = local.default_tags
+}
+
+###############################################################################
+# 4. Strata-bound API GW integration with X-Strata-Verified injection.
 #
 # A dedicated integration (separate from the one services/strata/ creates via
 # the ecs-service module) so we can:
@@ -107,8 +237,7 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
 #   - Keep services/strata's own integration unchanged. That integration is
 #     a leftover from the ecs-service module's stub support; it is no longer
 #     referenced by any route (the routes in this composition target THIS
-#     integration). It can be cleaned up in a follow-up after we confirm no
-#     downstream consumer reads its ID.
+#     integration).
 #
 # The header value is sourced from random_password.auth_proxy_token.result —
 # the same value seeded into the Secrets Manager secret above. Strata reads
@@ -116,6 +245,9 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
 # reads the literal at apply time and embeds it on every request the API GW
 # proxies through. Both reads converge on the SAME value because the same
 # random_password resource feeds both paths.
+#
+# integration_uri: NLB listener ARN (AWS-1.6.6). Was a Service Connect URL
+# pre-1.6.6, which the VPC link could not resolve.
 #
 # request_parameters semantics (from AWS docs):
 #   key   "overwrite:header.X-Strata-Verified" or "append:..."
@@ -127,7 +259,7 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
 resource "aws_apigatewayv2_integration" "strata_with_header" {
   api_id           = var.apigw_api_id
   integration_type = "HTTP_PROXY"
-  integration_uri  = var.strata_integration_uri
+  integration_uri  = aws_lb_listener.mcp.arn
 
   integration_method     = "ANY"
   connection_type        = "VPC_LINK"

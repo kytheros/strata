@@ -47,3 +47,32 @@ output "mcp_route_keys" {
     aws_apigatewayv2_route.strata_health.route_key,
   ]
 }
+
+###############################################################################
+# AWS-1.6.6 — internal NLB outputs
+###############################################################################
+
+output "strata_nlb_arn" {
+  description = "ARN of the internal NLB fronting Strata. Diagnostic — operators check `aws elbv2 describe-load-balancers` against this ARN."
+  value       = aws_lb.mcp.arn
+}
+
+output "strata_nlb_dns_name" {
+  description = "DNS hostname of the internal NLB. Format: `strata-<env>-mcp-nlb-<hash>.elb.<region>.amazonaws.com`. Resolvable from inside the VPC. The API GW VPC link routes to this via the listener ARN, not the DNS name."
+  value       = aws_lb.mcp.dns_name
+}
+
+output "strata_nlb_listener_arn" {
+  description = "ARN of the NLB's TCP listener on the Strata container port. Same value passed to the API GW integration's `integration_uri`."
+  value       = aws_lb_listener.mcp.arn
+}
+
+output "strata_nlb_target_group_arn" {
+  description = "ARN of the NLB target group (target_type=ip). The Strata service consumes this as `attach_to_nlb_target_group_arn` on its underlying ecs-service module to register tasks as targets at task-launch time."
+  value       = aws_lb_target_group.mcp.arn
+}
+
+output "strata_nlb_security_group_id" {
+  description = "Security group ID protecting the NLB. The Strata service composition must include this in its `ingress_security_group_ids` so task ENIs accept inbound traffic from the NLB. Without this the NLB health checks fail and external MCP requests time out."
+  value       = aws_security_group.nlb.id
+}

@@ -111,3 +111,17 @@ output "auth_proxy_secret_arn" {
   description = "Secrets Manager ARN of the shared STRATA_AUTH_PROXY_TOKEN. Both the API GW integration's X-Strata-Verified injection and the Strata service's STRATA_AUTH_PROXY_TOKEN env var resolve to this secret. Diagnostic only — never expose."
   value       = module.ingress_authorizer.auth_proxy_secret_arn
 }
+
+###############################################################################
+# AWS-1.6.6 — internal NLB outputs
+###############################################################################
+
+output "mcp_nlb_dns_name" {
+  description = "Internal NLB DNS hostname fronting Strata for the API GW path. Resolvable from inside the VPC; not from the public internet. Useful for in-VPC `curl` tests when debugging the external-MCP route."
+  value       = module.ingress_authorizer.strata_nlb_dns_name
+}
+
+output "mcp_nlb_target_group_arn" {
+  description = "ARN of the NLB target group Strata's tasks register on. Operators run `aws elbv2 describe-target-health --target-group-arn <this>` to confirm tasks are healthy before validating the external-MCP path."
+  value       = module.ingress_authorizer.strata_nlb_target_group_arn
+}
