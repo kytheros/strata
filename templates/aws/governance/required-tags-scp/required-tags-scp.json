@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RequireCostAllocationTags",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "Null": {
+          "aws:RequestTag/Project": "true"
+        },
+        "StringEquals": {
+          "aws:RequestedRegion": [
+            "us-east-1"
+          ]
+        },
+        "ForAnyValue:StringNotEquals": {
+          "aws:TagKeys": [
+            "Project",
+            "Environment",
+            "ManagedBy",
+            "CostCenter"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "AllowUntaggedGlobalServices",
+      "Effect": "Allow",
+      "Action": [
+        "iam:*",
+        "sts:*",
+        "organizations:*",
+        "support:*",
+        "trustedadvisor:*",
+        "health:*",
+        "account:*",
+        "billing:*",
+        "cur:*",
+        "ce:*",
+        "budgets:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
