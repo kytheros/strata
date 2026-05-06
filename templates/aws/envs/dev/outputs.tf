@@ -87,3 +87,27 @@ output "redis_cache_id" {
   description = "ElastiCache Serverless cache name/ID. Use with `aws elasticache describe-serverless-caches` for inspection."
   value       = module.elasticache_redis.cache_id
 }
+
+###############################################################################
+# AWS-1.6.1 — ingress authorizer outputs
+###############################################################################
+
+output "mcp_jwt_authorizer_id" {
+  description = "API GW Cognito JWT authorizer ID. External MCP clients hitting `https://<ingress>/mcp` must present a token issued by this user pool / app client. Diagnostic only."
+  value       = module.ingress_authorizer.authorizer_id
+}
+
+output "mcp_jwt_issuer_url" {
+  description = "Cognito JWT issuer URL — what external MCP clients must present in the `iss` claim. Document in operator runbooks for client onboarding."
+  value       = module.ingress_authorizer.jwt_issuer_url
+}
+
+output "mcp_route_keys" {
+  description = "Route keys created on the API GW for the JWT-authorized Strata path. Useful for `aws apigatewayv2 get-routes --api-id <id>` cross-checks."
+  value       = module.ingress_authorizer.mcp_route_keys
+}
+
+output "auth_proxy_secret_arn" {
+  description = "Secrets Manager ARN of the shared STRATA_AUTH_PROXY_TOKEN. Both the API GW integration's X-Strata-Verified injection and the Strata service's STRATA_AUTH_PROXY_TOKEN env var resolve to this secret. Diagnostic only — never expose."
+  value       = module.ingress_authorizer.auth_proxy_secret_arn
+}

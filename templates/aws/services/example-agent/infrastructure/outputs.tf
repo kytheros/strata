@@ -28,6 +28,11 @@ output "security_group_id" {
   value       = module.ecs_service.security_group_id
 }
 
+output "apigw_integration_id" {
+  description = "API GW integration ID for the example-agent (HTTP_PROXY through the VPC Link). Consumed by services/ingress-authorizer (AWS-1.6.1) as the target of the catch-all $default route. Null when ingress_backend != \"apigw\"."
+  value       = module.ecs_service.apigw_integration_id
+}
+
 output "app_url" {
   description = "Public URL of the example-agent. Mirrors var.app_url; surfaced as an output so the README and downstream tickets can reference module.example_agent.app_url instead of duplicating the variable."
   value       = var.app_url

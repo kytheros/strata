@@ -200,13 +200,12 @@ module "example_agent" {
   apigw_integration_uri = "http://example-agent.strata-${local.env_name}.local:3000"
 
   # ---- Strata-on-AWS internal endpoint -----------------------------------
-  # CYCLE-BREAKING NOTE: strata_auth_proxy_token_secret_arn is deliberately
-  # NOT wired here in v1. Wiring it would create a cycle:
-  #   example_agent → strata_service.auth_proxy_secret_arn
-  #   strata_service → example_agent.user_pool_id (cognito_user_pool_id)
-  # The X-Strata-Verified header injection moves to v2 when the ingress owns
-  # JWT verification centrally; v1 example-agent calls Strata over Service
-  # Connect with the example-agent's task SG allow-listed on Strata's SG.
+  # The example-agent reaches Strata over Service Connect (not via the API
+  # GW). It does NOT need to set X-Strata-Verified because the example-agent
+  # itself is the trusted internal caller — its task SG is on Strata's SG
+  # ingress allow-list. External MCP clients hit /mcp through the API GW
+  # path that AWS-1.6.1's services/ingress-authorizer wires (centralized
+  # JWT authorizer + header injection).
   cluster_service_connect_namespace = "strata-${local.env_name}"
   strata_internal_port              = 3000
 
@@ -228,25 +227,10 @@ module "example_agent" {
 ###############################################################################
 # Phase 1.11 — Ingress (API Gateway HTTP API + VPC Link).
 #
-# CYCLE-BREAKING NOTE: the ingress module is provisioned WITHOUT a Cognito
-# JWT authorizer in v1 because:
-#
-#   - ingress would consume example_agent.user_pool_id to wire the authorizer
-#   - example_agent already consumes ingress.vpc_link_id + ingress.api_id
-#     for its HTTP_PROXY integration
-#
-# Wiring both edges creates a Terraform cycle (ingress ↔ example_agent).
-# Resolution: ingress provisions the API + VPC Link only; each service's
-# composition wires its own JWT verification:
-#
-#   - example-agent: Next.js layer verifies the JWT against Cognito's JWKS
-#     URI in middleware (no API GW authorizer needed).
-#   - strata-service: STRATA_REQUIRE_AUTH_PROXY=1 gates requests on the
-#     X-Strata-Verified header that the upstream proxy sets. Cognito
-#     verification happens at the Next.js layer in front of /mcp calls.
-#
-# Centralizing the JWT authorizer at the ingress is a v2 hardening — see
-# the design spec §"Auth flow" for the v2 layout.
+# This module provisions the API + VPC Link only. The Cognito JWT authorizer
+# and the Strata-bound /mcp routes are owned by services/ingress-authorizer
+# (AWS-1.6.1) below — see that composition for the cycle-break rationale
+# and the X-Strata-Verified injection contract.
 ###############################################################################
 
 module "ingress" {
@@ -262,11 +246,54 @@ module "ingress" {
   public_subnet_ids  = module.network.public_subnet_ids
   private_subnet_ids = module.network.private_subnet_ids
 
-  # Cognito left empty to break the ingress ↔ example_agent cycle. See note
-  # above. Route-level authorizer attachment is owned by each service.
+  # Cognito left empty intentionally. Authorizer attachment is the job of
+  # services/ingress-authorizer, which owns the /mcp routes that need it.
+  # Setting cognito_user_pool_id here would create the authorizer twice
+  # (once on the ingress module, once on ingress-authorizer) for no gain.
 
   enable_logging     = true
   log_retention_days = 30
+
+  extra_tags = local.default_tags
+}
+
+###############################################################################
+# Phase 1.6 — Ingress authorizer + auth-proxy secret (AWS-1.6.1).
+#
+# Closes both Phase 1.5 deferrals:
+#   1. Cognito JWT authorizer attached to the API GW /mcp routes.
+#   2. X-Strata-Verified header injection on the Strata-bound integration.
+#
+# Owns the shared STRATA_AUTH_PROXY_TOKEN secret (per-secret CMK). Its
+# outputs flow into module.strata_service below — that's the only edge.
+# Consumes raw IDs/strings from cognito (via module.example_agent), the
+# ingress module, and a deterministic Service Connect URL for Strata.
+#
+# See services/ingress-authorizer/README.md §"How a request flows" for
+# the end-to-end auth path this composition wires.
+###############################################################################
+
+module "ingress_authorizer" {
+  source = "../../services/ingress-authorizer"
+
+  env_name   = local.env_name
+  aws_region = var.aws_region
+
+  # ---- Cognito (sourced via example-agent's pool) ------------------------
+  cognito_user_pool_id        = module.example_agent.user_pool_id
+  cognito_user_pool_client_id = module.example_agent.user_pool_client_id
+
+  # ---- Ingress (raw IDs from the ingress module) -------------------------
+  apigw_api_id      = module.ingress.api_id
+  apigw_vpc_link_id = module.ingress.vpc_link_id
+
+  # ---- Strata Service Connect URL ----------------------------------------
+  # Deterministic — Service Connect publishes <service>.<namespace>.local
+  # at the configured port. Computed locally; no resource dependency.
+  strata_integration_uri = "http://strata.strata-${local.env_name}.local:3000"
+
+  # ---- Example-agent integration target for $default ---------------------
+  example_agent_integration_id = module.example_agent.apigw_integration_id
 
   extra_tags = local.default_tags
 }
@@ -276,6 +303,11 @@ module "ingress" {
 #
 # Consumes Aurora + Redis + Cognito (via example-agent) + ingress + cluster.
 # Ingress wiring uses the apigw backend — Service Connect is the path.
+#
+# Auth-proxy secret comes from services/ingress-authorizer above (AWS-1.6.1).
+# That composition owns the secret because it ALSO injects the same value
+# into the API GW integration's request_parameters; sourcing both reads from
+# one resource keeps them in lockstep.
 ###############################################################################
 
 module "strata_service" {
@@ -318,6 +350,13 @@ module "strata_service" {
   ingress_apigw_api_id          = module.ingress.api_id
   ingress_apigw_integration_uri = "http://strata.strata-${local.env_name}.local:3000"
   ingress_endpoint_dns          = module.ingress.endpoint_dns
+
+  # ---- Auth-proxy secret (sourced from services/ingress-authorizer) ------
+  # When set, services/strata skips minting its own secret and reads the
+  # shared one. This is the canonical orchestrator path — the same secret
+  # value is injected as X-Strata-Verified on the API GW /mcp routes.
+  auth_proxy_secret_arn         = module.ingress_authorizer.auth_proxy_secret_arn
+  auth_proxy_secret_kms_key_arn = module.ingress_authorizer.auth_proxy_secret_kms_key_arn
 
   # ---- Container shape ---------------------------------------------------
   container_image = var.strata_container_image
