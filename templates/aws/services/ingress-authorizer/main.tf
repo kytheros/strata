@@ -278,6 +278,45 @@ resource "aws_apigatewayv2_integration" "strata_with_header" {
 }
 
 ###############################################################################
+# 3b. /health-only integration WITHOUT the X-Strata-Verified header (AWS-1.6.7).
+#
+# Mirror of `strata_with_header` but with no `request_parameters` block. The
+# /health route uses this so the proxy token is NEVER forwarded to Strata's
+# /health handler. Two reasons:
+#
+#   1. Strata's `handleMcpRequest` is the ONLY code path that enforces
+#      STRATA_REQUIRE_AUTH_PROXY. /health does not check the header today; the
+#      old comment claiming it did was wrong (fixed below). Forwarding the
+#      token to /health is therefore pure exposure with no authentication
+#      benefit — anyone who scrapes the /health response would not see the
+#      token (it stays in the request), but any future logging change in
+#      core that echoed request headers would leak it.
+#
+#   2. AWS-1.6.7 security review verdict C: the multi-tenant /health response
+#      currently includes pool stats. The durable fix lives in core (strip
+#      payload to `{status:"ok"}`) and is tracked as AWS-1.6.7-core. This
+#      Terraform workaround narrows the blast radius until that ships by
+#      ensuring the verified-proxy token is not part of the /health request
+#      surface at all.
+###############################################################################
+
+resource "aws_apigatewayv2_integration" "strata_no_header" {
+  api_id           = var.apigw_api_id
+  integration_type = "HTTP_PROXY"
+  integration_uri  = aws_lb_listener.mcp.arn
+
+  integration_method     = "ANY"
+  connection_type        = "VPC_LINK"
+  connection_id          = var.apigw_vpc_link_id
+  payload_format_version = "1.0"
+
+  timeout_milliseconds = 30000
+
+  # NO request_parameters block — the X-Strata-Verified header is intentionally
+  # not injected on this integration. Used only by the /health route.
+}
+
+###############################################################################
 # 4. Routes.
 #
 # Authenticated (JWT authorizer attached):
@@ -324,14 +363,18 @@ resource "aws_apigatewayv2_route" "strata_mcp_delete" {
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
 }
 
-# /health is intentionally unauthenticated. It still goes through the
-# header-injecting integration so Strata's STRATA_REQUIRE_AUTH_PROXY check
-# passes (Strata enforces the proxy token even on /health when the env var
-# is set; this keeps the same surface across authenticated and health paths).
+# /health is intentionally unauthenticated AND uses the no-header integration
+# (AWS-1.6.7). Strata's STRATA_REQUIRE_AUTH_PROXY gate is enforced ONLY inside
+# `handleMcpRequest` — /health is not gated by it today. Forwarding the proxy
+# token to /health is therefore unnecessary and slightly raises exposure on a
+# path that already returns multi-tenant pool stats (security-review verdict
+# C). The durable core fix (strip /health payload to `{status:"ok"}`) is
+# tracked as AWS-1.6.7-core; this Terraform workaround removes the token
+# from the /health request surface immediately.
 resource "aws_apigatewayv2_route" "strata_health" {
   api_id    = var.apigw_api_id
   route_key = "GET /health"
-  target    = "integrations/${aws_apigatewayv2_integration.strata_with_header.id}"
+  target    = "integrations/${aws_apigatewayv2_integration.strata_no_header.id}"
 }
 
 # Catch-all → example-agent. Not gated on the JWT authorizer at the API GW
