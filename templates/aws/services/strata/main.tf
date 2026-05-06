@@ -94,7 +94,12 @@ check "auth_proxy_inputs_paired" {
 resource "random_password" "auth_proxy_token" {
   count = local.use_external_auth_proxy_secret ? 0 : 1
 
-  length  = 48
+  # 64 chars matches services/ingress-authorizer/main.tf (AWS-1.6.5).
+  # Both modes mint the same width sentinel so cross-mode swaps (standalone
+  # -> external) do not change Strata's STRATA_AUTH_PROXY_TOKEN entropy
+  # profile. ASCII-only; special characters are excluded so the value can
+  # be embedded as-is in the API GW integration's request_parameters.
+  length  = 64
   special = false
 }
 

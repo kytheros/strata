@@ -56,6 +56,17 @@ locals {
 resource "random_password" "auth_proxy_token" {
   length  = 64
   special = false
+
+  # AWS-1.6.5 — rotation knob. The token is otherwise stable across applies
+  # because random_password is keepers-driven for re-roll. Change
+  # var.auth_proxy_token_rotation_marker (e.g. v1 -> v2) to mint a new
+  # token. The Strata task definition picks the new value up from Secrets
+  # Manager at task launch; the API GW integration picks it up from
+  # Terraform state on the same apply. See runbooks/rotate-auth-proxy-token.md
+  # for the safe procedure (scale to >=2 tasks before bumping).
+  keepers = {
+    rotation_marker = var.auth_proxy_token_rotation_marker
+  }
 }
 
 module "auth_proxy_secret" {

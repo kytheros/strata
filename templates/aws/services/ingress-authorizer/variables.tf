@@ -161,6 +161,31 @@ variable "example_agent_integration_id" {
 }
 
 ###############################################################################
+# Auth-proxy token rotation (AWS-1.6.5).
+#
+# The shared sentinel injected on X-Strata-Verified is minted by the
+# random_password.auth_proxy_token resource and is otherwise stable across
+# applies. Bumping this marker changes the resource's `keepers` map, which
+# forces Terraform to re-roll the value on the next apply. Both consumers
+# (this composition's apigw integration request_parameters AND the Strata
+# task definition via Secrets Manager) re-read the new value from state /
+# from Secrets Manager respectively, but the propagation is NOT atomic.
+#
+# Rotation runbook: runbooks/rotate-auth-proxy-token.md.
+###############################################################################
+
+variable "auth_proxy_token_rotation_marker" {
+  description = "Opaque marker that gates auth-proxy token rotation. Bumping the value (e.g. v1 -> v2) forces random_password.auth_proxy_token to re-roll on the next apply. The Strata task definition picks the new value up via Secrets Manager at task launch; the API GW integration picks it up from Terraform state on apply. There is a brief window where one side has the new value and the other has the old — see runbooks/rotate-auth-proxy-token.md for the safe procedure (scale to >=2 tasks before bumping). ASCII only."
+  type        = string
+  default     = "v1"
+
+  validation {
+    condition     = length(var.auth_proxy_token_rotation_marker) > 0
+    error_message = "auth_proxy_token_rotation_marker must be a non-empty string. Use a short opaque label like v1, v2, 2026Q2."
+  }
+}
+
+###############################################################################
 # Tags
 ###############################################################################
 
