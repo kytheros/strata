@@ -68,3 +68,7 @@ output "oidc_provider_arn" {
 output "account_id" {
   value = module.bootstrap.account_id
 }
+
+output "readonly_role_arn" {
+  value = module.bootstrap.readonly_role_arn
+}

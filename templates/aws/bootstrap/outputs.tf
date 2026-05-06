@@ -37,3 +37,13 @@ output "account_id" {
   description = "AWS account ID this bootstrap ran against. Sanity check against your tfvars."
   value       = data.aws_caller_identity.current.account_id
 }
+
+output "readonly_role_arn" {
+  description = "ARN of the read-only IAM role GitHub Actions PR jobs assume via OIDC. Plug into the plan-on-PR workflow's aws-actions/configure-aws-credentials step. Null when create_readonly_role=false."
+  value       = var.create_readonly_role ? aws_iam_role.readonly[0].arn : null
+}
+
+output "readonly_role_name" {
+  description = "Name of the read-only role. Null when create_readonly_role=false."
+  value       = var.create_readonly_role ? aws_iam_role.readonly[0].name : null
+}

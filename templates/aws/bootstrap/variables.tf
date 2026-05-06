@@ -66,6 +66,18 @@ variable "deploy_role_name" {
   default     = "strata-cicd-deploy-role"
 }
 
+variable "create_readonly_role" {
+  description = "If true, create a read-only OIDC role for plan-on-PR jobs. The role is assumable from any pull_request from the same repo (sub claim: repo:{slug}:pull_request) and carries the AWS-managed ReadOnlyAccess policy. Used by .github/workflows/aws-template-ci.yml so plans run with no mutation surface."
+  type        = bool
+  default     = true
+}
+
+variable "readonly_role_name" {
+  description = "Name of the read-only IAM role assumed by GitHub Actions plan jobs via OIDC."
+  type        = string
+  default     = "strata-cicd-readonly-role"
+}
+
 variable "extra_tags" {
   description = "Additional tags merged into the default tag set."
   type        = map(string)

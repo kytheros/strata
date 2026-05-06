@@ -257,3 +257,69 @@ resource "aws_iam_role_policy_attachment" "deploy_admin" {
   role       = aws_iam_role.deploy.name
   policy_arn = "arn:${local.partition}:iam::aws:policy/AdministratorAccess"
 }
+
+###############################################################################
+# 5. Read-only IAM role for GitHub Actions plan-on-PR jobs (AWS-4.1).
+#
+# The CI workflow under .github/workflows/aws-template-ci.yml runs
+# `terraform plan` on every PR. Plan needs read access to look up existing
+# resources (data sources, refresh) but must NEVER mutate. We give PR jobs a
+# distinct role with AWS-managed ReadOnlyAccess + a trust policy keyed on the
+# `pull_request` OIDC sub claim so it is unreachable from a `push` to main.
+#
+# This is the principle "PR plans use a separate role from main applies" —
+# even an exfiltrated PR-job credential cannot apply infra.
+#
+# TODO(operator): apply via `task bootstrap:up` after this lands. The existing
+# bootstrap example already passes default args, so flipping `create_readonly_role`
+# to its default `true` is enough.
+###############################################################################
+
+data "aws_iam_policy_document" "readonly_role_assume" {
+  count = var.create_readonly_role ? 1 : 0
+
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = [local.github_oidc_audience]
+    }
+
+    # Pull-request OIDC subs are scoped to this repo only. Format per
+    # https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect#example-subject-claims
+    #   repo:{owner}/{repo}:pull_request
+    # We deliberately allow ANY PR (no head-ref filter) — plans on PRs from
+    # forks are still safe because the role is read-only and Actions does
+    # not pass secrets to fork PRs by default.
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.repo_slug}:pull_request"]
+    }
+  }
+}
+
+resource "aws_iam_role" "readonly" {
+  count = var.create_readonly_role ? 1 : 0
+
+  name               = var.readonly_role_name
+  assume_role_policy = data.aws_iam_policy_document.readonly_role_assume[0].json
+  description        = "Assumed by GitHub Actions (${var.repo_slug}) PR jobs via OIDC for read-only Terraform plans in ${var.env_name}. No mutation surface."
+
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "readonly" {
+  count = var.create_readonly_role ? 1 : 0
+
+  role       = aws_iam_role.readonly[0].name
+  policy_arn = "arn:${local.partition}:iam::aws:policy/ReadOnlyAccess"
+}
