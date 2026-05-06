@@ -36,10 +36,17 @@ locals {
   # explicit URL (var.strata_internal_url); failing that, build it from the
   # Service Connect namespace + Strata's port. Both empty → the env var is
   # not exported; the strata-client errors at request time if it's needed.
+  #
+  # Service Connect aliases under aws_service_discovery_http_namespace do
+  # NOT carry a .local suffix — the cluster-internal DNS form is
+  # `<dns_name>.<namespace_name>`. Older private_dns_namespace patterns
+  # used .local; we don't, since http_namespace is what's wired in
+  # AWS-1.6.1's MEDIUM-1 fix. Pre-1.6.1 deployments referencing a
+  # private_dns_namespace will need to override via var.strata_internal_url.
   strata_internal_url_effective = (
     var.strata_internal_url != "" ? var.strata_internal_url :
     var.cluster_service_connect_namespace != "" ?
-    "http://strata.${var.cluster_service_connect_namespace}.local:${var.strata_internal_port}" :
+    "http://strata.${var.cluster_service_connect_namespace}:${var.strata_internal_port}" :
     ""
   )
 }
@@ -582,6 +589,9 @@ module "ecs_service" {
       port_mappings = [
         {
           container_port = var.container_port
+          # Named port — referenced by Service Connect's port_name when
+          # var.service_connect_namespace_arn is set.
+          name = "example-agent-http"
         },
       ]
       environment = concat(
@@ -652,6 +662,31 @@ module "ecs_service" {
   attach_to_apigw_vpc_link_id = var.ingress_backend == "apigw" ? var.attach_to_apigw_vpc_link_id : ""
   apigw_api_id                = var.ingress_backend == "apigw" ? var.apigw_api_id : ""
   apigw_integration_uri       = var.ingress_backend == "apigw" ? var.apigw_integration_uri : ""
+
+  # Ingress security-group allow-list (HIGH from AWS-1.6.1 review). Without
+  # this the SG accepts no inbound traffic and the apigw $default route
+  # times out at runtime. See variables.tf §"ingress_security_group_ids".
+  ingress_security_group_ids = var.ingress_security_group_ids
+
+  # Service Connect (MEDIUM-1 from AWS-1.6.1 review). The example-agent
+  # registers itself under `<service_connect_dns_name>.<ns>` and — by being
+  # in the namespace — its Envoy sidecar can resolve `strata.<ns>` to the
+  # Strata service for internal MCP traffic. Empty namespace ARN disables.
+  service_connect_namespace_arn = var.service_connect_namespace_arn
+  service_connect_config = var.service_connect_namespace_arn != "" ? {
+    services = [
+      {
+        port_name      = "example-agent-http"
+        discovery_name = var.service_connect_dns_name
+        client_alias = [
+          {
+            port     = var.container_port
+            dns_name = var.service_connect_dns_name
+          },
+        ]
+      },
+    ]
+  } : null
 
   # AWS-3.3: ReadOnlyAccess (managed) + deny-iam-secrets-kms-reads (inline)
   # + the runtime-secret consumer policies. The consumer policies issue

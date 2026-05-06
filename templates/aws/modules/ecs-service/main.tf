@@ -73,11 +73,17 @@ locals {
         essential = c.essential
 
         portMappings = [
-          for p in c.port_mappings : {
-            containerPort = p.container_port
-            hostPort      = p.container_port
-            protocol      = p.protocol
-          }
+          for p in c.port_mappings : merge(
+            {
+              containerPort = p.container_port
+              hostPort      = p.container_port
+              protocol      = p.protocol
+            },
+            # Service Connect requires named ports; only emit `name` when
+            # the caller supplied one. Empty/null `name` is allowed for
+            # services that don't register with Service Connect.
+            p.name == null ? {} : { name = p.name },
+          )
         ]
 
         environment = [

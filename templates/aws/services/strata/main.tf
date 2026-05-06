@@ -256,6 +256,9 @@ module "service" {
         {
           container_port = var.container_port
           protocol       = "tcp"
+          # Named port — referenced by Service Connect's port_name when
+          # var.service_connect_namespace_arn is set.
+          name = "strata-http"
         },
       ]
       environment = [
@@ -331,6 +334,31 @@ module "service" {
   attach_to_apigw_vpc_link_id = local.is_apigw ? var.ingress_vpc_link_id : ""
   apigw_integration_uri       = local.is_apigw ? var.ingress_apigw_integration_uri : ""
   apigw_api_id                = local.is_apigw ? var.ingress_apigw_api_id : ""
+
+  # ---- Ingress security-group allow-list (HIGH from AWS-1.6.1 review) -----
+  # Without this the task SG accepts no inbound traffic and the API GW VPC
+  # link cannot reach Strata. See variables.tf §"ingress_security_group_ids".
+  ingress_security_group_ids = var.ingress_security_group_ids
+
+  # ---- Service Connect (MEDIUM-1 from AWS-1.6.1 review) -------------------
+  # Registers this Strata service under `<service_connect_dns_name>.<ns>` so
+  # the example-agent can reach it as `http://strata.strata-{env}:3000`.
+  # Empty namespace ARN disables Service Connect (legacy / unit-test path).
+  service_connect_namespace_arn = var.service_connect_namespace_arn
+  service_connect_config = var.service_connect_namespace_arn != "" ? {
+    services = [
+      {
+        port_name      = "strata-http"
+        discovery_name = var.service_connect_dns_name
+        client_alias = [
+          {
+            port     = var.container_port
+            dns_name = var.service_connect_dns_name
+          },
+        ]
+      },
+    ]
+  } : null
 
   # ---- Egress to Aurora + Redis -------------------------------------------
   allowed_egress_security_group_ids = [

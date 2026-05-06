@@ -106,7 +106,8 @@ variable "containers" {
       - name              (string, required)  — container name; must be unique in the task; used by ECS Exec and load-balancer attachment.
       - image             (string, required)  — image URI (ECR or public registry).
       - essential         (bool, optional, default true) — when true, task stops if this container exits.
-      - port_mappings     (list, optional)    — [{ container_port = number, protocol = "tcp"|"udp" }]
+      - port_mappings     (list, optional)    — [{ container_port = number, protocol = "tcp"|"udp", name = optional(string) }]
+                                                  `name` is required when this service registers in Service Connect (var.service_connect_namespace_arn set); the value matches the `port_name` referenced in var.service_connect_config.services[*].port_name.
       - environment       (list, optional)    — [{ name = string, value = string }]
       - secrets           (list, optional)    — [{ name = string, value_from = "<secret-arn>" }]
                                                   Translated to ECS `secrets` (Secrets Manager / SSM Parameter Store).
@@ -123,6 +124,7 @@ variable "containers" {
     port_mappings = optional(list(object({
       container_port = number
       protocol       = optional(string, "tcp")
+      name           = optional(string)
     })), [])
     environment = optional(list(object({
       name  = string

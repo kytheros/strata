@@ -206,6 +206,28 @@ variable "ingress_endpoint_dns" {
   type        = string
 }
 
+variable "ingress_security_group_ids" {
+  description = "List of security-group IDs allowed to reach Strata's task port. Pass `[module.ingress.security_group_id]` so the API GW VPC Link / ALB can reach the tasks. Without this the SG fails closed and apigw -> Strata times out at runtime. Discovered by the security review of AWS-1.6.1."
+  type        = list(string)
+  default     = []
+}
+
+###############################################################################
+# Service Connect — required for example-agent -> Strata internal traffic.
+###############################################################################
+
+variable "service_connect_namespace_arn" {
+  description = "ARN of the Cloud Map namespace used for ECS Service Connect (from the orchestrator's `aws_service_discovery_http_namespace.this.arn`). When non-empty (paired with var.service_connect_dns_name), this Strata service registers itself in the namespace so peer tasks can reach it as `<dns_name>.<namespace>:<port>`. Empty disables Service Connect."
+  type        = string
+  default     = ""
+}
+
+variable "service_connect_dns_name" {
+  description = "DNS alias the example-agent (and any other peer) uses to reach this service over Service Connect. Conventional value: `strata`. Combined with the namespace name (`strata-{env}`), peers connect to `http://strata.strata-{env}:{container_port}`. Ignored when service_connect_namespace_arn is empty."
+  type        = string
+  default     = "strata"
+}
+
 ###############################################################################
 # Container shape
 ###############################################################################

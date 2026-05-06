@@ -160,6 +160,33 @@ variable "apigw_integration_uri" {
   default     = ""
 }
 
+variable "ingress_security_group_ids" {
+  description = "List of security-group IDs allowed to reach this service's task port. Pass `[module.ingress.security_group_id]` so the API GW VPC Link / ALB can reach the tasks. Without this the SG fails closed and the apigw $default route times out at runtime. Discovered by the security review of AWS-1.6.1."
+  type        = list(string)
+  default     = []
+}
+
+###############################################################################
+# Service Connect — registers the example-agent so internal callers (none
+# in v1, but reserves the namespace surface) and exposes Strata's namespace.
+# The example-agent reaches Strata via Service Connect by setting the same
+# namespace_arn here; the URL it uses to reach Strata is derived from
+# var.cluster_service_connect_namespace + var.strata_internal_port (already
+# wired pre-1.6.1).
+###############################################################################
+
+variable "service_connect_namespace_arn" {
+  description = "ARN of the Cloud Map namespace used for ECS Service Connect (from the orchestrator's `aws_service_discovery_http_namespace.this.arn`). When non-empty, the example-agent task joins the namespace so its Envoy sidecar can resolve `strata.<namespace>` into the Strata service. Empty disables Service Connect (legacy / unit-test path)."
+  type        = string
+  default     = ""
+}
+
+variable "service_connect_dns_name" {
+  description = "DNS alias the example-agent registers under in Service Connect. Conventional value: `example-agent`. Reserved for future peer services that need to reach the example-agent internally; v1 has none. Ignored when service_connect_namespace_arn is empty."
+  type        = string
+  default     = "example-agent"
+}
+
 ###############################################################################
 # Cognito federation — App Client URLs flow through to the cognito-user-pool
 # module. Default to localhost so a first plan-only apply works; real

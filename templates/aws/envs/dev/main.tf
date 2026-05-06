@@ -70,6 +70,46 @@ module "ecs_cluster" {
 }
 
 ###############################################################################
+# Service Connect namespace (added in AWS-1.6.1 follow-up; pre-Phase-1.4).
+#
+# Owned by the orchestrator (not modules/ecs-cluster) because:
+#   - ecs-cluster is intentionally tight: cluster + log group + KMS + exec
+#     role only. Adding service discovery there conflates "compute" with
+#     "discovery" and forces every standalone ecs-cluster consumer to
+#     decide whether they want a namespace.
+#   - The namespace name is a deterministic string already referenced by
+#     three consumer module calls (strata service, example-agent service,
+#     and ingress-authorizer's integration URI). Co-locating the resource
+#     with the references that need it keeps the contract visible.
+#
+# Why aws_service_discovery_http_namespace and NOT private_dns_namespace:
+# ECS Service Connect uses Envoy sidecars to translate `<dns_name>.<ns>`
+# aliases at the client task — there is no actual DNS resolution. The HTTP
+# namespace skips the Route 53 zone (saves cost + plan time) and gives the
+# example-agent everything it needs to reach Strata over Service Connect.
+#
+# The aws_service_discovery_http_namespace resource does NOT take a `vpc`
+# argument — Service Connect aliases are scoped to the cluster, not the VPC.
+# (private_dns_namespace would take vpc, but is overkill here.)
+#
+# KNOWN GAP: external-client API GW path.
+# The API GW VPC link cannot resolve Service Connect aliases (they only
+# work inside Envoy-sidecar-instrumented tasks). The /mcp routes wired in
+# services/ingress-authorizer reach Strata fine for ECS-internal callers,
+# but external MCP clients hitting the API GW will 503 until the
+# integration_uri is changed to either an NLB listener ARN or a Cloud Map
+# service ARN. Tracked as AWS-1.6.6. The example-agent demo flow is
+# unaffected: it goes through Service Connect, not the API GW.
+###############################################################################
+
+resource "aws_service_discovery_http_namespace" "this" {
+  name        = "strata-${local.env_name}"
+  description = "ECS Service Connect namespace for Strata + example-agent in ${local.env_name}. Aliases under this namespace (e.g. strata.strata-${local.env_name}) are translated by the Envoy sidecar in each consumer task; not resolvable outside Service Connect."
+
+  tags = local.default_tags
+}
+
+###############################################################################
 # Phase 1.4 — Aurora Postgres Serverless v2 + RDS Proxy. Strata's storage.
 ###############################################################################
 
@@ -196,8 +236,20 @@ module "example_agent" {
   ingress_backend             = "apigw"
   attach_to_apigw_vpc_link_id = module.ingress.vpc_link_id
   apigw_api_id                = module.ingress.api_id
-  # Service Connect URL — namespace is named after the cluster.
-  apigw_integration_uri = "http://example-agent.strata-${local.env_name}.local:3000"
+  # Service Connect alias — used by the API GW HTTP_PROXY integration's URI.
+  # See KNOWN GAP note on the namespace resource above: the API GW VPC link
+  # cannot resolve Service Connect aliases. The URI here is structural; the
+  # working internal path between example-agent and Strata is the
+  # client_alias-resolved DNS handled by each task's Envoy sidecar.
+  apigw_integration_uri = "http://example-agent.strata-${local.env_name}:3000"
+
+  # ---- Ingress security-group allow-list (HIGH from AWS-1.6.1 review) ---
+  ingress_security_group_ids = [module.ingress.security_group_id]
+
+  # ---- Service Connect (MEDIUM-1 from AWS-1.6.1 review) ------------------
+  # Joins the orchestrator-owned namespace so the example-agent's Envoy
+  # sidecar can resolve `strata.strata-{env}` to the Strata service tasks.
+  service_connect_namespace_arn = aws_service_discovery_http_namespace.this.arn
 
   # ---- Strata-on-AWS internal endpoint -----------------------------------
   # The example-agent reaches Strata over Service Connect (not via the API
@@ -288,9 +340,12 @@ module "ingress_authorizer" {
   apigw_vpc_link_id = module.ingress.vpc_link_id
 
   # ---- Strata Service Connect URL ----------------------------------------
-  # Deterministic — Service Connect publishes <service>.<namespace>.local
-  # at the configured port. Computed locally; no resource dependency.
-  strata_integration_uri = "http://strata.strata-${local.env_name}.local:3000"
+  # Deterministic — Service Connect publishes <dns_name>.<namespace_name>
+  # at the client_alias.port. Computed locally; no resource dependency.
+  # NOTE: API GW VPC links cannot resolve Service Connect aliases; this URI
+  # is structural for the integration object but the actual external-MCP
+  # path is blocked on AWS-1.6.6 (replace with NLB or Cloud Map service ARN).
+  strata_integration_uri = "http://strata.strata-${local.env_name}:3000"
 
   # ---- Example-agent integration target for $default ---------------------
   example_agent_integration_id = module.example_agent.apigw_integration_id
@@ -348,8 +403,15 @@ module "strata_service" {
   ingress_backend               = "apigw"
   ingress_vpc_link_id           = module.ingress.vpc_link_id
   ingress_apigw_api_id          = module.ingress.api_id
-  ingress_apigw_integration_uri = "http://strata.strata-${local.env_name}.local:3000"
+  ingress_apigw_integration_uri = "http://strata.strata-${local.env_name}:3000"
   ingress_endpoint_dns          = module.ingress.endpoint_dns
+  ingress_security_group_ids    = [module.ingress.security_group_id]
+
+  # ---- Service Connect (MEDIUM-1 from AWS-1.6.1 review) ------------------
+  # Registers Strata under `strata.strata-{env}` so the example-agent's
+  # Envoy sidecar can reach it as `http://strata.strata-{env}:3000`.
+  service_connect_namespace_arn = aws_service_discovery_http_namespace.this.arn
+  service_connect_dns_name      = "strata"
 
   # ---- Auth-proxy secret (sourced from services/ingress-authorizer) ------
   # When set, services/strata skips minting its own secret and reads the
