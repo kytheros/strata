@@ -92,8 +92,9 @@ seeding).
 | AWS-1.5 | modules/elasticache-redis | ✅ shipped, composed by orchestrator (~$11–12/mo idle) |
 | AWS-1.5.1 | **envs/dev/ orchestrator** | ✅ shipped — canonical apply path |
 | AWS-1.6 | modules/s3-bucket | ✅ shipped, NOT in orchestrator (no v1 consumer) |
-| AWS-1.6.1 | **services/ingress-authorizer** | ✅ shipped 2026-05-06 — closes Phase 1.5 deferrals; security review folded HIGH (task SG ingress) + MEDIUM-1 (Service Connect namespace) into closure. AWS-1.6.4/5/7 still open as follow-ups. |
+| AWS-1.6.1 | **services/ingress-authorizer** | ✅ shipped 2026-05-06 — closes Phase 1.5 deferrals; security review folded HIGH (task SG ingress) + MEDIUM-1 (Service Connect namespace) into closure. AWS-1.6.4 ✅ shipped (sub claim in apigw access log); AWS-1.6.7 ✅ Terraform portion shipped (split `/health` onto a no-header integration; durable core fix tracked as AWS-1.6.7-core). |
 | AWS-1.6.6 | **internal NLB in services/ingress-authorizer** | ✅ shipped 2026-05-06 — option-A fix for API GW VPC link → Strata (~$0.50/mo at 8 hr/wk; ~$16/mo idle 24/7). Phase 4 `tools/list` canary now unblocked. |
+| AWS-4.1 (obs) | **modules/observability ops dashboard + JWT alarm + services/canary** | ✅ shipped 2026-05-06 — Phase 4 ops dashboard, JWT auth-error rate alarm, EventBridge + Lambda `tools/list` canary, runbooks for both new alarms. Third canary (example-agent end-to-end) still open. |
 | AWS-1.7 | modules/cloudfront-dist | ✅ shipped, NOT in orchestrator (needs real ACM cert) |
 | AWS-1.8 | modules/cognito-user-pool | ✅ shipped, owned by services/example-agent composition |
 | AWS-1.9 | modules/secrets | ✅ shipped, composed by orchestrator + service compositions |
@@ -127,6 +128,12 @@ External MCP client (Cognito JWT)
         v
   Strata Fargate (STRATA_REQUIRE_AUTH_PROXY=1)
 ```
+
+`GET /health` follows the same path **except** it targets a sibling
+`strata_no_header` integration (AWS-1.6.7) with no `request_parameters`
+block, so the auth-proxy token is not forwarded on the unauthenticated
+health path. Strata's `STRATA_REQUIRE_AUTH_PROXY` gate is enforced only
+inside `handleMcpRequest`, not on `/health`.
 
 External MCP clients reach Strata end-to-end. JWT validation at the
 edge + shared-secret check at the service = two-layer defense in depth.
@@ -164,7 +171,36 @@ OIDC roles are provisioned by `bootstrap/`:
 
 After this lands, run `task bootstrap:up` once against the dev account to create `strata-cicd-readonly-role`. The `create_readonly_role` variable defaults to `true`.
 
-The dashboards + 3 synthetic canaries portion of AWS-4.1 (`observability-sre` + `qa-test-eng`) is tracked separately and not part of these workflows.
+The dashboards + canaries portion of AWS-4.1 (`observability-sre`) shipped 2026-05-06; see "Observability + canary" below. The third canary (example-agent end-to-end OAuth flow, `qa-test-eng`) is still open.
+
+## Observability + canary (AWS-4.1)
+
+Two CloudWatch dashboards are provisioned by `modules/observability`:
+
+| Dashboard | Name | Console URL pattern |
+|---|---|---|
+| SLO (slim) | `strata-<env>-slo` | `https://<region>.console.aws.amazon.com/cloudwatch/home?region=<region>#dashboards:name=strata-<env>-slo` |
+| Ops (broad) | `strata-<env>-ops` | `https://<region>.console.aws.amazon.com/cloudwatch/home?region=<region>#dashboards:name=strata-<env>-ops` |
+
+The orchestrator surfaces both URLs as `observability_dashboard_url` and `observability_ops_dashboard_url` outputs from `task dev:output`. The ops dashboard surfaces ECS per-service utilization, API GW request/error/latency mix, internal NLB flows + healthy-host counts, Aurora ACU/conns/replica-lag, Redis Serverless usage, NAT egress, VPC-endpoint usage, and the JWT authentication funnel.
+
+**JWT auth-error rate alarm.** Two CW Logs metric filters attach to the API GW access log group (the format AWS-1.6.4 enriched with `sub` + `authError`) emitting `JwtAuthErrorCount` and `JwtAuthRequestCount` in the `Strata/Auth` namespace. The `jwt_auth_error_rate` alarm pages when `(errors / total) * 100` exceeds `jwt_auth_error_rate_threshold` (default 5%) for 2 of 3 5-minute periods. Runbook: `templates/aws/runbooks/jwt_auth_error_rate.md`.
+
+**Synthetic canary.** `services/canary/` is an EventBridge-scheduled Lambda that runs every 5 minutes (configurable). It mints a Cognito JWT via AdminInitiateAuth against the test-user app client, then POSTs `/mcp tools/list` and asserts HTTP 200 + non-empty `result.tools`. Failures emit `CANARY_FAIL stage=<name>`; a metric filter on that prefix increments `Strata/Canary::CanaryFailureCount`, which the failure alarm pages on (default: 2 of 3 5-min periods with at least 1 failure each). Runbook: `templates/aws/runbooks/canary_mcp_tools_list.md`.
+
+**Why EventBridge + Lambda over CloudWatch Synthetics.** Cost. Synthetics canaries bill ~$0.0017/run × 5-min cadence = ~$15/mo per canary 24/7. EventBridge + Lambda at the same cadence is well under $0.50/mo at the dev operating cadence (8 hr/wk) and ~$2/mo at 24/7. Tying canary cost to apply state matches the destroy-when-not-working operating model. Lambda logs land in CloudWatch directly; the metric filter on `CANARY_FAIL` is the canonical signal — no S3 screenshots/HAR overhead.
+
+**One-time canary setup.** After `task dev:up`, seed the test-user credentials secret:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id "$(task dev:output -- canary_credentials_secret_arn)" \
+  --secret-string '{"username":"<canary-user>","password":"<password>"}'
+```
+
+The secret is provisioned even when `canary_enabled=false` so operators can stage credentials before flipping the canary on. The Cognito test-user app client must permit `ADMIN_USER_PASSWORD_AUTH`.
+
+`canary_enabled = false` in tfvars or the orchestrator skips the Lambda + IAM role + EventBridge rule + alarm but keeps the credentials secret — useful during initial bring-up before the test user exists.
 
 ## Multi-environment expansion (deferred)
 
