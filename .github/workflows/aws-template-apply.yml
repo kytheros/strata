@@ -1,0 +1,151 @@
+###############################################################################
+# AWS deploy-template manual apply (AWS-4.1).
+#
+# Manual button push only. Runs `task dev:up` (the canonical apply path) against
+# the dev account using the OIDC deploy role from bootstrap. Uploads orchestrator
+# outputs as a workflow artifact for downstream inspection.
+#
+# OIDC trust:
+#   Assumes arn:aws:iam::624990353897:role/strata-cicd-deploy-role
+#   (sub: repo:mkavalich/strata:environment:dev,
+#         repo:mkavalich/strata:ref:refs/heads/main).
+#   The `dev` GitHub environment gates this workflow with required reviewers.
+#
+# Cost discipline (matches the operating cadence in templates/aws/README.md):
+#   apply brings the dev stack up at ~$361/mo idle. Pair every apply with a
+#   destroy when the work session ends — the matching task is `task dev:down`,
+#   which can be wired into a follow-up workflow if needed.
+###############################################################################
+
+name: aws-template-apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply-dev" to confirm. Anything else aborts.'
+        required: true
+        type: string
+      run_destroy_after:
+        description: 'If true, runs `task dev:down` instead of `task dev:up`. Use to tear the stack down at the end of a work session.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Only one apply at a time per env. Do NOT cancel-in-progress — an in-flight
+  # terraform apply must run to completion to avoid orphaned state.
+  group: aws-template-apply-dev
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: '1.7.5'
+  AWS_REGION: 'us-east-1'
+  TEMPLATE_DIR: 'templates/aws'
+  AWS_ACCOUNT_ID: '624990353897'
+  DEPLOY_ROLE_NAME: 'strata-cicd-deploy-role'
+
+jobs:
+  apply:
+    name: terraform apply (envs/dev)
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write  # OIDC federation
+    steps:
+      - name: confirm input
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm }}" != "apply-dev" ]; then
+            echo "ERROR: confirm input must be 'apply-dev'. Got '${{ inputs.confirm }}'." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: install Task
+        run: |
+          set -euo pipefail
+          curl -sSfL --retry 5 --retry-all-errors \
+            https://taskfile.dev/install.sh \
+            | sh -s -- -b /usr/local/bin v3.39.2
+          task --version
+
+      - name: configure aws credentials (OIDC, deploy role)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.DEPLOY_ROLE_NAME }}
+          role-session-name: gha-aws-template-apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: aws sts get-caller-identity (sanity)
+        run: aws sts get-caller-identity
+
+      - name: ensure tfvars exists
+        working-directory: ${{ env.TEMPLATE_DIR }}/envs/dev
+        run: |
+          set -euo pipefail
+          if [ ! -f terraform.tfvars ]; then
+            echo "ERROR: templates/aws/envs/dev/terraform.tfvars not present in the repo." >&2
+            echo "Apply requires real values for image refs, OAuth secrets, etc." >&2
+            echo "See envs/dev/README.md for the operational setup checklist." >&2
+            exit 1
+          fi
+
+      - name: task dev:up
+        if: ${{ inputs.run_destroy_after == false }}
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        env:
+          # The Taskfile preflight calls `aws sts get-caller-identity --profile ${AWS_PROFILE}`.
+          # OIDC sessions don't use a profile; setting AWS_PROFILE empty makes the CLI fall
+          # through to the env-var credentials the action already exported.
+          AWS_PROFILE: ''
+        run: task dev:up
+
+      - name: task dev:down
+        if: ${{ inputs.run_destroy_after == true }}
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        env:
+          AWS_PROFILE: ''
+        run: task dev:down
+
+      - name: capture orchestrator outputs
+        if: ${{ inputs.run_destroy_after == false }}
+        working-directory: ${{ env.TEMPLATE_DIR }}/envs/dev
+        run: |
+          set -euo pipefail
+          terraform output -json > orchestrator-outputs.json
+          terraform output > orchestrator-outputs.txt
+          echo '## Orchestrator outputs' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat orchestrator-outputs.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload outputs artifact
+        if: ${{ inputs.run_destroy_after == false }}
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882  # v4.4.3
+        with:
+          name: orchestrator-outputs-${{ github.run_id }}
+          path: |
+            ${{ env.TEMPLATE_DIR }}/envs/dev/orchestrator-outputs.json
+            ${{ env.TEMPLATE_DIR }}/envs/dev/orchestrator-outputs.txt
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: completion notice
+        if: always()
+        run: |
+          if [ "${{ inputs.run_destroy_after }}" = "true" ]; then
+            echo "task dev:down completed with status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "task dev:up completed with status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          fi

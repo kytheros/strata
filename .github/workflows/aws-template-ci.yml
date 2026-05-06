@@ -1,0 +1,317 @@
+###############################################################################
+# AWS deploy-template CI (AWS-4.1, CI portion).
+#
+# Triggers on PRs and pushes to main that touch templates/aws/**.
+# What this workflow guarantees, in order:
+#
+#   1. terraform fmt -check       — across every .tf path under templates/aws
+#   2. terraform validate         — across every leaf module + composition
+#   3. tflint                     — using templates/aws/.tflint.hcl
+#   4. checkov                    — IaC security scan (modules carry # checkov:skip
+#                                   annotations; unannotated findings fail)
+#   5. tfsec                      — second SAST opinion (advisory, never blocks)
+#   6. plan-on-pr                 — runs `terraform plan` against envs/dev/ and
+#                                   posts a sticky comment summarizing the plan.
+#                                   Uses the read-only OIDC role from bootstrap
+#                                   (strata-cicd-readonly-role) — no mutation
+#                                   surface.
+#
+# OIDC trust:
+#   - PR jobs assume       arn:aws:iam::624990353897:role/strata-cicd-readonly-role
+#     (sub: repo:mkavalich/strata:pull_request, ReadOnlyAccess)
+#   - This workflow does NOT assume the deploy role. Apply lives in
+#     aws-template-apply.yml (workflow_dispatch only).
+#
+# No long-lived AWS keys. No third-party action that requires a token. All
+# external actions are pinned to a commit SHA.
+###############################################################################
+
+name: aws-template-ci
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'templates/aws/**'
+      - '.github/workflows/aws-template-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'templates/aws/**'
+      - '.github/workflows/aws-template-ci.yml'
+
+# Defense-in-depth: only the plan-on-pr job needs id-token (OIDC). Top-level
+# is read-only; jobs that need more elevate explicitly.
+permissions:
+  contents: read
+
+concurrency:
+  group: aws-template-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_VERSION: '1.7.5'
+  TFLINT_VERSION: 'v0.51.1'
+  CHECKOV_VERSION: '3.2.255'
+  TFSEC_VERSION: 'v1.28.10'
+  AWS_REGION: 'us-east-1'
+  TEMPLATE_DIR: 'templates/aws'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Discover every Terraform path so downstream jobs can fan out by matrix
+  # without hard-coding the module list. Anything with a versions.tf is a
+  # leaf Terraform run target.
+  # ---------------------------------------------------------------------------
+  discover:
+    name: discover terraform paths
+    runs-on: ubuntu-latest
+    outputs:
+      paths: ${{ steps.find.outputs.paths }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - name: Find terraform paths
+        id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Every directory containing versions.tf under templates/aws is a
+          # validate target. Sorted + jq-encoded for matrix consumption.
+          paths=$(
+            find "${TEMPLATE_DIR}" -type f -name versions.tf \
+              -not -path '*/.terraform/*' \
+              -not -path '*/plan.tfplan/*' \
+              | xargs -n1 dirname \
+              | sort -u \
+              | jq -Rsc 'split("\n") | map(select(length > 0))'
+          )
+          echo "paths=${paths}" >> "$GITHUB_OUTPUT"
+          echo "Discovered paths:"
+          echo "${paths}" | jq -r '.[]'
+
+  # ---------------------------------------------------------------------------
+  # terraform fmt -check across the whole template tree. Single job, recursive.
+  # ---------------------------------------------------------------------------
+  fmt:
+    name: terraform fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check (recursive)
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        run: terraform fmt -check -recursive -diff
+
+  # ---------------------------------------------------------------------------
+  # terraform validate per discovered path. Each path is `init -backend=false`
+  # so we don't need backend creds for validation.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: terraform validate
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        path: ${{ fromJSON(needs.discover.outputs.paths) }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform init (backend=false)
+        working-directory: ${{ matrix.path }}
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        working-directory: ${{ matrix.path }}
+        run: terraform validate -no-color
+
+  # ---------------------------------------------------------------------------
+  # tflint across the template tree. Uses the .tflint.hcl at templates/aws/.
+  # ---------------------------------------------------------------------------
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - uses: terraform-linters/setup-tflint@90f302c255ef959cbfb4bd10581afecdb7ece3e6  # v4.0.0
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: tflint init
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: tflint (recursive)
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        run: tflint --recursive --format compact
+
+  # ---------------------------------------------------------------------------
+  # Checkov IaC security scan. Modules carry # checkov:skip annotations for
+  # known/intentional findings; an unannotated finding fails the build.
+  # ---------------------------------------------------------------------------
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: '3.12'
+
+      - name: install checkov
+        run: pip install "checkov==${CHECKOV_VERSION}"
+
+      - name: checkov scan
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        run: |
+          checkov \
+            --directory . \
+            --framework terraform \
+            --quiet \
+            --compact \
+            --soft-fail-on LOW \
+            --download-external-modules false
+
+  # ---------------------------------------------------------------------------
+  # tfsec — secondary SAST opinion. Advisory only (continue-on-error: true);
+  # findings show up in the job summary but do not block the build. Checkov
+  # is the gating tool.
+  # ---------------------------------------------------------------------------
+  tfsec:
+    name: tfsec (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - name: install tfsec
+        run: |
+          set -euo pipefail
+          curl -sSfL --retry 5 --retry-all-errors \
+            -o tfsec \
+            "https://github.com/aquasecurity/tfsec/releases/download/${TFSEC_VERSION}/tfsec-linux-amd64"
+          chmod +x tfsec
+          sudo mv tfsec /usr/local/bin/tfsec
+
+      - name: tfsec
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        run: tfsec --soft-fail --format default .
+
+  # ---------------------------------------------------------------------------
+  # Plan-on-PR: terraform plan against envs/dev/ using the read-only OIDC role.
+  # Posts a sticky comment summarizing the plan. PRs only — push-to-main
+  # does not run this (the apply workflow is the source of truth on main).
+  # ---------------------------------------------------------------------------
+  plan-on-pr:
+    name: terraform plan (envs/dev)
+    if: github.event_name == 'pull_request'
+    needs: [fmt, validate, tflint, checkov]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write  # OIDC federation
+    env:
+      AWS_ACCOUNT_ID: '624990353897'
+      READONLY_ROLE_NAME: 'strata-cicd-readonly-role'
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: configure aws credentials (OIDC, read-only)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.READONLY_ROLE_NAME }}
+          role-session-name: gha-aws-template-ci-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ensure tfvars exists (use example as plan input)
+        working-directory: ${{ env.TEMPLATE_DIR }}/envs/dev
+        run: |
+          set -euo pipefail
+          if [ ! -f terraform.tfvars ]; then
+            cp terraform.tfvars.example terraform.tfvars
+            echo "Using terraform.tfvars.example as plan input."
+          fi
+
+      - name: terraform init
+        working-directory: ${{ env.TEMPLATE_DIR }}/envs/dev
+        run: terraform init -input=false
+
+      - name: terraform plan
+        id: plan
+        working-directory: ${{ env.TEMPLATE_DIR }}/envs/dev
+        run: |
+          set -o pipefail
+          terraform plan -input=false -lock=false -no-color -out=plan.tfplan 2>&1 | tee plan.txt
+          # Truncate plan output for PR comment (GitHub limit ~65k chars; be safer).
+          head -c 60000 plan.txt > plan.short.txt
+          {
+            echo 'plan<<EOF'
+            cat plan.short.txt
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: comment plan on PR
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            const plan = `${{ steps.plan.outputs.plan }}`;
+            const marker = '<!-- aws-template-ci:plan -->';
+            const body = [
+              marker,
+              '## terraform plan (templates/aws/envs/dev)',
+              '',
+              'Read-only role: `strata-cicd-readonly-role` (account 624990353897).',
+              '',
+              '<details><summary>Plan output (truncated to 60k chars)</summary>',
+              '',
+              '```hcl',
+              plan,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body && c.body.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
