@@ -451,6 +451,28 @@ The REST transport (`strata serve --rest`) has a separate token model: it signs 
 
 ---
 
+## Deploy on AWS (Fargate + Aurora + Cognito)
+
+Full-stack enterprise deploy: ECS Fargate, Aurora PostgreSQL Serverless v2, ElastiCache Redis, API Gateway with Cognito JWT auth, CloudWatch dashboards, cost guardrails, and a self-aware AWS-introspection example agent. Designed for portfolio demos, enterprise self-hosting, and AI coding assistant teams that need per-tenant memory isolation on AWS.
+
+See [docs/DEPLOYMENT.md#aws](docs/DEPLOYMENT.md#aws) for setup instructions and the design spec at `specs/2026-04-25-strata-deploy-aws-design.md` for the full architecture.
+
+| Operating state | Monthly cost |
+|---|---|
+| Bootstrap only (persistent) | ~$0 |
+| Fully deployed, idle | ~$361 |
+| 8 hr/wk active cadence | ~$4-5 |
+
+```bash
+task bootstrap:up   # once per account
+task dev:up         # start a work session
+task dev:down       # end a work session -- destroys stack, keeps bootstrap
+```
+
+The template lives in `templates/aws/`. See `templates/aws/README.md` for prerequisites and the full operating cadence.
+
+---
+
 ## Search Intelligence
 
 Every search result is scored through multiple ranking signals, all [empirically optimized](CHANGELOG.md) via AutoResearch:
@@ -672,7 +694,7 @@ Full documentation at [kytheros.dev/docs](https://kytheros.dev/docs).
 | [Hooks and Skills](docs/HOOKS-AND-SKILLS.md) | Hook setup, skill definitions, agent integration |
 | [Multi-Tool Support](docs/MULTI-TOOL.md) | Claude Code, Codex, Aider, Cline, Gemini CLI |
 | [Configuration](docs/CONFIGURATION.md) | Environment variables, config constants |
-| [Deployment](docs/DEPLOYMENT.md) | stdio, HTTP, Docker, Cloud Run |
+| [Deployment](docs/DEPLOYMENT.md) | stdio, HTTP, Docker, Cloud Run, AWS |
 
 ---
 
