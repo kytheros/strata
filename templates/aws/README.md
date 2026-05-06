@@ -80,7 +80,7 @@ seeding).
 - `tflint`, `checkov` (optional but the modules document `# checkov:skip` annotations that expect checkov)
 - `task` (https://taskfile.dev) — wraps the destroy/recreate cadence
 
-## Module status (Phase 1.5 closed — 2026-05-05)
+## Module status (Phase 1.6 closed — 2026-05-06)
 
 | Ticket | Module | Status |
 |---|---|---|
@@ -92,15 +92,47 @@ seeding).
 | AWS-1.5 | modules/elasticache-redis | ✅ shipped, composed by orchestrator (~$11–12/mo idle) |
 | AWS-1.5.1 | **envs/dev/ orchestrator** | ✅ shipped — canonical apply path |
 | AWS-1.6 | modules/s3-bucket | ✅ shipped, NOT in orchestrator (no v1 consumer) |
+| AWS-1.6.1 | **services/ingress-authorizer** | ✅ shipped 2026-05-06 — closes Phase 1.5 deferrals; JWT auth end-to-end on apigw path |
 | AWS-1.7 | modules/cloudfront-dist | ✅ shipped, NOT in orchestrator (needs real ACM cert) |
 | AWS-1.8 | modules/cognito-user-pool | ✅ shipped, owned by services/example-agent composition |
 | AWS-1.9 | modules/secrets | ✅ shipped, composed by orchestrator + service compositions |
 | AWS-1.10 | modules/observability | ✅ shipped, composed by orchestrator (~$2/mo idle) |
 | AWS-1.11 | modules/ingress | ✅ shipped, composed by orchestrator (apigw, ~$0/mo idle) |
-| AWS-2.1 | services/strata | ✅ shipped, composed by orchestrator (~$8/mo) |
+| AWS-2.1 | services/strata | ✅ shipped, composed by orchestrator (~$8/mo); accepts external auth-proxy secret since 1.6.1 |
 | AWS-3.1+ | services/example-agent | ✅ shipped, composed by orchestrator (~$6/mo) |
 
-Per-module `examples/basic/` are now **standalone validation harnesses only** — they wire to sentinel locals and are useful for unit-testing module changes in isolation. The canonical apply path is `task dev:up`, which goes through `envs/dev/`. Phase 1.5 closes the gap that blocked Phase 4 (CI/CD) — `AWS-4.1` can now target a single deploy entry point.
+Per-module `examples/basic/` are now **standalone validation harnesses only** — they wire to sentinel locals and are useful for unit-testing module changes in isolation. The canonical apply path is `task dev:up`, which goes through `envs/dev/`.
+
+### What's wired end-to-end after Phase 1.6 (apigw path)
+
+```
+External MCP client (Cognito JWT)
+        |
+        v
+  API GW HTTP API
+        |
+        v
+  JWT authorizer (Cognito)
+        |
+        v
+  Integration injects X-Strata-Verified
+        |
+        v
+  Strata Fargate (STRATA_REQUIRE_AUTH_PROXY=1)
+```
+
+External MCP clients can now point Claude Code (or any MCP client) at
+`https://<ingress>/mcp` with a Cognito-issued bearer token and successfully
+call `tools/list` / `tools/call`. The auth-proxy header is injected by the
+API GW integration after the JWT authorizer passes; Strata's existing
+peer-trust contract verifies it constant-time. Defense in depth = JWT
+validation at the edge + shared-secret check at the service.
+
+ALB path (staging/prod) keeps the existing two-layer model (Next.js
+middleware + Strata peer-trust); a Lambda authorizer in front of the ALB
+is a future ticket. Phase 4 (`AWS-4.1`) can now target a single deploy
+entry point and add a `tools/list` synthetic canary that exercises the
+full external-client path.
 
 Idle when fully up: ~$345/mo. Idle when down: ~$0/mo (bootstrap stays up).
 
