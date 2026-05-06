@@ -213,3 +213,40 @@ The original spec assumed three accounts (dev, staging, prod). For now we deploy
 5. Add `task up:staging`, `task up:prod` etc. to `Taskfile.yml`.
 
 The modules themselves are env-parameterized — no module code changes needed.
+
+## Cost guardrails (AWS-5.1)
+
+Three layers of cost protection run after Phase 5:
+
+| Layer | Resource | Threshold | Managed by |
+|---|---|---|---|
+| Fixed monthly cap | AWS Budget strata-dev-cap | $30/mo; alerts at 50/80/100% forecast | Operator (console) |
+| Anomaly detection | services/cost-anomaly CE monitor + subscription | $5 absolute above baseline | Terraform |
+| Real-time NAT egress | modules/observability nat_bytes_out_anomaly alarms | 3-sigma CloudWatch anomaly band | Terraform |
+
+### Cost-allocation tags
+
+Every Phase 1 module applies these four tags via the local.default_tags / extra_tags
+merge pattern. These are the canonical tags for all Strata-on-AWS resources:
+
+| Tag key | Value (dev) | Purpose |
+|---|---|---|
+| Project | strata | Identifies all Strata-on-AWS resources |
+| Environment | dev | Differentiates dev/staging/prod spend in Cost Explorer |
+| ManagedBy | terraform | Signals IaC control; protects against manual drift |
+| CostCenter | demo | Cost allocation unit; use a real cost-center code in billing systems |
+
+Activate these as Cost Allocation Tags in the AWS Billing console (Billing > Cost
+Allocation Tags > Activate) to make them filterable in Cost Explorer reports.
+
+For future AWS Organizations adoption, see governance/required-tags-scp/ for a
+Service Control Policy stub that enforces the required tags at the OU level.
+
+### Runbooks
+
+| Alarm / situation | Runbook |
+|---|---|
+| Cost anomaly email fired | templates/aws/runbooks/cost-investigation.md |
+| NAT egress spike | templates/aws/runbooks/nat_bytes_out_anomaly.md (observability-sre) |
+| JWT auth error rate | templates/aws/runbooks/jwt_auth_error_rate.md |
+| Canary failure | templates/aws/runbooks/canary_mcp_tools_list.md |
