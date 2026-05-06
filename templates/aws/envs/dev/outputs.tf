@@ -145,3 +145,17 @@ output "mcp_nlb_target_group_arn" {
   description = "ARN of the NLB target group Strata's tasks register on. Operators run `aws elbv2 describe-target-health --target-group-arn <this>` to confirm tasks are healthy before validating the external-MCP path."
   value       = module.ingress_authorizer.strata_nlb_target_group_arn
 }
+
+###############################################################################
+# AWS-5.1 -- Cost Anomaly Detection outputs
+###############################################################################
+
+output "cost_anomaly_monitor_arn" {
+  description = "ARN of the CE DIMENSIONAL anomaly monitor (strata-dev-all-services). Reference in runbooks when investigating a Cost Anomaly Detection alert."
+  value       = module.cost_anomaly.anomaly_monitor_arn
+}
+
+output "cost_anomaly_subscription_arn" {
+  description = "ARN of the Cost Anomaly subscription. Cross-reference in Cost Management > Cost Anomaly Detection > Subscriptions."
+  value       = module.cost_anomaly.anomaly_subscription_arn
+}

@@ -94,3 +94,14 @@ variable "canary_enabled" {
   type        = bool
   default     = true
 }
+
+variable "cost_alert_email" {
+  description = "Email for Cost Anomaly Detection alerts. Default is the dev operator email."
+  type        = string
+  default     = "mkavalich@gmail.com"
+
+  validation {
+    condition     = can(regex("^[^@]+@[^@]+[.][^@]+", var.cost_alert_email))
+    error_message = "cost_alert_email must be a valid email address."
+  }
+}

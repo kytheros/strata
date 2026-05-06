@@ -625,3 +625,27 @@ module "canary" {
 
   extra_tags = local.default_tags
 }
+
+###############################################################################
+# Phase 5 (AWS-5.1) -- Cost Anomaly Detection.
+#
+# Provisions an account-level CE anomaly monitor + email subscription.
+# Threshold: absolute $5. Frequency: weekly digest (var.anomaly_frequency).
+#
+# The operator-managed AWS Budget "strata-dev-cap" ($30/mo, 50%/80%/100%
+# forecast alerts to mkavalich@gmail.com) is NOT managed here. It predates
+# Terraform ownership of this account and must not be imported.
+#
+# On first apply: AWS Cost Explorer sends a confirmation email to
+# var.cost_alert_email. Recipient must click Accept before alerts fire.
+###############################################################################
+
+module "cost_anomaly" {
+  source = "../../services/cost-anomaly"
+
+  env_name         = local.env_name
+  aws_region       = var.aws_region
+  cost_alert_email = var.cost_alert_email
+
+  extra_tags = local.default_tags
+}
