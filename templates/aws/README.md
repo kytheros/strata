@@ -92,7 +92,7 @@ seeding).
 | AWS-1.5 | modules/elasticache-redis | ✅ shipped, composed by orchestrator (~$11–12/mo idle) |
 | AWS-1.5.1 | **envs/dev/ orchestrator** | ✅ shipped — canonical apply path |
 | AWS-1.6 | modules/s3-bucket | ✅ shipped, NOT in orchestrator (no v1 consumer) |
-| AWS-1.6.1 | **services/ingress-authorizer** | ✅ shipped 2026-05-06 — closes Phase 1.5 deferrals; JWT auth end-to-end on apigw path |
+| AWS-1.6.1 | **services/ingress-authorizer** | ✅ shipped 2026-05-06 — closes Phase 1.5 deferrals; security review folded HIGH (task SG ingress) + MEDIUM-1 (Service Connect namespace) into closure. AWS-1.6.4/5/6 carved off as follow-ups. |
 | AWS-1.7 | modules/cloudfront-dist | ✅ shipped, NOT in orchestrator (needs real ACM cert) |
 | AWS-1.8 | modules/cognito-user-pool | ✅ shipped, owned by services/example-agent composition |
 | AWS-1.9 | modules/secrets | ✅ shipped, composed by orchestrator + service compositions |
@@ -121,18 +121,26 @@ External MCP client (Cognito JWT)
   Strata Fargate (STRATA_REQUIRE_AUTH_PROXY=1)
 ```
 
-External MCP clients can now point Claude Code (or any MCP client) at
-`https://<ingress>/mcp` with a Cognito-issued bearer token and successfully
-call `tools/list` / `tools/call`. The auth-proxy header is injected by the
-API GW integration after the JWT authorizer passes; Strata's existing
+**Logical wiring is complete; one remaining runtime gap (AWS-1.6.6).**
+The IaC for this end-to-end flow is in place: API GW → JWT authorizer →
+header-injecting integration → Strata. The auth-proxy header is injected
+by the API GW integration after the JWT authorizer passes; Strata's
 peer-trust contract verifies it constant-time. Defense in depth = JWT
 validation at the edge + shared-secret check at the service.
 
+The remaining runtime gap is that API GW VPC links cannot resolve
+Service Connect aliases — they need either an NLB listener ARN or a
+Cloud Map service ARN as the integration URI. The /mcp routes work for
+ECS-internal callers (Service Connect handles the alias) but external
+MCP clients hitting the API GW will 503 until **AWS-1.6.6** lands. The
+example-agent demo flow (federated login → /chat → AWS introspection)
+is unaffected — it goes through Service Connect, not the API GW.
+
 ALB path (staging/prod) keeps the existing two-layer model (Next.js
 middleware + Strata peer-trust); a Lambda authorizer in front of the ALB
-is a future ticket. Phase 4 (`AWS-4.1`) can now target a single deploy
-entry point and add a `tools/list` synthetic canary that exercises the
-full external-client path.
+is a future ticket. Phase 4 (`AWS-4.1`) can target a single deploy entry
+point today and add a `tools/list` synthetic canary that exercises the
+full external-client path once AWS-1.6.6 lands.
 
 Idle when fully up: ~$345/mo. Idle when down: ~$0/mo (bootstrap stays up).
 
