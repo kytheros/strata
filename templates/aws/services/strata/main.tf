@@ -194,9 +194,12 @@ data "aws_iam_policy_document" "service_secrets_consumer" {
   statement {
     sid    = "ReadServiceSecrets"
     effect = "Allow"
+    # DescribeSecret is intentionally OMITTED — the platform calls
+    # DescribeSecret only under the EXEC role at task launch (the ECS agent
+    # uses it to resolve the secrets[].valueFrom block). The TASK role only
+    # ever needs GetSecretValue at runtime. Phase 5 IAM review LOW-1.
     actions = [
       "secretsmanager:GetSecretValue",
-      "secretsmanager:DescribeSecret",
     ]
     resources = [
       module.database_url_secret.secret_arn,
