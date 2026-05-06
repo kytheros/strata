@@ -148,6 +148,24 @@ Idle when fully up: ~$361/mo (was ~$345 pre-1.6.6; NLB adds ~$16/mo
 when stack is up). Idle when down: ~$0/mo (bootstrap stays up). At 8
 hr/wk operating cadence: ~$0.50/mo NLB on top of ~$2/mo total.
 
+## Continuous integration
+
+Two GitHub Actions workflows live at the strata repo root under `.github/workflows/`:
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `aws-template-ci.yml` | PR + push to main, paths `templates/aws/**` | `terraform fmt -check` (recursive), `terraform validate` (matrix per discovered `versions.tf` path), `tflint` against `templates/aws/.tflint.hcl`, `checkov` (gating IaC SAST), `tfsec` (advisory). On PRs, runs `terraform plan` against `envs/dev/` via the read-only `strata-cicd-readonly-role` and sticky-comments the plan output. |
+| `aws-template-apply.yml` | `workflow_dispatch` only | Gated by the `dev` GitHub environment (required reviewers). Requires `confirm=apply-dev` input. Assumes `strata-cicd-deploy-role` via OIDC, runs `task dev:up` (or `task dev:down` with a toggle), uploads orchestrator outputs as a 30-day artifact, writes a job-summary completion notice. |
+
+OIDC roles are provisioned by `bootstrap/`:
+
+- `strata-cicd-deploy-role` — AdministratorAccess (scaffold phase; AWS-5.x will replace with least-privilege). Trusted by `repo:mkavalich/strata:ref:refs/heads/main` and `repo:mkavalich/strata:environment:dev`.
+- `strata-cicd-readonly-role` — ReadOnlyAccess. Trusted by `repo:mkavalich/strata:pull_request` only. Used by the plan-on-PR job so even an exfiltrated PR-job credential cannot apply infra.
+
+After this lands, run `task bootstrap:up` once against the dev account to create `strata-cicd-readonly-role`. The `create_readonly_role` variable defaults to `true`.
+
+The dashboards + 3 synthetic canaries portion of AWS-4.1 (`observability-sre` + `qa-test-eng`) is tracked separately and not part of these workflows.
+
 ## Multi-environment expansion (deferred)
 
 The original spec assumed three accounts (dev, staging, prod). For now we deploy to dev only — see "Phase 1 deployment scope" in the design spec. When staging and prod accounts are created later:
