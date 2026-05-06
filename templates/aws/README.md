@@ -18,17 +18,17 @@ templates/aws/
 
 ## Operating cadence — apply only when working
 
-The dev architecture matches the prod spec (3-AZ, 2× NAT, 11 VPC endpoints, ALB, etc.) for portfolio fidelity. **It costs ~$345/mo idle when fully deployed**, dominated by NAT Gateways (~$66) and interface VPC endpoints (~$197 across 3 AZs).
+The dev architecture matches the prod spec (3-AZ, 2× NAT, 11 VPC endpoints, ALB, internal NLB, etc.) for portfolio fidelity. **It costs ~$361/mo idle when fully deployed** (NLB added in AWS-1.6.6), dominated by NAT Gateways (~$66) and interface VPC endpoints (~$197 across 3 AZs); the internal NLB adds ~$16/mo idle.
 
 To keep monthly spend under ~$50, **destroy the stack when you aren't actively working on it**. Bootstrap stays up at ~$0/mo; the rest of Phase 1 cycles in ~6–25 minutes (depending on how many modules are deployed).
 
 | State | Cost / mo | When |
 |---|---|---|
 | bootstrap-only | ~$0 | between work sessions, default |
-| bootstrap + Phase 1 fully applied | ~$345 | active demo / interview / development session |
-| Cost if you spin up 4 hr/wk | **~$2** | (stack up 4hr × 4wk = 16hr/mo at $0.47/hr) |
-| Cost if you spin up 8 hr/wk | **~$4** | (32hr/mo at $0.47/hr) |
-| Cost if you leave it up 24/7 | $345 | not the plan |
+| bootstrap + Phase 1 fully applied | ~$361 | active demo / interview / development session |
+| Cost if you spin up 4 hr/wk | **~$2** | (stack up 4hr × 4wk = 16hr/mo at $0.49/hr) |
+| Cost if you spin up 8 hr/wk | **~$4** | (32hr/mo at $0.49/hr) |
+| Cost if you leave it up 24/7 | $361 | not the plan |
 
 ## Quick start
 
@@ -92,7 +92,8 @@ seeding).
 | AWS-1.5 | modules/elasticache-redis | ✅ shipped, composed by orchestrator (~$11–12/mo idle) |
 | AWS-1.5.1 | **envs/dev/ orchestrator** | ✅ shipped — canonical apply path |
 | AWS-1.6 | modules/s3-bucket | ✅ shipped, NOT in orchestrator (no v1 consumer) |
-| AWS-1.6.1 | **services/ingress-authorizer** | ✅ shipped 2026-05-06 — closes Phase 1.5 deferrals; security review folded HIGH (task SG ingress) + MEDIUM-1 (Service Connect namespace) into closure. AWS-1.6.4/5/6 carved off as follow-ups. |
+| AWS-1.6.1 | **services/ingress-authorizer** | ✅ shipped 2026-05-06 — closes Phase 1.5 deferrals; security review folded HIGH (task SG ingress) + MEDIUM-1 (Service Connect namespace) into closure. AWS-1.6.4/5/7 still open as follow-ups. |
+| AWS-1.6.6 | **internal NLB in services/ingress-authorizer** | ✅ shipped 2026-05-06 — option-A fix for API GW VPC link → Strata (~$0.50/mo at 8 hr/wk; ~$16/mo idle 24/7). Phase 4 `tools/list` canary now unblocked. |
 | AWS-1.7 | modules/cloudfront-dist | ✅ shipped, NOT in orchestrator (needs real ACM cert) |
 | AWS-1.8 | modules/cognito-user-pool | ✅ shipped, owned by services/example-agent composition |
 | AWS-1.9 | modules/secrets | ✅ shipped, composed by orchestrator + service compositions |
@@ -103,7 +104,7 @@ seeding).
 
 Per-module `examples/basic/` are now **standalone validation harnesses only** — they wire to sentinel locals and are useful for unit-testing module changes in isolation. The canonical apply path is `task dev:up`, which goes through `envs/dev/`.
 
-### What's wired end-to-end after Phase 1.6 (apigw path)
+### What's wired end-to-end after Phase 1.6 + AWS-1.6.6 (apigw path)
 
 ```
 External MCP client (Cognito JWT)
@@ -115,34 +116,37 @@ External MCP client (Cognito JWT)
   JWT authorizer (Cognito)
         |
         v
-  Integration injects X-Strata-Verified
+  Integration (X-Strata-Verified header injected via overwrite:)
+        |
+        v
+  VPC Link
+        |
+        v
+  Internal NLB (TCP, target_type=ip)
         |
         v
   Strata Fargate (STRATA_REQUIRE_AUTH_PROXY=1)
 ```
 
-**Logical wiring is complete; one remaining runtime gap (AWS-1.6.6).**
-The IaC for this end-to-end flow is in place: API GW → JWT authorizer →
-header-injecting integration → Strata. The auth-proxy header is injected
-by the API GW integration after the JWT authorizer passes; Strata's
-peer-trust contract verifies it constant-time. Defense in depth = JWT
-validation at the edge + shared-secret check at the service.
+External MCP clients reach Strata end-to-end. JWT validation at the
+edge + shared-secret check at the service = two-layer defense in depth.
+AWS-1.6.6 closed the runtime gap by standing up an internal NLB in front
+of Strata so the API GW VPC link has an L4 endpoint to route to (it
+cannot resolve Service Connect aliases).
 
-The remaining runtime gap is that API GW VPC links cannot resolve
-Service Connect aliases — they need either an NLB listener ARN or a
-Cloud Map service ARN as the integration URI. The /mcp routes work for
-ECS-internal callers (Service Connect handles the alias) but external
-MCP clients hitting the API GW will 503 until **AWS-1.6.6** lands. The
-example-agent demo flow (federated login → /chat → AWS introspection)
-is unaffected — it goes through Service Connect, not the API GW.
+The example-agent demo flow (federated login → /chat → AWS introspection)
+is unchanged — it reaches Strata over Service Connect via Envoy
+sidecars, NOT through the NLB. The NLB carries only external-MCP traffic.
 
 ALB path (staging/prod) keeps the existing two-layer model (Next.js
 middleware + Strata peer-trust); a Lambda authorizer in front of the ALB
-is a future ticket. Phase 4 (`AWS-4.1`) can target a single deploy entry
-point today and add a `tools/list` synthetic canary that exercises the
-full external-client path once AWS-1.6.6 lands.
+is a future ticket. Phase 4 (`AWS-4.1`) is now fully unblocked — both
+the deploy entry point AND the `tools/list` synthetic canary that
+exercises the full external-client path through API GW + NLB + Strata.
 
-Idle when fully up: ~$345/mo. Idle when down: ~$0/mo (bootstrap stays up).
+Idle when fully up: ~$361/mo (was ~$345 pre-1.6.6; NLB adds ~$16/mo
+when stack is up). Idle when down: ~$0/mo (bootstrap stays up). At 8
+hr/wk operating cadence: ~$0.50/mo NLB on top of ~$2/mo total.
 
 ## Multi-environment expansion (deferred)
 
