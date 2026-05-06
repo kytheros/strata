@@ -58,6 +58,26 @@ output "observability_dashboard_url" {
   value       = module.observability.dashboard_url
 }
 
+output "observability_ops_dashboard_url" {
+  description = "Console URL of the Phase 4 ops dashboard (broader surface than the SLO view — ECS per-service utilization, API GW request/error/latency mix, NLB flows, Aurora ACU / connections / replica lag, Redis Serverless usage, NAT egress, VPC-endpoint usage, JWT authentication funnel)."
+  value       = module.observability.ops_dashboard_url
+}
+
+output "canary_credentials_secret_arn" {
+  description = "Secrets Manager ARN of the canary's test-user credentials. Seed once via `aws secretsmanager put-secret-value --secret-id <this> --secret-string '{\"username\":\"...\", \"password\":\"...\"}'` before flipping `canary_enabled = true`."
+  value       = module.canary.credentials_secret_arn
+}
+
+output "canary_log_group_name" {
+  description = "CloudWatch Logs group capturing canary output. `aws logs tail <this> --since 30m --follow` is the fastest way to see CANARY_OK / CANARY_FAIL lines during incident response."
+  value       = module.canary.log_group_name
+}
+
+output "canary_failure_alarm_arn" {
+  description = "ARN of the canary failure alarm wired to the existing observability SNS topic. null when canary_enabled=false."
+  value       = module.canary.failure_alarm_arn
+}
+
 output "alarm_topic_arn" {
   description = "ARN of the SNS alarm topic. Subscribe additional endpoints out-of-band via `aws sns subscribe` if needed."
   value       = module.observability.alarm_topic_arn

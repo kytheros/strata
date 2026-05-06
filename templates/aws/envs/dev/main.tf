@@ -574,5 +574,54 @@ module "observability" {
   # ---- Cognito auth-failure-rate alarm -----------------------------------
   cognito_user_pool_id = module.example_agent.user_pool_id
 
+  # ---- Phase 4 ops dashboard + JWT-error metric filter (AWS-4.1) ---------
+  # API GW, NLB, and per-service ECS dimensions feed the strata-<env>-ops
+  # dashboard. The JWT auth-error rate alarm consumes the API GW access log
+  # group (which AWS-1.6.4 enriched with the `sub` and `authError` fields).
+  enable_ops_dashboard        = true
+  apigw_api_id                = module.ingress.api_id
+  apigw_log_group_name        = module.ingress.log_group_name
+  nlb_arn_suffix              = module.ingress_authorizer.strata_nlb_arn_suffix
+  nlb_target_group_arn_suffix = module.ingress_authorizer.strata_nlb_target_group_arn_suffix
+  strata_service_name         = module.strata_service.service_name
+  example_agent_service_name  = module.example_agent.service_name
+
+  extra_tags = local.default_tags
+}
+
+###############################################################################
+# Phase 4 — Synthetic canary (AWS-4.1).
+#
+# EventBridge + Lambda cadence over CloudWatch Synthetics: cost-aligned with
+# the destroy-when-not-working operating model and gives us direct control
+# over the failure signal (CANARY_FAIL log lines → metric filter → existing
+# SNS alarm topic). See services/canary/main.tf for the rationale.
+#
+# `count = var.canary_enabled` per the spec — flips the canary off when the
+# stack is intentionally torn down or before the test user exists. The
+# credentials secret is always provisioned so operators can stage creds
+# before the first enable.
+###############################################################################
+
+module "canary" {
+  source = "../../services/canary"
+
+  env_name   = local.env_name
+  aws_region = var.aws_region
+
+  canary_enabled = var.canary_enabled
+
+  # Cognito (sourced via example-agent's pool, same as ingress-authorizer).
+  cognito_user_pool_id        = module.example_agent.user_pool_id
+  cognito_user_pool_arn       = module.example_agent.user_pool_arn
+  cognito_user_pool_client_id = module.example_agent.user_pool_client_id
+
+  # Hits the public API GW endpoint with a real Cognito JWT — exercises the
+  # full external-MCP path: API GW JWT authorizer → header-injecting
+  # integration → internal NLB → Strata.
+  mcp_endpoint_url = "https://${module.ingress.endpoint_dns}/mcp"
+
+  alarm_topic_arn = module.observability.alarm_topic_arn
+
   extra_tags = local.default_tags
 }

@@ -88,3 +88,9 @@ variable "example_agent_container_image" {
     error_message = "example_agent_container_image must be set — build the image, push to ECR, then populate this."
   }
 }
+
+variable "canary_enabled" {
+  description = "Phase 4 (AWS-4.1) — enable the EventBridge + Lambda synthetic canary that exercises the full external-MCP path every 5 minutes. The credentials secret is always provisioned (so operators can stage creds before turning the canary on); only the Lambda + IAM role + EventBridge rule + alarm are gated on this flag. Default true; flip to false during initial bring-up before the test user exists, or while the stack is intentionally torn down for extended periods."
+  type        = bool
+  default     = true
+}

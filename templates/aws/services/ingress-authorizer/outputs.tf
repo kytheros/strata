@@ -72,6 +72,16 @@ output "strata_nlb_target_group_arn" {
   value       = aws_lb_target_group.mcp.arn
 }
 
+output "strata_nlb_arn_suffix" {
+  description = "ARN suffix of the internal NLB (the part after `:loadbalancer/`, e.g. `net/strata-dev-mcp-nlb/abc123`). Used as the LoadBalancer dimension on AWS/NetworkELB metrics in the Phase 4 ops dashboard."
+  value       = aws_lb.mcp.arn_suffix
+}
+
+output "strata_nlb_target_group_arn_suffix" {
+  description = "ARN suffix of the NLB target group (the part after `:targetgroup/`, e.g. `targetgroup/strata-dev-mcp-tg/abc123`). Used as the TargetGroup dimension on AWS/NetworkELB metrics in the Phase 4 ops dashboard."
+  value       = aws_lb_target_group.mcp.arn_suffix
+}
+
 output "strata_nlb_security_group_id" {
   description = "Security group ID protecting the NLB. The Strata service composition must include this in its `ingress_security_group_ids` so task ENIs accept inbound traffic from the NLB. Without this the NLB health checks fail and external MCP requests time out."
   value       = aws_security_group.nlb.id
