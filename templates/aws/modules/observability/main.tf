@@ -53,6 +53,10 @@ locals {
   # at aws_cloudwatch_metric_alarm.alb_5xx_rate writes its description with
   # Runbook: ${var.runbook_base_url}/alb_5xx_rate.md
   runbook_url = var.runbook_base_url
+
+  # Phase 4 (AWS-4.1) gating signals.
+  jwt_auth_metrics_enabled = var.apigw_log_group_name != ""
+  ops_dashboard_enabled    = var.enable_ops_dashboard
 }
 
 ###############################################################################
@@ -595,6 +599,104 @@ resource "aws_cloudwatch_metric_alarm" "cognito_auth_failure_rate" {
 }
 
 ###############################################################################
+# 4j. JWT authorizer error-rate metric filters + alarm (AWS-4.1)
+#
+# AWS-1.6.4 added `authError` and `sub` to the API GW access log. We attach
+# two metric filters to that log group:
+#
+#   1. JwtAuthErrorCount — increments on any line where authError is non-empty
+#      and not the "-" placeholder API GW emits when the field is null.
+#   2. JwtAuthRequestCount — increments on every line, providing the
+#      denominator the dashboard auth-funnel and the rate alarm consume.
+#
+# CloudWatch Logs filter pattern semantics:
+#   The pattern `{ $.authError != "" && $.authError != "-" }` matches log
+#   events whose JSON `authError` field is non-empty and not the apigw
+#   placeholder. The `{ $.requestId = "*" }` pattern matches any line that
+#   has a requestId (which is always present on the apigw access log shape).
+#
+# treat_missing_data on the alarm = "notBreaching" so periods of zero
+# traffic don't page; the alarm is a sustained-failure signal, not a
+# liveness signal.
+###############################################################################
+
+resource "aws_cloudwatch_log_metric_filter" "jwt_auth_error_count" {
+  count = local.jwt_auth_metrics_enabled ? 1 : 0
+
+  name           = "strata-${var.env_name}-jwt-auth-error-count"
+  log_group_name = var.apigw_log_group_name
+  pattern        = "{ ($.authError != \"\") && ($.authError != \"-\") }"
+
+  metric_transformation {
+    name          = "JwtAuthErrorCount"
+    namespace     = var.apigw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_log_metric_filter" "jwt_auth_request_count" {
+  count = local.jwt_auth_metrics_enabled ? 1 : 0
+
+  name           = "strata-${var.env_name}-jwt-auth-request-count"
+  log_group_name = var.apigw_log_group_name
+  pattern        = "{ $.requestId = \"*\" }"
+
+  metric_transformation {
+    name          = "JwtAuthRequestCount"
+    namespace     = var.apigw_metric_namespace
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "jwt_auth_error_rate" {
+  count = local.jwt_auth_metrics_enabled ? 1 : 0
+
+  alarm_name          = "strata-${var.env_name}-jwt-auth-error-rate"
+  alarm_description   = "JWT authorizer rejection rate exceeded ${var.jwt_auth_error_rate_threshold}% over 15 minutes. Indicates client-side misconfig, expired tokens, or brute force against the /mcp endpoint. Cross-reference the API GW access log for the offending source IPs and route keys. Runbook: ${local.runbook_url}/jwt_auth_error_rate.md"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  datapoints_to_alarm = 2
+  threshold           = var.jwt_auth_error_rate_threshold
+  treat_missing_data  = "notBreaching"
+
+  metric_query {
+    id          = "e1"
+    expression  = "(errors / IF(total == 0, 1, total)) * 100"
+    label       = "JWT auth error rate (%)"
+    return_data = true
+  }
+
+  metric_query {
+    id = "errors"
+    metric {
+      namespace   = var.apigw_metric_namespace
+      metric_name = "JwtAuthErrorCount"
+      period      = 300
+      stat        = "Sum"
+    }
+  }
+
+  metric_query {
+    id = "total"
+    metric {
+      namespace   = var.apigw_metric_namespace
+      metric_name = "JwtAuthRequestCount"
+      period      = 300
+      stat        = "Sum"
+    }
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  tags = merge(local.tags, {
+    Name = "strata-${var.env_name}-jwt-auth-error-rate"
+  })
+}
+
+###############################################################################
 # 5. SLO Dashboard
 #
 # Rendered from dashboards/strata-slo-dashboard.json with templatefile() so the
@@ -616,5 +718,40 @@ resource "aws_cloudwatch_dashboard" "slo" {
     redis_cache_name          = var.redis_cache_name != "" ? var.redis_cache_name : "PLACEHOLDER"
     nat_gateway_ids           = var.nat_gateway_ids
     cognito_user_pool_id      = var.cognito_user_pool_id != "" ? var.cognito_user_pool_id : "PLACEHOLDER"
+  })
+}
+
+###############################################################################
+# 6. Ops Dashboard (Phase 4 / AWS-4.1)
+#
+# Comprehensive operational view alongside the SLO dashboard. Surfaces ECS
+# per-service utilization, API GW request/error/latency mix, NLB flow + healthy
+# host counts, Aurora ACU/conns/replica-lag, Redis Serverless usage, NAT egress,
+# VPC-endpoint usage, and the JWT authentication funnel.
+#
+# Gated on var.enable_ops_dashboard so the module's default behavior is
+# unchanged for callers that just want the SLO view. Any input variable that
+# is empty when the dashboard renders falls back to PLACEHOLDER strings; the
+# corresponding widgets render "no data" cleanly.
+###############################################################################
+
+resource "aws_cloudwatch_dashboard" "ops" {
+  count = local.ops_dashboard_enabled ? 1 : 0
+
+  dashboard_name = "strata-${var.env_name}-ops"
+
+  dashboard_body = templatefile("${path.module}/dashboards/strata-ops-dashboard.json", {
+    aws_region                  = var.aws_region
+    env_name                    = var.env_name
+    apigw_api_id                = var.apigw_api_id != "" ? var.apigw_api_id : "PLACEHOLDER"
+    apigw_log_group_name        = var.apigw_log_group_name != "" ? var.apigw_log_group_name : "PLACEHOLDER"
+    apigw_metric_namespace      = var.apigw_metric_namespace
+    ecs_cluster_name            = var.ecs_cluster_name != "" ? var.ecs_cluster_name : "PLACEHOLDER"
+    strata_service_name         = var.strata_service_name != "" ? var.strata_service_name : "PLACEHOLDER"
+    example_agent_service_name  = var.example_agent_service_name != "" ? var.example_agent_service_name : "PLACEHOLDER"
+    nlb_arn_suffix              = var.nlb_arn_suffix != "" ? var.nlb_arn_suffix : "PLACEHOLDER"
+    nlb_target_group_arn_suffix = var.nlb_target_group_arn_suffix != "" ? var.nlb_target_group_arn_suffix : "PLACEHOLDER"
+    aurora_cluster_identifier   = var.aurora_cluster_identifier != "" ? var.aurora_cluster_identifier : "PLACEHOLDER"
+    redis_cache_name            = var.redis_cache_name != "" ? var.redis_cache_name : "PLACEHOLDER"
   })
 }

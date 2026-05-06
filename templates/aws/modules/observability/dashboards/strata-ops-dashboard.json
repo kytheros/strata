@@ -1,0 +1,433 @@
+{
+  "widgets": [
+    {
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "width": 24,
+      "height": 2,
+      "properties": {
+        "markdown": "# Strata ${env_name} - Operations Dashboard\nLive ECS / API GW / NLB / Aurora / Redis / NAT / VPC-endpoint posture. The SLO dashboard (`strata-${env_name}-slo`) is the slimmer SLO-focused view. Widgets keyed off empty targets show 'no data' until those resources are provisioned. AWS-4.1."
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 2,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## API Gateway - request volume + status mix"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 3,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "API GW request count",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ApiGateway", "Count", "ApiId", "${apigw_api_id}", { "stat": "Sum", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 3,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "API GW 4XX vs 5XX (rate %)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          [{ "expression": "(m_4xx / IF(m_total == 0, 1, m_total)) * 100", "label": "4XX rate (%)", "id": "e4xx" }],
+          [{ "expression": "(m_5xx / IF(m_total == 0, 1, m_total)) * 100", "label": "5XX rate (%)", "id": "e5xx" }],
+          ["AWS/ApiGateway", "4XXError", "ApiId", "${apigw_api_id}", { "id": "m_4xx", "stat": "Sum", "period": 300, "visible": false }],
+          [".", "5XXError", ".", ".", { "id": "m_5xx", "stat": "Sum", "period": 300, "visible": false }],
+          [".", "Count", ".", ".", { "id": "m_total", "stat": "Sum", "period": 300, "visible": false }]
+        ],
+        "annotations": {
+          "horizontal": [{ "label": "1% 5XX SLO", "value": 1 }]
+        },
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 3,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "API GW latency p50 / p95 / p99 (ms)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ApiGateway", "Latency", "ApiId", "${apigw_api_id}", { "stat": "p50", "period": 300, "label": "p50" }],
+          ["...", { "stat": "p95", "period": 300, "label": "p95" }],
+          ["...", { "stat": "p99", "period": 300, "label": "p99" }]
+        ],
+        "annotations": {
+          "horizontal": [{ "label": "800ms p99 SLO", "value": 800 }]
+        },
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 9,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## Authentication funnel (Cognito + JWT authorizer)\n`authError` populates only when the JWT authorizer rejects the request (AWS-1.6.4). A non-zero rate indicates client-side misconfig, brute force, or expired tokens; a sustained spike is paged via the JWT-error-rate alarm."
+      }
+    },
+    {
+      "type": "log",
+      "x": 0,
+      "y": 10,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "JWT authorizer errors (last 1h)",
+        "view": "table",
+        "region": "${aws_region}",
+        "query": "SOURCE '${apigw_log_group_name}' | fields @timestamp, routeKey, status, authError, ip\n| filter authError != \"\" and authError != \"-\"\n| sort @timestamp desc\n| limit 50"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 10,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Auth funnel: total requests vs JWT errors (Logs Insights metric)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["${apigw_metric_namespace}", "JwtAuthErrorCount", { "stat": "Sum", "period": 300, "label": "JWT errors" }],
+          [".", "JwtAuthRequestCount", { "stat": "Sum", "period": 300, "label": "Total requests" }],
+          [{ "expression": "(m_err / IF(m_total == 0, 1, m_total)) * 100", "label": "JWT error rate (%)", "id": "e_rate", "yAxis": "right" }],
+          ["${apigw_metric_namespace}", "JwtAuthErrorCount", { "id": "m_err", "stat": "Sum", "period": 300, "visible": false }],
+          [".", "JwtAuthRequestCount", { "id": "m_total", "stat": "Sum", "period": 300, "visible": false }]
+        ],
+        "yAxis": {
+          "left": { "min": 0 },
+          "right": { "min": 0, "max": 100 }
+        }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 16,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## ECS Fargate - per-service CPU / memory / task counts\nDeployment events are surfaced via Service Connect / ECS service-deployment events (CloudTrail). The metric panels below show the steady-state utilization curves for both services."
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 17,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "ECS CPU utilization per service (%)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ECS", "CPUUtilization", "ClusterName", "${ecs_cluster_name}", "ServiceName", "${strata_service_name}", { "stat": "Average", "period": 300, "label": "strata" }],
+          ["...", "${example_agent_service_name}", { "stat": "Average", "period": 300, "label": "example-agent" }]
+        ],
+        "yAxis": { "left": { "min": 0, "max": 100 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 17,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "ECS memory utilization per service (%)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ECS", "MemoryUtilization", "ClusterName", "${ecs_cluster_name}", "ServiceName", "${strata_service_name}", { "stat": "Average", "period": 300, "label": "strata" }],
+          ["...", "${example_agent_service_name}", { "stat": "Average", "period": 300, "label": "example-agent" }]
+        ],
+        "yAxis": { "left": { "min": 0, "max": 100 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 17,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "ECS running vs desired tasks per service",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ECS", "RunningTaskCount", "ClusterName", "${ecs_cluster_name}", "ServiceName", "${strata_service_name}", { "stat": "Average", "period": 300, "label": "strata running" }],
+          [".", "DesiredTaskCount", ".", ".", ".", ".", { "stat": "Average", "period": 300, "label": "strata desired" }],
+          [".", "RunningTaskCount", ".", ".", ".", "${example_agent_service_name}", { "stat": "Average", "period": 300, "label": "agent running" }],
+          [".", "DesiredTaskCount", ".", ".", ".", ".", { "stat": "Average", "period": 300, "label": "agent desired" }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 23,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## Internal NLB (external-MCP path) - AWS-1.6.6"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 24,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "NLB active flow count",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/NetworkELB", "ActiveFlowCount", "LoadBalancer", "${nlb_arn_suffix}", { "stat": "Average", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 24,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "NLB target healthy host count",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/NetworkELB", "HealthyHostCount", "TargetGroup", "${nlb_target_group_arn_suffix}", "LoadBalancer", "${nlb_arn_suffix}", { "stat": "Minimum", "period": 60 }],
+          [".", "UnHealthyHostCount", ".", ".", ".", ".", { "stat": "Maximum", "period": 60 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 24,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "NLB processed bytes",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/NetworkELB", "ProcessedBytes", "LoadBalancer", "${nlb_arn_suffix}", { "stat": "Sum", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 30,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## Aurora Serverless v2"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 31,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Aurora ACU consumption",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/RDS", "ServerlessDatabaseCapacity", "DBClusterIdentifier", "${aurora_cluster_identifier}", { "stat": "Average", "period": 60 }],
+          ["...", { "stat": "Maximum", "period": 60, "label": "Max ACU" }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 31,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Aurora connections",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/RDS", "DatabaseConnections", "DBClusterIdentifier", "${aurora_cluster_identifier}", { "stat": "Average", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 31,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Aurora replica lag (ms)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/RDS", "AuroraReplicaLag", "DBClusterIdentifier", "${aurora_cluster_identifier}", { "stat": "Average", "period": 300 }],
+          ["...", { "stat": "Maximum", "period": 300, "label": "Max lag" }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 37,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## ElastiCache Redis Serverless"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 38,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Redis BytesUsedForCache",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ElastiCache", "BytesUsedForCache", "CacheClusterId", "${redis_cache_name}", { "stat": "Average", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 38,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Redis network bytes in / out",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ElastiCache", "NetworkBytesIn", "CacheClusterId", "${redis_cache_name}", { "stat": "Sum", "period": 300, "label": "In" }],
+          [".", "NetworkBytesOut", ".", ".", { "stat": "Sum", "period": 300, "label": "Out" }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 38,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Redis ECPUs consumed (Serverless billing unit)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/ElastiCache", "ElastiCacheProcessingUnits", "CacheClusterId", "${redis_cache_name}", { "stat": "Sum", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "text",
+      "x": 0,
+      "y": 44,
+      "width": 24,
+      "height": 1,
+      "properties": {
+        "markdown": "## Cost-relevant: NAT egress + VPC endpoint usage"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 45,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "NAT BytesOutToDestination (existing 3-sigma anomaly alarm)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/NATGateway", "BytesOutToDestination", { "stat": "Sum", "period": 300 }],
+          [".", "BytesInFromSource", { "stat": "Sum", "period": 300 }]
+        ],
+        "yAxis": { "left": { "min": 0 } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 45,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "VPC interface-endpoint bytes (sum across endpoints)",
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${aws_region}",
+        "metrics": [
+          ["AWS/PrivateLinkEndpoints", "BytesProcessed", { "stat": "Sum", "period": 300, "label": "All endpoint bytes" }],
+          [".", "ActiveConnections", { "stat": "Average", "period": 300, "yAxis": "right", "label": "Active conns" }]
+        ],
+        "yAxis": { "left": { "min": 0 }, "right": { "min": 0 } }
+      }
+    }
+  ]
+}

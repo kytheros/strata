@@ -178,13 +178,85 @@ variable "cognito_user_pool_id" {
 }
 
 ###############################################################################
+# Phase 4 — Ops dashboard + JWT authorizer error rate.
+#
+# The ops dashboard is a separate, more comprehensive view alongside the SLO
+# dashboard (which stays slim and SLO-focused). It is gated on var.enable_ops_dashboard
+# so consumers without API GW / NLB still get the SLO dashboard cleanly.
+#
+# The JWT auth-error metric filter scans the API GW access log for non-empty
+# `authError` fields (added in AWS-1.6.4) and emits a Strata/Auth namespace
+# metric. The dashboard's auth-funnel widget plots this; the JWT-error-rate
+# alarm pages on sustained breaches.
+###############################################################################
+
+variable "enable_ops_dashboard" {
+  description = "When true, provision the strata-<env>-ops dashboard (Phase 4 / AWS-4.1) alongside the existing SLO dashboard. The ops dashboard surfaces ECS per-service utilization, API GW request/error/latency mix, NLB flows + healthy-host counts, Aurora ACU/conns/replica-lag, Redis Serverless usage, NAT egress, VPC endpoint usage, and the JWT authentication funnel. Default false to keep the module's surface backwards-compatible — orchestrators flip this on once API GW + NLB IDs are wired."
+  type        = bool
+  default     = false
+}
+
+variable "apigw_api_id" {
+  description = "API Gateway HTTP API ID (e.g. abc123def). Used as the ApiId dimension on AWS/ApiGateway metrics in the ops dashboard. Empty string disables the API-GW widgets."
+  type        = string
+  default     = ""
+}
+
+variable "apigw_log_group_name" {
+  description = "CloudWatch Logs group name receiving API GW access logs (the format that AWS-1.6.4 added the `sub` / `authError` fields to). When non-empty, this module attaches a metric filter for JWT-authorizer errors and a counterpart filter for total requests, both in var.apigw_metric_namespace. The dashboard's auth-funnel widget keys off these metrics, and the jwt_auth_error_rate alarm pages on sustained breach."
+  type        = string
+  default     = ""
+}
+
+variable "apigw_metric_namespace" {
+  description = "CloudWatch metrics namespace for the JWT-error metric filters this module emits when var.apigw_log_group_name is set. Default `Strata/Auth` keeps the auth-related metrics in their own namespace separate from the AWS/* service namespaces."
+  type        = string
+  default     = "Strata/Auth"
+}
+
+variable "jwt_auth_error_rate_threshold" {
+  description = "Percentage threshold for the JWT-authorizer error-rate alarm. Fires when (jwt_errors / total_requests) * 100 exceeds this for 3 consecutive 5-minute periods (2 of 3 must breach). Default 5% catches sustained client-side misconfig or brute force without paging on legitimate token-expiry blips."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.jwt_auth_error_rate_threshold > 0 && var.jwt_auth_error_rate_threshold <= 100
+    error_message = "jwt_auth_error_rate_threshold must be a percent in (0, 100]."
+  }
+}
+
+variable "nlb_arn_suffix" {
+  description = "ARN suffix of the internal NLB (the part after `:loadbalancer/`, e.g. `net/strata-dev-mcp-nlb/abc123`). Used as the LoadBalancer dimension on AWS/NetworkELB metrics in the ops dashboard. Empty string disables NLB widgets."
+  type        = string
+  default     = ""
+}
+
+variable "nlb_target_group_arn_suffix" {
+  description = "ARN suffix of the NLB target group (the part after `:targetgroup/`, e.g. `targetgroup/strata-dev-mcp-tg/abc123`). Used as the TargetGroup dimension on AWS/NetworkELB metrics in the ops dashboard. Empty string disables target-group widgets."
+  type        = string
+  default     = ""
+}
+
+variable "strata_service_name" {
+  description = "ECS service short name for the Strata service (e.g. `strata-dev`). Used as the ServiceName dimension on the ops dashboard's per-service ECS widgets. Empty string causes those panels to render with placeholder dimensions and 'no data'."
+  type        = string
+  default     = ""
+}
+
+variable "example_agent_service_name" {
+  description = "ECS service short name for the example-agent service (e.g. `example-agent-dev`). Used as the ServiceName dimension on the ops dashboard's per-service ECS widgets. Empty string causes those panels to render with placeholder dimensions and 'no data'."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
 # Misc
 ###############################################################################
 
 variable "runbook_base_url" {
   description = "Base URL prepended to alarm runbook references in alarm_description. Each alarm's description ends with `Runbook: <runbook_base_url>/<alarm-name>.md`. Default points at the in-repo runbooks/ directory; override to a hosted runbook URL when the team has one."
   type        = string
-  default     = "https://github.com/mkavalich/strata/blob/main/runbooks"
+  default     = "https://github.com/kytheros/strata/blob/main/templates/aws/runbooks"
 }
 
 variable "extra_tags" {
