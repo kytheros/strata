@@ -483,6 +483,15 @@ resource "aws_apigatewayv2_stage" "default" {
     for_each = var.enable_logging ? [1] : []
     content {
       destination_arn = aws_cloudwatch_log_group.apigw[0].arn
+      # Access-log shape. Adds JWT `sub`, `email`, and `cognito:groups` claims
+      # plus the authorizer error string so per-tenant audit + auth-failure
+      # forensics live in one searchable log group (AWS-1.6.4). For routes
+      # without a JWT authorizer (e.g. /health, $default) the claim variables
+      # render as empty strings; CloudWatch Logs Insights filters with
+      # `sub != ""` cleanly partition authenticated vs anonymous requests.
+      # `authError` populates only when the authorizer rejects a request,
+      # making it the canonical signal for the JWT-error rate metric the
+      # Phase 4 dashboard surfaces.
       format = jsonencode({
         requestId          = "$context.requestId"
         ip                 = "$context.identity.sourceIp"
@@ -494,6 +503,10 @@ resource "aws_apigatewayv2_stage" "default" {
         responseLength     = "$context.responseLength"
         integrationLatency = "$context.integrationLatency"
         userAgent          = "$context.identity.userAgent"
+        sub                = "$context.authorizer.claims.sub"
+        email              = "$context.authorizer.claims.email"
+        cognitoGroups      = "$context.authorizer.claims.cognito:groups"
+        authError          = "$context.authorizer.error"
       })
     }
   }
