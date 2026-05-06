@@ -112,8 +112,8 @@ interface PoolStats {
  * Start the multi-tenant MCP server over Streamable HTTP.
  *
  * Routes:
- *   GET  /health     -> health check with pool stats
- *   GET  /admin/pool -> per-user pool details
+ *   GET  /health     -> liveness probe ({status:"ok"} only — no pool internals)
+ *   GET  /admin/pool -> pool stats + per-user details (requires STRATA_ADMIN_TOKEN)
  *   POST /mcp        -> MCP JSON-RPC (requires X-Strata-User header)
  *   GET  /mcp        -> SSE stream for existing session
  *   DELETE /mcp      -> session termination
@@ -271,26 +271,13 @@ export async function startMultiTenantHttpTransport(
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
     // ── Health endpoint ──────────────────────────────────────────────
+    // Returns a minimal liveness signal only. Pool stats are intentionally
+    // omitted — they are operational metadata that should not be reachable
+    // from an unauthenticated public endpoint (AWS-1.6.7-core).
+    // Full pool stats are available at /admin/pool behind STRATA_ADMIN_TOKEN.
     if (url.pathname === "/health") {
-      const stats = getPoolStats();
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          status: "ok",
-          mode: "multi-tenant",
-          pool: {
-            open: stats.open,
-            maxOpen: stats.maxOpen,
-            hits: stats.hits,
-            misses: stats.misses,
-            hitRate:
-              stats.hits + stats.misses > 0
-                ? ((stats.hits / (stats.hits + stats.misses)) * 100).toFixed(1) + "%"
-                : "0%",
-          },
-          uptime: Math.floor(process.uptime()),
-        })
-      );
+      res.end(JSON.stringify({ status: "ok" }));
       return;
     }
 
@@ -320,9 +307,23 @@ export async function startMultiTenantHttpTransport(
         return;
       }
 
+      const stats = getPoolStats();
       const entries = getPoolEntries();
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ entries }));
+      res.end(
+        JSON.stringify({
+          open: stats.open,
+          maxOpen: stats.maxOpen,
+          hits: stats.hits,
+          misses: stats.misses,
+          hitRate:
+            stats.hits + stats.misses > 0
+              ? ((stats.hits / (stats.hits + stats.misses)) * 100).toFixed(1) + "%"
+              : "0%",
+          uptime: Math.floor(process.uptime()),
+          entries,
+        })
+      );
       return;
     }
 

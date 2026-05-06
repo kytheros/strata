@@ -60,7 +60,7 @@ Shared-process model for SaaS deployments. One Node.js process handles all users
 | `--max-dbs <n>` | 200 | Max open databases in LRU pool |
 | `--port <n>` | 3000 | HTTP listen port |
 
-User scope comes from the `X-Strata-User` HTTP header (must be UUID format). Routes: `POST/GET/DELETE /mcp`, `GET /health` (pool stats), `GET /admin/pool` (per-user details).
+User scope comes from the `X-Strata-User` HTTP header (must be UUID format). Routes: `POST/GET/DELETE /mcp`, `GET /health` (liveness only — pool stats moved to `/admin/pool` behind `STRATA_ADMIN_TOKEN`), `GET /admin/pool` (pool stats + per-user details, requires `Authorization: Bearer <STRATA_ADMIN_TOKEN>`).
 
 **Multi-tenant deployments MUST run behind a verified auth proxy.**
 `X-Strata-User` alone is a trust-the-header identifier — the backend has no

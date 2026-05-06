@@ -255,16 +255,15 @@ Note: Cloud Storage FUSE adds latency to SQLite operations. For best performance
 
 ## Health Checks
 
-The `/health` endpoint is available on the HTTP server and returns the server's status, version, and uptime.
+The `/health` endpoint is available on the HTTP server as a liveness probe.
 
-### Request
+### Single-tenant health check
 
 ```
 GET /health
 ```
 
-### Response
-
+Response:
 ```json
 {
   "status": "ok",
@@ -278,6 +277,47 @@ GET /health
 | `status` | `"ok"` or `"error"` | Server health status |
 | `version` | `string` | Strata version from package.json |
 | `uptime` | `number` | Seconds since the server started |
+
+### Multi-tenant health check
+
+In multi-tenant mode (`--multi-tenant`), `/health` returns a minimal liveness signal only:
+
+```
+GET /health
+```
+
+Response:
+```json
+{ "status": "ok" }
+```
+
+Pool internals (open DB count, hits, misses) are intentionally omitted — they are operational metadata that should not be accessible from an unauthenticated public endpoint.
+
+### Multi-tenant pool stats (admin only)
+
+Full pool statistics are available behind `STRATA_ADMIN_TOKEN`:
+
+```
+GET /admin/pool
+Authorization: Bearer <STRATA_ADMIN_TOKEN>
+```
+
+Response:
+```json
+{
+  "open": 12,
+  "maxOpen": 200,
+  "hits": 4821,
+  "misses": 47,
+  "hitRate": "99.0%",
+  "uptime": 3600,
+  "entries": [
+    { "userId": "...", "lastAccess": 1715000000000, "alive": true }
+  ]
+}
+```
+
+If `STRATA_ADMIN_TOKEN` is not set in the environment, `/admin/pool` returns 404 and the endpoint is disabled.
 
 ### Usage in Monitoring
 
