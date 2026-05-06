@@ -275,6 +275,32 @@ variable "max_dbs" {
 }
 
 ###############################################################################
+# Auth-proxy shared secret — optional override.
+#
+# When the orchestrator runs services/ingress-authorizer (AWS-1.6.1), the
+# auth-proxy token is owned there (so it can be injected into the API GW
+# integration's request_parameters AND consumed here). The orchestrator
+# passes the secret ARN, KMS key ARN, and consumer policy through these
+# variables; this module skips minting its own secret when they are set.
+#
+# Leaving them empty falls back to the legacy STANDALONE mode where this
+# module mints its own secret. See main.tf §"Auth-proxy shared secret —
+# sourced or self-minted" for the contract.
+###############################################################################
+
+variable "auth_proxy_secret_arn" {
+  description = "Optional. Secrets Manager ARN of the STRATA_AUTH_PROXY_TOKEN, supplied by services/ingress-authorizer when the orchestrator wires the centralized JWT authorizer (AWS-1.6.1). When empty, this module mints and owns its own secret (legacy / unit-test path)."
+  type        = string
+  default     = ""
+}
+
+variable "auth_proxy_secret_kms_key_arn" {
+  description = "Optional. ARN of the KMS key encrypting the external auth-proxy secret. Required only when var.auth_proxy_secret_arn is set — used in the kms:Decrypt grant on the task role."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
 # Optional: per-tenant SQLite user-data bucket
 ###############################################################################
 

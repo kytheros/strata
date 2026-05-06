@@ -1,0 +1,131 @@
+###############################################################################
+# services/ingress-authorizer (AWS-1.6.1) — input surface.
+#
+# This composition closes the two cycle-breaking deferrals from Phase 1.5:
+#
+#   1. Centralized Cognito JWT authorizer attached to the ingress's API GW
+#      routes. v1 verified JWTs at each service's app layer (Next.js
+#      middleware + STRATA_REQUIRE_AUTH_PROXY peer-trust). v1.6 lifts that
+#      to the API GW layer so external MCP clients can hit /mcp directly.
+#
+#   2. X-Strata-Verified header injection from the ingress integration into
+#      Strata-bound requests, after JWT verification. The integration uses
+#      `request_parameters` to set the constant header value to the shared
+#      STRATA_AUTH_PROXY_TOKEN this composition mints.
+#
+# Why a separate composition:
+#   - The ingress module owns the API + VPC Link + (optional) authorizer
+#     resource. Wiring routes there created an ingress↔example_agent cycle.
+#   - The strata service module owns its own ECS integration. Adding header
+#     injection there couples the service module to the ingress's secret.
+#   - Lifting both concerns into a downstream composition that runs AFTER
+#     cognito + ingress + both services breaks the cycle: this module
+#     depends on raw IDs/ARNs/URIs from those upstreams, but nothing in
+#     them depends on this module's outputs at create time.
+###############################################################################
+
+variable "env_name" {
+  description = "Environment short name (dev|staging|prod). Drives resource naming and secret hierarchy."
+  type        = string
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.env_name)
+    error_message = "env_name must be one of: dev, staging, prod."
+  }
+}
+
+variable "aws_region" {
+  description = "AWS region. Used to construct the Cognito JWT issuer URL (https://cognito-idp.{region}.amazonaws.com/{user_pool_id})."
+  type        = string
+  default     = "us-east-1"
+}
+
+###############################################################################
+# Cognito — consumed from the cognito-user-pool module (or from the
+# example-agent composition that owns it). Raw IDs/strings only — NO module
+# references — so this composition has no graph edge into those modules
+# beyond the explicit input wiring at the orchestrator layer.
+###############################################################################
+
+variable "cognito_user_pool_id" {
+  description = "Cognito User Pool ID. Used to construct the JWT issuer URL on the API GW JWT authorizer."
+  type        = string
+
+  validation {
+    condition     = length(var.cognito_user_pool_id) > 0
+    error_message = "cognito_user_pool_id must be set — the JWT authorizer cannot be created without a user pool."
+  }
+}
+
+variable "cognito_user_pool_client_id" {
+  description = "Cognito App Client ID. Used as the `audience` claim the JWT authorizer enforces."
+  type        = string
+
+  validation {
+    condition     = length(var.cognito_user_pool_client_id) > 0
+    error_message = "cognito_user_pool_client_id must be set — required as JWT audience."
+  }
+}
+
+###############################################################################
+# Ingress — consumed from the ingress module
+###############################################################################
+
+variable "apigw_api_id" {
+  description = "HTTP API ID from the ingress module's `api_id` output. Routes and authorizer attach here."
+  type        = string
+
+  validation {
+    condition     = length(var.apigw_api_id) > 0
+    error_message = "apigw_api_id must be set — this composition is apigw-backend-only in v1 (see README)."
+  }
+}
+
+variable "apigw_vpc_link_id" {
+  description = "VPC Link ID from the ingress module's `vpc_link_id` output. Used by the Strata-bound integration this composition creates (the existing ecs-service integration is left in place but not wired into the JWT-authorized routes)."
+  type        = string
+
+  validation {
+    condition     = length(var.apigw_vpc_link_id) > 0
+    error_message = "apigw_vpc_link_id must be set — JWT-authorized /mcp routes need a VPC link to reach Strata over Service Connect."
+  }
+}
+
+###############################################################################
+# Strata service — Service Connect URL the JWT-authorized /mcp routes target.
+#
+# The Strata service module's own apigw integration (created by ecs-service)
+# is intentionally bypassed for /mcp; this composition creates a dedicated
+# integration with `request_parameters` injecting X-Strata-Verified, then
+# attaches /mcp + /health routes to it.
+#
+# The Strata integration_uri is deterministic: Service Connect publishes the
+# Strata service at <service_name>.<namespace>.local:<port>. The orchestrator
+# computes that string and passes it as a tfvar — no resource dependency.
+###############################################################################
+
+variable "strata_integration_uri" {
+  description = "Service Connect URL for the Strata service (e.g. http://strata.strata-dev.local:3000). Computed by the orchestrator from the cluster Service Connect namespace and the Strata container port."
+  type        = string
+
+  validation {
+    condition     = can(regex("^https?://[^/]+:[0-9]+$", var.strata_integration_uri))
+    error_message = "strata_integration_uri must be `http(s)://<host>:<port>` with no trailing path."
+  }
+}
+
+variable "example_agent_integration_id" {
+  description = "API GW integration ID for the example-agent service (from services/example-agent/infrastructure's underlying ecs-service module). Used as the target for the catch-all $default route — example-agent's Next.js middleware verifies the JWT itself, so $default does NOT attach the JWT authorizer."
+  type        = string
+  default     = ""
+}
+
+###############################################################################
+# Tags
+###############################################################################
+
+variable "extra_tags" {
+  description = "Additional tags merged into the default tag set."
+  type        = map(string)
+  default     = {}
+}

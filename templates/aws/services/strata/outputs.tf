@@ -44,8 +44,8 @@ output "database_url_secret_arn" {
 }
 
 output "auth_proxy_secret_arn" {
-  description = "ARN of the STRATA_AUTH_PROXY_TOKEN secret. The ingress reads this same secret and sets `X-Strata-Verified: <token>` after JWT verification. Diagnostic only — never expose to clients."
-  value       = module.auth_proxy_secret.secret_arn
+  description = "ARN of the STRATA_AUTH_PROXY_TOKEN secret actually wired into the task definition. When var.auth_proxy_secret_arn was supplied, this echoes that input (the orchestrator's services/ingress-authorizer secret). Otherwise it's the locally-minted standalone secret. Diagnostic only — never expose to clients."
+  value       = local.effective_auth_proxy_secret_arn
 }
 
 output "user_data_bucket_arn" {

@@ -52,35 +52,82 @@ locals {
 }
 
 ###############################################################################
-# Auth-proxy shared secret.
+# Auth-proxy shared secret — sourced or self-minted.
 #
 # Strata's multi-tenant HTTP transport refuses to trust the X-Strata-User
 # header unless the upstream proxy also sets X-Strata-Verified to a known
-# shared secret. We mint a 32-byte secret once at apply time, store it in
-# Secrets Manager, and let the ingress read the same secret to inject it on
-# every request after JWT verification succeeds.
+# shared secret. There are two supported wiring modes:
 #
-# See strata/CLAUDE.md §"REST transport token secret" / §"multi-tenant
-# deployments" for the contract this satisfies on the Strata side.
+#   1. EXTERNAL (orchestrator path, AWS-1.6.1+):
+#      The shared secret is owned by services/ingress-authorizer/, which
+#      both injects it into the API GW integration's request_parameters and
+#      passes its ARN here via var.auth_proxy_secret_arn. This is the
+#      canonical path for any deployment that wants external MCP clients to
+#      hit /mcp directly with a Cognito JWT.
+#
+#   2. STANDALONE (legacy / unit-test path):
+#      No external secret supplied — this module mints its own. The secret
+#      is unreachable by the ingress in this mode (no X-Strata-Verified is
+#      ever set), so /mcp is reachable only over Service Connect from the
+#      example-agent, which itself sets the header to the same minted
+#      value via internal configuration. Used by services/strata/examples/
+#      and by environments where AWS-1.6.1 has not yet been applied.
+#
+# See strata/CLAUDE.md §"REST transport token secret" / §"Multi-tenant
+# deployments MUST run behind a verified auth proxy".
 ###############################################################################
 
+locals {
+  use_external_auth_proxy_secret = var.auth_proxy_secret_arn != ""
+}
+
+# Pair-validate the optional auth-proxy override inputs. Surfaced via
+# check{} block so plan output names the failure clearly instead of
+# emitting a confusing "value cannot be null" error from the IAM document.
+check "auth_proxy_inputs_paired" {
+  assert {
+    condition     = !local.use_external_auth_proxy_secret || var.auth_proxy_secret_kms_key_arn != ""
+    error_message = "auth_proxy_secret_arn was set but auth_proxy_secret_kms_key_arn is empty. Both must be supplied together when overriding the auth-proxy secret (the kms key arn is required for the kms:Decrypt grant on the task role)."
+  }
+}
+
 resource "random_password" "auth_proxy_token" {
+  count = local.use_external_auth_proxy_secret ? 0 : 1
+
   length  = 48
   special = false
 }
 
 module "auth_proxy_secret" {
   source = "../../modules/secrets"
+  count  = local.use_external_auth_proxy_secret ? 0 : 1
 
   env_name    = var.env_name
   aws_region  = var.aws_region
   secret_name = "strata-service/auth-proxy-token"
-  description = "Shared sentinel set by the ${var.ingress_backend} ingress on X-Strata-Verified after Cognito JWT verification. Strata's multi-tenant HTTP transport rejects any request whose X-Strata-Verified does not match this value."
+  description = "Shared sentinel set by the ${var.ingress_backend} ingress on X-Strata-Verified after Cognito JWT verification. Strata's multi-tenant HTTP transport rejects any request whose X-Strata-Verified does not match this value. STANDALONE mode — the orchestrator path replaces this with a secret owned by services/ingress-authorizer."
 
   create_initial_version = true
-  initial_value          = random_password.auth_proxy_token.result
+  initial_value          = random_password.auth_proxy_token[0].result
 
   extra_tags = local.default_tags
+}
+
+# Resolved auth-proxy secret values — either the external inputs or the
+# locally-minted secret's outputs. Downstream IAM grants and the ECS task
+# definition consume these instead of branching on the gating signal.
+locals {
+  effective_auth_proxy_secret_arn = (
+    local.use_external_auth_proxy_secret
+    ? var.auth_proxy_secret_arn
+    : module.auth_proxy_secret[0].secret_arn
+  )
+
+  effective_auth_proxy_kms_key_arn = (
+    local.use_external_auth_proxy_secret
+    ? var.auth_proxy_secret_kms_key_arn
+    : module.auth_proxy_secret[0].kms_key_arn
+  )
 }
 
 ###############################################################################
@@ -148,7 +195,7 @@ data "aws_iam_policy_document" "service_secrets_consumer" {
     ]
     resources = [
       module.database_url_secret.secret_arn,
-      module.auth_proxy_secret.secret_arn,
+      local.effective_auth_proxy_secret_arn,
     ]
   }
 
@@ -160,7 +207,7 @@ data "aws_iam_policy_document" "service_secrets_consumer" {
     ]
     resources = [
       module.database_url_secret.kms_key_arn,
-      module.auth_proxy_secret.kms_key_arn,
+      local.effective_auth_proxy_kms_key_arn,
     ]
     condition {
       test     = "StringEquals"
@@ -253,7 +300,7 @@ module "service" {
         },
         {
           name       = "STRATA_AUTH_PROXY_TOKEN"
-          value_from = module.auth_proxy_secret.secret_arn
+          value_from = local.effective_auth_proxy_secret_arn
         },
         {
           name       = "REDIS_AUTH_TOKEN"
