@@ -266,6 +266,19 @@ module "example_agent" {
   redis_port                                 = module.elasticache_redis.port
   redis_auth_secret_arn                      = module.elasticache_redis.auth_secret_arn
   redis_auth_secret_consumer_iam_policy_json = module.elasticache_redis.auth_secret_consumer_iam_policy_json
+  redis_auth_secret_kms_key_arn              = module.elasticache_redis.kms_key_arn
+
+  # ---- Strata auth-proxy token CMK (Phase 5 IAM review MEDIUM-1) ---------
+  # Intentionally NOT wired here. Two reasons: (1) the example-agent
+  # currently doesn't call Strata over the JWT-authorized /mcp path; it
+  # reaches Strata via Service Connect from inside the cluster, so the
+  # auth-proxy secret never lands in its task definition (see comment
+  # above re: X-Strata-Verified). (2) Passing the value through the
+  # ingress_authorizer module here would create a Terraform-graph cycle
+  # (ingress_authorizer already consumes module.example_agent.user_pool_id).
+  # When the example-agent gains a need to call Strata's JWT-authorized
+  # path, the auth-proxy secret + CMK move to the orchestrator level
+  # (broken-cycle pattern: standalone resource, both modules consume).
 
   # ---- Capacity ---------------------------------------------------------
   cpu            = 512

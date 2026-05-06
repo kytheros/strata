@@ -103,6 +103,11 @@ resource "aws_kms_key" "allowlist" {
   deletion_window_in_days = 7
   enable_key_rotation     = true
 
+  # The SSM service-principal grant is pinned via kms:ViaService to the
+  # SSM backplane in the same region. Without that condition the SSM
+  # service principal could be tricked into using this CMK from another
+  # service in the same account (confused-deputy). Phase 5 IAM review
+  # LOW-2.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -127,6 +132,11 @@ resource "aws_kms_key" "allowlist" {
           "kms:DescribeKey",
         ]
         Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "ssm.${var.aws_region}.amazonaws.com"
+          }
+        }
       },
     ]
   })
@@ -509,9 +519,17 @@ data "aws_iam_policy_document" "task_role_stub" {
 #   the deny would shadow the secret-* consumer Allow statements and the
 #   task would fail to start.
 #
-# `kms:Get*/List*/Describe*` — flat deny. Decrypt is NOT denied (the
-#   ECS task execution role uses kms:Decrypt to unwrap secrets at start;
-#   our task role doesn't have it on arbitrary ARNs anyway).
+# `kms:Get*/List*/Describe*` — flat deny.
+#
+# `kms:Decrypt` — defense-in-depth deny with NotResource carve-out for
+#   the runtime CMKs the task legitimately needs to decrypt secrets
+#   against (allowlist CMK, cognito client-secret CMK, anthropic API-key
+#   CMK, optional auth-proxy + redis CMKs). The ECS task EXECUTION role
+#   (separate from this task role) is what unwraps secrets at task launch
+#   via the secrets[].valueFrom block; the task role itself never needs
+#   kms:Decrypt at runtime against arbitrary AWS-managed CMKs. Today
+#   ReadOnlyAccess does not grant kms:Decrypt — but if AWS ever expands
+#   it, this explicit Deny still wins. Phase 5 IAM review MEDIUM-1.
 
 locals {
   # Runtime-secret ARNs the deny policy must NOT shadow. Computed from
@@ -521,6 +539,21 @@ locals {
     module.anthropic_api_key.secret_arn,
     var.strata_auth_proxy_token_secret_arn,
     var.redis_auth_secret_arn,
+  ])
+
+  # Runtime CMK ARNs the deny-Decrypt statement must NOT shadow. Mirrors
+  # the runtime_secret_arns shape for the kms:Decrypt carve-out added in
+  # Phase 5 IAM review MEDIUM-1. The SSM allowlist CMK is included because
+  # the agent's SSM allowlist read tool (task_role_stub above) also needs
+  # Decrypt against it. Strata auth-proxy + Redis CMKs are conditional on
+  # the orchestrator wiring them through (the example-agent module gets
+  # the secret ARNs separately from the secrets-module-style inputs).
+  runtime_kms_arns = compact([
+    aws_kms_key.allowlist.arn,
+    module.cognito_client_secret.kms_key_arn,
+    module.anthropic_api_key.kms_key_arn,
+    var.strata_auth_proxy_token_kms_key_arn,
+    var.redis_auth_secret_kms_key_arn,
   ])
 }
 
@@ -559,6 +592,20 @@ data "aws_iam_policy_document" "deny_iam_secrets_kms_reads" {
       "kms:Describe*",
     ]
     resources = ["*"]
+  }
+
+  # Defense-in-depth: explicitly deny kms:Decrypt on every CMK except the
+  # runtime ones the task legitimately needs. ReadOnlyAccess does not grant
+  # kms:Decrypt today, but pinning the deny here means the scope cannot
+  # widen if AWS ever expands the managed policy. Phase 5 IAM review
+  # MEDIUM-1.
+  statement {
+    sid    = "DenyKmsDecryptOutsideRuntime"
+    effect = "Deny"
+    actions = [
+      "kms:Decrypt",
+    ]
+    not_resources = local.runtime_kms_arns
   }
 }
 

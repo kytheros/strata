@@ -235,6 +235,12 @@ variable "strata_auth_proxy_token_secret_arn" {
   default     = ""
 }
 
+variable "strata_auth_proxy_token_kms_key_arn" {
+  description = "KMS CMK ARN encrypting the STRATA_AUTH_PROXY_TOKEN secret. When set, included in the runtime KMS carve-out for the deny-iam-secrets-kms-reads policy so the explicit Deny on kms:Decrypt does not shadow the legitimate runtime decrypt path. Phase 5 IAM review MEDIUM-1."
+  type        = string
+  default     = ""
+}
+
 ###############################################################################
 # Capacity / autoscaling — hand off to the ecs-service module
 ###############################################################################
@@ -299,6 +305,12 @@ variable "redis_auth_secret_arn" {
 
 variable "redis_auth_secret_consumer_iam_policy_json" {
   description = "Pre-baked least-privilege policy JSON granting GetSecretValue + KMS Decrypt on the Redis AUTH secret + its CMK. Sourced from elasticache-redis module's auth_secret_consumer_iam_policy_json output. Empty when caching is disabled."
+  type        = string
+  default     = ""
+}
+
+variable "redis_auth_secret_kms_key_arn" {
+  description = "KMS CMK ARN encrypting the Redis AUTH-token secret. Sourced from `module.elasticache_redis.kms_key_arn`. When set, included in the runtime KMS carve-out for the deny-iam-secrets-kms-reads policy so the explicit Deny on kms:Decrypt does not shadow the legitimate runtime decrypt path. Phase 5 IAM review MEDIUM-1."
   type        = string
   default     = ""
 }
