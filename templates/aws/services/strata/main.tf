@@ -288,6 +288,11 @@ module "service" {
         { name = "STRATA_TRANSPORT", value = "http" },
         { name = "STRATA_MULTI_TENANT", value = "1" },
         { name = "STRATA_PORT", value = tostring(var.container_port) },
+        # Strata's HTTP server actually reads process.env.PORT (Node convention),
+        # not STRATA_PORT. The Dockerfile bakes ENV PORT=8080 which wins over
+        # STRATA_PORT. We override PORT here so Strata listens on the same port
+        # the NLB target group + Service Connect alias expect.
+        { name = "PORT", value = tostring(var.container_port) },
         { name = "STRATA_MAX_DBS", value = tostring(var.max_dbs) },
         { name = "STRATA_DATA_DIR", value = "/var/strata" },
 
