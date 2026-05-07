@@ -207,7 +207,13 @@ variable "ingress_endpoint_dns" {
 }
 
 variable "ingress_security_group_ids" {
-  description = "List of security-group IDs allowed to reach Strata's task port. Pass `[module.ingress.security_group_id, module.ingress_authorizer.strata_nlb_security_group_id]` so both the API GW VPC Link AND the internal NLB can reach the tasks. Without this the SG fails closed and the path times out at runtime. Discovered by the security review of AWS-1.6.1; expanded in AWS-1.6.6 to include the NLB SG."
+  description = "Map of caller-chosen label -> security-group ID allowed to reach Strata's task port. Pair with `var.ingress_security_group_labels` (static literal key list)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "ingress_security_group_labels" {
+  description = "Static literal list of labels matching the keys of var.ingress_security_group_ids. MUST be a literal at the call site so `for_each` can plan even when SG IDs are unknown until apply."
   type        = list(string)
   default     = []
 }
@@ -326,6 +332,12 @@ variable "auth_proxy_secret_kms_key_arn" {
   description = "Optional. ARN of the KMS key encrypting the external auth-proxy secret. Required only when var.auth_proxy_secret_arn is set — used in the kms:Decrypt grant on the task role."
   type        = string
   default     = ""
+}
+
+variable "auth_proxy_secret_provided" {
+  description = "Static toggle that mirrors `var.auth_proxy_secret_arn != \"\"` from the caller's perspective. Required because Terraform's `count` cannot key off a string only known after apply (the orchestrator wires `module.ingress_authorizer.auth_proxy_secret_arn`). Set true when wiring the external secret; default false. When false, the module falls back to inspecting the ARN string (works for unit-test callers that hard-code an ARN)."
+  type        = bool
+  default     = false
 }
 
 ###############################################################################

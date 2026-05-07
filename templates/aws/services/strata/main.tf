@@ -78,7 +78,13 @@ locals {
 ###############################################################################
 
 locals {
-  use_external_auth_proxy_secret = var.auth_proxy_secret_arn != ""
+  # Static-toggle pattern (see Phase 5 validation findings in the design
+  # spec): the boolean must be resolvable at plan time so `count` can plan.
+  # var.auth_proxy_secret_provided is the static signal the orchestrator
+  # passes when it wires module.ingress_authorizer.auth_proxy_secret_arn
+  # (whose value is unknown until apply). The fallback inspects the ARN
+  # string for callers that hard-code a literal ARN.
+  use_external_auth_proxy_secret = var.auth_proxy_secret_provided || var.auth_proxy_secret_arn != ""
 }
 
 # Pair-validate the optional auth-proxy override inputs. Surfaced via
@@ -339,7 +345,12 @@ module "service" {
   health_check_path          = "/health"
 
   # ---- API GW attachment (active when backend=apigw) -----------------------
+  # `attach_to_apigw_provided` is the static toggle the ecs-service module
+  # uses to gate the apigw integration's `count` at plan time (the
+  # vpc_link_id ARN is unknown until apply when the orchestrator wires it
+  # from module.ingress).
   attach_to_apigw_vpc_link_id = local.is_apigw ? var.ingress_vpc_link_id : ""
+  attach_to_apigw_provided    = local.is_apigw
   apigw_integration_uri       = local.is_apigw ? var.ingress_apigw_integration_uri : ""
   apigw_api_id                = local.is_apigw ? var.ingress_apigw_api_id : ""
 
@@ -353,7 +364,8 @@ module "service" {
   # ---- Ingress security-group allow-list (HIGH from AWS-1.6.1 review) -----
   # Without this the task SG accepts no inbound traffic and the API GW VPC
   # link / NLB cannot reach Strata. See variables.tf §"ingress_security_group_ids".
-  ingress_security_group_ids = var.ingress_security_group_ids
+  ingress_security_group_ids    = var.ingress_security_group_ids
+  ingress_security_group_labels = var.ingress_security_group_labels
 
   # ---- Service Connect (MEDIUM-1 from AWS-1.6.1 review) -------------------
   # Registers this Strata service under `<service_connect_dns_name>.<ns>` so
@@ -376,26 +388,26 @@ module "service" {
   } : null
 
   # ---- Egress to Aurora + Redis -------------------------------------------
-  allowed_egress_security_group_ids = [
-    var.aurora_security_group_id,
-    var.redis_security_group_id,
-  ]
+  # Static-labels-list pattern (Phase 5): the labels list is what
+  # for_each iterates; the map is looked up by label inside the rule.
+  allowed_egress_security_group_labels = ["aurora", "redis"]
+  allowed_egress_security_group_ids = {
+    aurora = var.aurora_security_group_id
+    redis  = var.redis_security_group_id
+  }
 
   # ---- IAM task role inline policies ---------------------------------------
-  task_role_inline_policies = [
-    {
-      name        = "aurora-consumer"
-      policy_json = var.aurora_consumer_iam_policy_json
-    },
-    {
-      name        = "redis-consumer"
-      policy_json = var.redis_consumer_iam_policy_json
-    },
-    {
-      name        = "service-secrets-consumer"
-      policy_json = data.aws_iam_policy_document.service_secrets_consumer.json
-    },
+  # Same static-labels-list pattern.
+  task_role_inline_policy_names = [
+    "aurora-consumer",
+    "redis-consumer",
+    "service-secrets-consumer",
   ]
+  task_role_inline_policies = {
+    aurora-consumer          = var.aurora_consumer_iam_policy_json
+    redis-consumer           = var.redis_consumer_iam_policy_json
+    service-secrets-consumer = data.aws_iam_policy_document.service_secrets_consumer.json
+  }
 
   extra_tags = local.default_tags
 }

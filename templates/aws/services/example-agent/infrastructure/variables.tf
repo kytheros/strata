@@ -161,7 +161,13 @@ variable "apigw_integration_uri" {
 }
 
 variable "ingress_security_group_ids" {
-  description = "List of security-group IDs allowed to reach this service's task port. Pass `[module.ingress.security_group_id]` so the API GW VPC Link / ALB can reach the tasks. Without this the SG fails closed and the apigw $default route times out at runtime. Discovered by the security review of AWS-1.6.1."
+  description = "Map of caller-chosen label -> security-group ID allowed to reach this service's task port. Pair with `var.ingress_security_group_labels` (static literal key list)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "ingress_security_group_labels" {
+  description = "Static literal list of labels matching the keys of var.ingress_security_group_ids. MUST be a literal at the call site so `for_each` can plan even when SG IDs are unknown until apply."
   type        = list(string)
   default     = []
 }
@@ -307,6 +313,12 @@ variable "redis_auth_secret_consumer_iam_policy_json" {
   description = "Pre-baked least-privilege policy JSON granting GetSecretValue + KMS Decrypt on the Redis AUTH secret + its CMK. Sourced from elasticache-redis module's auth_secret_consumer_iam_policy_json output. Empty when caching is disabled."
   type        = string
   default     = ""
+}
+
+variable "redis_enabled" {
+  description = "Static toggle that mirrors `var.redis_auth_secret_consumer_iam_policy_json != \"\"` from the caller's perspective. Required because Terraform's plan-time evaluator marks the policy_names list as 'known after apply' when the conditional `... != \"\" ? [...] : []` keys off an unknown string. Set true when Redis caching is wired; default false."
+  type        = bool
+  default     = false
 }
 
 variable "redis_auth_secret_kms_key_arn" {

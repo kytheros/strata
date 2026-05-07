@@ -244,7 +244,14 @@ module "example_agent" {
   apigw_integration_uri = "http://example-agent.strata-${local.env_name}:3000"
 
   # ---- Ingress security-group allow-list (HIGH from AWS-1.6.1 review) ---
-  ingress_security_group_ids = [module.ingress.security_group_id]
+  # Static-labels-list pattern: the `_labels` companion list is what
+  # ecs-service's for_each iterates; the map is looked up by label inside
+  # the resource body. Required because Terraform marks any map literal
+  # with one or more unknown values as wholly unknown.
+  ingress_security_group_labels = ["vpc-link"]
+  ingress_security_group_ids = {
+    vpc-link = module.ingress.security_group_id
+  }
 
   # ---- Service Connect (MEDIUM-1 from AWS-1.6.1 review) ------------------
   # Joins the orchestrator-owned namespace so the example-agent's Envoy
@@ -262,6 +269,9 @@ module "example_agent" {
   strata_internal_port              = 3000
 
   # ---- Redis SDK cache (AWS-3.3) -----------------------------------------
+  # `redis_enabled = true` is the static toggle the example-agent uses to
+  # gate the secret-redis-auth inline policy at plan time (Phase 5).
+  redis_enabled                              = true
   redis_endpoint                             = module.elasticache_redis.endpoint
   redis_port                                 = module.elasticache_redis.port
   redis_auth_secret_arn                      = module.elasticache_redis.auth_secret_arn
@@ -368,7 +378,11 @@ module "ingress_authorizer" {
   strata_integration_uri = "http://strata.strata-${local.env_name}:3000"
 
   # ---- Example-agent integration target for $default ---------------------
-  example_agent_integration_id = module.example_agent.apigw_integration_id
+  # `..._enabled = true` is the static toggle the composition uses to gate
+  # `count` on the route at plan time (the integration_id string is unknown
+  # until apply when wired from module.example_agent).
+  example_agent_integration_id        = module.example_agent.apigw_integration_id
+  example_agent_default_route_enabled = true
 
   extra_tags = local.default_tags
 }
@@ -427,14 +441,16 @@ module "strata_service" {
   ingress_endpoint_dns          = module.ingress.endpoint_dns
 
   # Both the API GW VPC link SG and the NLB SG must be allowed to reach
-  # Strata's task port. The VPC link SG covers the example-agent path
-  # (still routed via Service Connect from inside the cluster, but the link
-  # SG is the legacy entry point for any direct-to-task fallbacks); the
-  # NLB SG covers the external-MCP path wired in AWS-1.6.6.
-  ingress_security_group_ids = [
-    module.ingress.security_group_id,
-    module.ingress_authorizer.strata_nlb_security_group_id,
-  ]
+  # Strata's task port. Static-labels-list pattern (Phase 5 validation
+  # finding) — the `_labels` list is what for_each iterates; the map is
+  # looked up by label inside the resource body. The vpc-link entry
+  # covers any direct-to-task fallback; mcp-nlb covers the external-MCP
+  # path wired in AWS-1.6.6.
+  ingress_security_group_labels = ["vpc-link", "mcp-nlb"]
+  ingress_security_group_ids = {
+    vpc-link = module.ingress.security_group_id
+    mcp-nlb  = module.ingress_authorizer.strata_nlb_security_group_id
+  }
 
   # ---- Internal NLB target group (AWS-1.6.6) -----------------------------
   # Strata's tasks register here so the API GW VPC link can reach them via
@@ -451,8 +467,12 @@ module "strata_service" {
   # When set, services/strata skips minting its own secret and reads the
   # shared one. This is the canonical orchestrator path — the same secret
   # value is injected as X-Strata-Verified on the API GW /mcp routes.
+  # `auth_proxy_secret_provided = true` is the static toggle the module
+  # uses to gate `count` on its own secret-minting resources at plan time
+  # (the ARN itself is unknown until apply).
   auth_proxy_secret_arn         = module.ingress_authorizer.auth_proxy_secret_arn
   auth_proxy_secret_kms_key_arn = module.ingress_authorizer.auth_proxy_secret_kms_key_arn
+  auth_proxy_secret_provided    = true
 
   # ---- Container shape ---------------------------------------------------
   container_image = var.strata_container_image
@@ -566,26 +586,45 @@ module "observability" {
   # populate `alb_arn` + `alb_arn_suffix` from module.ingress outputs.
 
   # ---- ECS task shortfall alarms -----------------------------------------
-  ecs_cluster_arn  = module.ecs_cluster.cluster_arn
-  ecs_cluster_name = module.ecs_cluster.cluster_name
-  ecs_service_names = [
-    module.strata_service.service_name,
-    module.example_agent.service_name,
-  ]
+  # Static-labels-list pattern (Phase 5): `ecs_service_labels` is the
+  # plan-time-known key list; the map is looked up by label.
+  ecs_cluster_arn    = module.ecs_cluster.cluster_arn
+  ecs_cluster_name   = module.ecs_cluster.cluster_name
+  ecs_service_labels = ["strata", "example-agent"]
+  ecs_service_names = {
+    strata        = module.strata_service.service_name
+    example-agent = module.example_agent.service_name
+  }
+  ecs_alarms_enabled = true
 
   # ---- Aurora ACU + CPU alarms -------------------------------------------
+  # Static `aurora_alarms_enabled = true` lets the observability module gate
+  # `count` on Aurora alarms at plan time even though cluster_arn is unknown
+  # until apply. See Phase 5 validation findings in the design spec.
   aurora_cluster_arn        = module.aurora_postgres.cluster_arn
   aurora_cluster_identifier = module.aurora_postgres.cluster_id
+  aurora_alarms_enabled     = true
 
   # ---- Redis CPU + storage alarms ----------------------------------------
-  redis_cache_arn  = module.elasticache_redis.cache_arn
-  redis_cache_name = module.elasticache_redis.cache_id
+  redis_cache_arn      = module.elasticache_redis.cache_arn
+  redis_cache_name     = module.elasticache_redis.cache_id
+  redis_alarms_enabled = true
 
   # ---- NAT anomaly alarms (catches design Risk #3) -----------------------
-  nat_gateway_ids = module.network.nat_gateway_ids
+  # The network module creates exactly 2 NAT gateways with stable indices
+  # (local.nat_az_indexes = [0, 1]). Static-labels-list pattern: labels
+  # are the plan-time-known for_each keys; the gateway IDs (unknown until
+  # apply) are looked up by label inside the resource body.
+  nat_gateway_labels = ["az-a", "az-b"]
+  nat_gateway_ids = {
+    az-a = module.network.nat_gateway_ids[0]
+    az-b = module.network.nat_gateway_ids[1]
+  }
+  nat_anomaly_enabled = true
 
   # ---- Cognito auth-failure-rate alarm -----------------------------------
-  cognito_user_pool_id = module.example_agent.user_pool_id
+  cognito_user_pool_id   = module.example_agent.user_pool_id
+  cognito_alarms_enabled = true
 
   # ---- Phase 4 ops dashboard + JWT-error metric filter (AWS-4.1) ---------
   # API GW, NLB, and per-service ECS dimensions feed the strata-<env>-ops

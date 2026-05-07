@@ -82,8 +82,10 @@ module "cognito_user_pool" {
 
   # AWS-3.2 wires real Lambda ARNs. The cognito-user-pool module replaces
   # its inert stubs at re-apply time when these are non-empty.
-  pre_signup_lambda_arn        = aws_lambda_function.pre_signup.arn
-  post_confirmation_lambda_arn = aws_lambda_function.post_confirmation.arn
+  pre_signup_lambda_arn             = aws_lambda_function.pre_signup.arn
+  pre_signup_lambda_provided        = true
+  post_confirmation_lambda_arn      = aws_lambda_function.post_confirmation.arn
+  post_confirmation_lambda_provided = true
 
   extra_tags = local.default_tags
 }
@@ -704,16 +706,22 @@ module "ecs_service" {
   container_port_for_ingress = var.container_port
 
   # Ingress attachment — pass-through. ecs-service handles both backends.
-  attach_to_alb_listener_arn  = var.ingress_backend == "alb" ? var.attach_to_alb_listener_arn : ""
-  alb_listener_priority       = var.alb_listener_priority
+  attach_to_alb_listener_arn = var.ingress_backend == "alb" ? var.attach_to_alb_listener_arn : ""
+  alb_listener_priority      = var.alb_listener_priority
+  # Static-toggle: `attach_to_apigw_provided` lets the ecs-service module
+  # plan its apigw-integration `count` even when the vpc_link_id string is
+  # unknown until apply (orchestrator path). See Phase 5 validation
+  # findings in the design spec.
   attach_to_apigw_vpc_link_id = var.ingress_backend == "apigw" ? var.attach_to_apigw_vpc_link_id : ""
+  attach_to_apigw_provided    = var.ingress_backend == "apigw"
   apigw_api_id                = var.ingress_backend == "apigw" ? var.apigw_api_id : ""
   apigw_integration_uri       = var.ingress_backend == "apigw" ? var.apigw_integration_uri : ""
 
   # Ingress security-group allow-list (HIGH from AWS-1.6.1 review). Without
   # this the SG accepts no inbound traffic and the apigw $default route
   # times out at runtime. See variables.tf §"ingress_security_group_ids".
-  ingress_security_group_ids = var.ingress_security_group_ids
+  ingress_security_group_ids    = var.ingress_security_group_ids
+  ingress_security_group_labels = var.ingress_security_group_labels
 
   # Service Connect (MEDIUM-1 from AWS-1.6.1 review). The example-agent
   # registers itself under `<service_connect_dns_name>.<ns>` and — by being
@@ -739,31 +747,30 @@ module "ecs_service" {
   # + the runtime-secret consumer policies. The consumer policies issue
   # narrow Allow on specific ARNs; the deny policy uses NotResource
   # carve-outs for those same ARNs so the deny doesn't shadow them.
-  task_role_inline_policies = concat(
+  #
+  # Static-labels-list pattern (Phase 5): the names list is what for_each
+  # iterates; the map is looked up by name inside the resource body.
+  # Use the static `redis_enabled` toggle (not a string-inspection of the
+  # policy JSON itself) so the names list is plan-time-known.
+  task_role_inline_policy_names = concat(
     [
-      {
-        name        = "ssm-allowlist-read"
-        policy_json = data.aws_iam_policy_document.task_role_stub.json
-      },
-      {
-        name        = "deny-iam-secrets-kms-reads"
-        policy_json = data.aws_iam_policy_document.deny_iam_secrets_kms_reads.json
-      },
-      {
-        name        = "secret-cognito-client"
-        policy_json = module.cognito_client_secret.consumer_iam_policy_json
-      },
-      {
-        name        = "secret-anthropic-api-key"
-        policy_json = module.anthropic_api_key.consumer_iam_policy_json
-      },
+      "ssm-allowlist-read",
+      "deny-iam-secrets-kms-reads",
+      "secret-cognito-client",
+      "secret-anthropic-api-key",
     ],
-    var.redis_auth_secret_consumer_iam_policy_json != "" ? [
-      {
-        name        = "secret-redis-auth"
-        policy_json = var.redis_auth_secret_consumer_iam_policy_json
-      },
-    ] : [],
+    var.redis_enabled ? ["secret-redis-auth"] : [],
+  )
+  task_role_inline_policies = merge(
+    {
+      ssm-allowlist-read         = data.aws_iam_policy_document.task_role_stub.json
+      deny-iam-secrets-kms-reads = data.aws_iam_policy_document.deny_iam_secrets_kms_reads.json
+      secret-cognito-client      = module.cognito_client_secret.consumer_iam_policy_json
+      secret-anthropic-api-key   = module.anthropic_api_key.consumer_iam_policy_json
+    },
+    var.redis_auth_secret_consumer_iam_policy_json != "" ? {
+      secret-redis-auth = var.redis_auth_secret_consumer_iam_policy_json
+    } : {},
   )
 
   # ReadOnlyAccess provides the ~700 Get/List/Describe actions the SDK

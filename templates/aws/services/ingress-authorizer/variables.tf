@@ -160,6 +160,12 @@ variable "example_agent_integration_id" {
   default     = ""
 }
 
+variable "example_agent_default_route_enabled" {
+  description = "Static toggle that mirrors `var.example_agent_integration_id != \"\"` from the caller's perspective. Required because Terraform's `count` cannot key off a string only known after apply (the orchestrator wires `module.example_agent.apigw_integration_id`). Set true when wiring the catch-all $default route to the example-agent; default false."
+  type        = bool
+  default     = false
+}
+
 ###############################################################################
 # Auth-proxy token rotation (AWS-1.6.5).
 #

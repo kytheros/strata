@@ -28,9 +28,11 @@ locals {
   jwt_issuer = "https://cognito-idp.${var.aws_region}.amazonaws.com/${var.cognito_user_pool_id}"
 
   # Whether to wire the catch-all $default route to the example-agent
-  # integration. Skipped when the operator did not pass an integration id —
-  # the routes still require a backend, so this is the gating signal.
-  wire_example_agent_default = var.example_agent_integration_id != ""
+  # integration. Skipped when the operator did not pass an integration id.
+  # Uses the static-toggle pattern (Phase 5 validation finding): the
+  # boolean must be plan-time resolvable so `count` can plan. Falls back
+  # to inspecting the integration_id string for callers that hard-code one.
+  wire_example_agent_default = var.example_agent_default_route_enabled || var.example_agent_integration_id != ""
 }
 
 ###############################################################################
