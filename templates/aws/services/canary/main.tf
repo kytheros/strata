@@ -42,7 +42,7 @@ locals {
   enabled          = var.canary_enabled
   function_name    = "strata-${var.env_name}-mcp-canary"
   log_group_name   = "/aws/lambda/${local.function_name}"
-  metric_namespace = "Strata/Canary"
+  metric_namespace = "Strata/Canary/${var.env_name}"
 }
 
 ###############################################################################
@@ -280,20 +280,19 @@ resource "aws_cloudwatch_log_metric_filter" "failure" {
   log_group_name = aws_cloudwatch_log_group.lambda[0].name
   pattern        = "CANARY_FAIL"
 
-  # NOTE: dimensions and default_value are mutually exclusive on a metric
-  # filter (AWS validation: "Invalid metric transformation: dimensions
-  # and default value are mutually exclusive properties"). We keep
-  # dimensions (the Environment label is what the alarm filters on) and
-  # drop default_value. Standard "no match" behavior emits no datapoint;
-  # the failure alarm tolerates that via treat_missing_data. Phase 5
-  # third-cycle apply finding 2026-05-06.
+  # NOTE: text-pattern filters ("CANARY_FAIL") cannot emit dimensions
+  # because dimensions reference named fields extracted by the pattern,
+  # which only JSON / structured patterns can produce. AWS rejects with
+  # "The specified filter pattern does not support dimensions". Dropping
+  # dimensions; per-env separation is preserved at the namespace level
+  # (local.metric_namespace = "Strata/Canary/${env_name}"). Future:
+  # if richer dimensions are needed (canary stage, http status), switch
+  # the canary Lambda to emit structured JSON log lines and use a JSON
+  # filter pattern. Phase 5 fourth-cycle apply finding.
   metric_transformation {
     name      = "CanaryFailureCount"
     namespace = local.metric_namespace
     value     = "1"
-    dimensions = {
-      Environment = var.env_name
-    }
   }
 }
 
