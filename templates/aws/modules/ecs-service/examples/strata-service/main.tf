@@ -197,20 +197,18 @@ module "strata_service" {
   apigw_integration_uri = "http://strata.strata-dev.local:3000"
 
   # Task role — the integration point for upstream module policies.
-  task_role_inline_policies = [
-    {
-      name        = "aurora-secret-and-cmk"
-      policy_json = data.aws_iam_policy_document.stub_aurora.json
-    },
-    {
-      name        = "redis-auth-secret"
-      policy_json = data.aws_iam_policy_document.stub_redis.json
-    },
-    {
-      name        = "strata-app-secrets"
-      policy_json = data.aws_iam_policy_document.stub_app_secrets.json
-    },
+  # Static-labels-list pattern: pass the names list separately so for_each
+  # has plan-time-known keys (Phase 5 validation finding).
+  task_role_inline_policy_names = [
+    "aurora-secret-and-cmk",
+    "redis-auth-secret",
+    "strata-app-secrets",
   ]
+  task_role_inline_policies = {
+    aurora-secret-and-cmk = data.aws_iam_policy_document.stub_aurora.json
+    redis-auth-secret     = data.aws_iam_policy_document.stub_redis.json
+    strata-app-secrets    = data.aws_iam_policy_document.stub_app_secrets.json
+  }
 
   # No managed policies — Strata's task role is intentionally narrow. The
   # example-agent service is the one that takes ReadOnlyAccess; this service
@@ -219,10 +217,12 @@ module "strata_service" {
   # Explicit egress to upstream peers (in addition to the module's default
   # VPC-CIDR egress). Stub SG IDs — in envs/dev these are
   # module.aurora.security_group_id and module.redis.security_group_id.
-  allowed_egress_security_group_ids = [
-    "sg-aaaaaaaaaaaaaaaaa", # aurora
-    "sg-bbbbbbbbbbbbbbbbb", # redis
-  ]
+  # Static-labels-list pattern: pass the labels list separately.
+  allowed_egress_security_group_labels = ["aurora", "redis"]
+  allowed_egress_security_group_ids = {
+    aurora = "sg-aaaaaaaaaaaaaaaaa"
+    redis  = "sg-bbbbbbbbbbbbbbbbb"
+  }
 
   # Capacity: keep the 80/20 default for dev (cost-optimized). Staging/prod
   # would override to bias more toward on-demand for stability.

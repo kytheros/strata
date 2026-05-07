@@ -46,24 +46,22 @@ module "ecs_service" {
   source = "../../modules/ecs-service"
   # ...
 
-  task_role_inline_policies = [
-    {
-      name        = "aurora-secret-access"
-      policy_json = module.aurora.consumer_iam_policy_json
-    },
-    {
-      name        = "redis-auth-secret-access"
-      policy_json = module.redis.auth_secret_consumer_iam_policy_json
-    },
-  ]
+  # Static-labels-list pattern: the *_names list is what `for_each`
+  # iterates (plan-time-known); the map is looked up by name inside the
+  # resource body. Required because Terraform marks a map as "known after
+  # apply" when any value is unknown — even if the keys are static.
+  task_role_inline_policy_names = ["aurora-secret-access", "redis-auth-secret-access"]
+  task_role_inline_policies = {
+    aurora-secret-access     = module.aurora.consumer_iam_policy_json
+    redis-auth-secret-access = module.redis.auth_secret_consumer_iam_policy_json
+  }
 
-  # The ECS service's SG also needs egress to the Aurora/Redis SGs (the module
-  # already permits all TCP to the VPC CIDR, which catches them; pass them
-  # explicitly here for auditability):
-  allowed_egress_security_group_ids = [
-    module.aurora.security_group_id,
-    module.redis.security_group_id,
-  ]
+  # Same pattern for egress SGs.
+  allowed_egress_security_group_labels = ["aurora", "redis"]
+  allowed_egress_security_group_ids = {
+    aurora = module.aurora.security_group_id
+    redis  = module.redis.security_group_id
+  }
 }
 ```
 
