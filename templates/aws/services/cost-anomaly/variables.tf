@@ -2,6 +2,12 @@
 # services/cost-anomaly variables (AWS-5.1)
 ###############################################################################
 
+variable "enabled" {
+  description = "Master toggle for the dimensional Cost Explorer anomaly monitor + subscription. Default false. Background: AWS auto-creates a `Default-Services-Monitor` (DIMENSIONAL, SERVICE) per account and the soft limit on dimensional monitors is 1, so creating a second module-managed dimensional monitor fails with `Limit exceeded on dimensional spend monitor creation`. The strata-dev-cap manual AWS Budget is the real cost guard for dev. Flip to true (and pre-arrange a quota raise) only when you specifically want a higher-fidelity per-dev anomaly stream alongside the account-default monitor."
+  type        = bool
+  default     = false
+}
+
 variable "env_name" {
   description = "Environment short name (dev|staging|prod). Included in monitor + subscription names."
   type        = string
