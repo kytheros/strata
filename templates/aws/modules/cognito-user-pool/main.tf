@@ -62,8 +62,15 @@ locals {
 
   # Trigger ARNs — fall back to the module-shipped inert stubs when the
   # consumer doesn't override.
-  pre_signup_arn        = var.pre_signup_lambda_arn != "" ? var.pre_signup_lambda_arn : aws_lambda_function.pre_signup_stub.arn
-  post_confirmation_arn = var.post_confirmation_lambda_arn != "" ? var.post_confirmation_lambda_arn : aws_lambda_function.post_confirmation_stub.arn
+  # Static-toggle pattern: var.<...>_lambda_provided is the plan-time signal
+  # the caller sets when wiring an external Lambda whose ARN is unknown
+  # until apply. Falls back to inspecting the ARN string for hard-coded
+  # callers. See Phase 5 validation findings.
+  pre_signup_external        = var.pre_signup_lambda_provided || var.pre_signup_lambda_arn != ""
+  post_confirmation_external = var.post_confirmation_lambda_provided || var.post_confirmation_lambda_arn != ""
+
+  pre_signup_arn        = local.pre_signup_external ? var.pre_signup_lambda_arn : aws_lambda_function.pre_signup_stub.arn
+  post_confirmation_arn = local.post_confirmation_external ? var.post_confirmation_lambda_arn : aws_lambda_function.post_confirmation_stub.arn
 
   # Identity providers attached to the App Client. COGNITO is always present;
   # Google/GitHub only when their gating vars are set.
@@ -491,7 +498,7 @@ resource "aws_lambda_permission" "pre_token_generation_invoke" {
 }
 
 resource "aws_lambda_permission" "pre_signup_stub_invoke" {
-  count = var.pre_signup_lambda_arn == "" ? 1 : 0
+  count = local.pre_signup_external ? 0 : 1
 
   statement_id  = "AllowCognitoPreSignUpStub-${var.env_name}"
   action        = "lambda:InvokeFunction"
@@ -501,7 +508,7 @@ resource "aws_lambda_permission" "pre_signup_stub_invoke" {
 }
 
 resource "aws_lambda_permission" "post_confirmation_stub_invoke" {
-  count = var.post_confirmation_lambda_arn == "" ? 1 : 0
+  count = local.post_confirmation_external ? 0 : 1
 
   statement_id  = "AllowCognitoPostConfirmStub-${var.env_name}"
   action        = "lambda:InvokeFunction"

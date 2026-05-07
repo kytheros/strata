@@ -306,6 +306,12 @@ variable "attach_to_apigw_vpc_link_id" {
   default     = ""
 }
 
+variable "attach_to_apigw_provided" {
+  description = "Static toggle that mirrors `var.attach_to_apigw_vpc_link_id != \"\"` from the caller's perspective. Required because Terraform's `count` cannot key off a string that is only known after apply (e.g. when the caller wires `module.ingress.vpc_link_id`). Set true when wiring the apigw integration; default false. When false, the module falls back to inspecting the string (works for legacy/example callers that hard-code a literal vpc_link_id)."
+  type        = bool
+  default     = false
+}
+
 variable "apigw_integration_uri" {
   description = "Backend URI for the HTTP_PROXY API GW integration. Required when var.attach_to_apigw_vpc_link_id != \"\". Typically a private NLB listener URL or a Service Connect endpoint. Ignored when not attaching to API GW."
   type        = string
@@ -380,7 +386,13 @@ variable "service_connect_config" {
 ###############################################################################
 
 variable "allowed_egress_security_group_ids" {
-  description = "List of security-group IDs the task ENIs are allowed to reach (e.g. Aurora SG, Redis SG). Each entry produces an egress rule allowing all TCP to that SG. Combined with var.allowed_egress_cidrs."
+  description = "Map of caller-chosen static label -> security-group ID the task ENIs are allowed to reach (e.g. {\"aurora\" = module.aurora.sg_id, \"redis\" = module.redis.sg_id}). Pair with `var.allowed_egress_security_group_labels` (static literal key list). Each entry produces an egress rule allowing all TCP to that SG. Combined with var.allowed_egress_cidrs."
+  type        = map(string)
+  default     = {}
+}
+
+variable "allowed_egress_security_group_labels" {
+  description = "Static literal list of labels matching the keys of var.allowed_egress_security_group_ids. MUST be a literal at the call site (e.g. [\"aurora\", \"redis\"]) so `for_each` can plan even when the map's SG-ID values are unknown until apply."
   type        = list(string)
   default     = []
 }
@@ -401,7 +413,13 @@ variable "vpc_cidr" {
 ###############################################################################
 
 variable "ingress_security_group_ids" {
-  description = "List of security-group IDs allowed to reach this service's tasks on the container port (the first port_mapping of the first container). Use for Service-Connect peers, internal admin tools, or other non-LB callers. The ALB SG and API-GW VPC-link SG are wired automatically when their respective `attach_to_*` vars are set — do NOT also list them here."
+  description = "Map of caller-chosen static label -> security-group ID allowed to reach this service's tasks on the container port. Pair with `var.ingress_security_group_labels` (the static literal key list) — Terraform marks a whole map as 'known after apply' when any value is unknown, so we iterate the labels list and look up the map by label inside the resource body."
+  type        = map(string)
+  default     = {}
+}
+
+variable "ingress_security_group_labels" {
+  description = "Static literal list of labels matching the keys of var.ingress_security_group_ids. MUST be a literal at the call site (e.g. [\"vpc-link\", \"mcp-nlb\"]) so `for_each` can plan even when the map's SG-ID values are unknown until apply."
   type        = list(string)
   default     = []
 }
@@ -418,19 +436,26 @@ variable "container_port_for_ingress" {
 
 variable "task_role_inline_policies" {
   description = <<-EOT
-    Inline policies to attach to the task role (the role the *running container* assumes via the metadata service).
+    Inline policies to attach to the task role (the role the running container assumes via the metadata service).
 
-    Shape: list of { name = string, policy_json = string }.
+    Shape: map(string) where the KEY is the policy name and the VALUE is the policy_json (may be unknown until apply, e.g. when wired from another module's `consumer_iam_policy_json` output).
 
-    This is the primary integration point for consumer modules — pass in the
+    IMPORTANT: callers MUST also populate `var.task_role_inline_policy_names` with the static literal list of map keys. Terraform marks a map literal as "known after apply" when any value is unknown — even when all keys are static literals — so we cannot iterate this map directly with `for_each`. The companion key list is what `for_each` uses; this map is looked up by key inside the resource body.
+
+    Pre-Phase-5 this was list(object). Same propagation problem; migration to map + companion key list is the fix.
+
+    Primary integration point for consumer modules — pass in the
     `consumer_iam_policy_json` outputs from `aurora-postgres`, `elasticache-redis`,
     and `secrets` to grant the task least-privilege access to those resources.
   EOT
-  type = list(object({
-    name        = string
-    policy_json = string
-  }))
-  default = []
+  type        = map(string)
+  default     = {}
+}
+
+variable "task_role_inline_policy_names" {
+  description = "Static literal list of policy names matching the keys of var.task_role_inline_policies. MUST be a literal at the call site so `for_each` can plan even when the map's values are unknown until apply. The module asserts in a check{} block that this list matches the map's keys."
+  type        = list(string)
+  default     = []
 }
 
 variable "task_role_managed_policy_arns" {

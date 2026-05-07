@@ -58,9 +58,18 @@ locals {
     : format("%s-%s", substr(var.service_name, 0, 22), substr(sha1(var.service_name), 0, 6))
   )
 
-  # Branching helpers
+  # Branching helpers.
+  #
+  # `apigw_attached` is the gate for `count` on aws_apigatewayv2_integration —
+  # which means it MUST be statically resolvable at plan time. When the caller
+  # wires the vpc_link_id from another module's output (e.g. module.ingress),
+  # the string is `(known after apply)` and any `count = ... ? 1 : 0` blows up
+  # with "Invalid count argument". The static toggle var.attach_to_apigw_provided
+  # lets the caller declare the wiring intent independently of the unknown ARN.
+  # Falls back to the string inspection when the toggle is false (preserves
+  # the example-callers-with-literal-IDs path for backward compatibility).
   alb_attached   = var.attach_to_alb_listener_arn != ""
-  apigw_attached = var.attach_to_apigw_vpc_link_id != ""
+  apigw_attached = var.attach_to_apigw_provided || var.attach_to_apigw_vpc_link_id != ""
   nlb_attached   = var.attach_to_nlb_target_group_arn != ""
   sc_enabled     = var.service_connect_namespace_arn != "" && var.service_connect_config != null
 
@@ -182,11 +191,19 @@ resource "aws_iam_role" "task" {
 }
 
 resource "aws_iam_role_policy" "task_inline" {
-  for_each = { for p in var.task_role_inline_policies : p.name => p.policy_json }
+  # We iterate the STATIC label list (var.task_role_inline_policy_names)
+  # and look up the policy_json by label in var.task_role_inline_policies.
+  # Terraform marks a map literal whose values are unknown as "known after
+  # apply" wholesale — even when keys are static literals — so iterating
+  # the map directly fails at plan time. The companion list lets `for_each`
+  # plan with stable keys; the value lookup happens inside the resource
+  # body where unknown values are tolerated. See Phase 5 validation
+  # findings in the design spec.
+  for_each = toset(var.task_role_inline_policy_names)
 
-  name   = each.key
+  name   = each.value
   role   = aws_iam_role.task.id
-  policy = each.value
+  policy = lookup(var.task_role_inline_policies, each.value, null)
 }
 
 resource "aws_iam_role_policy_attachment" "task_managed" {
@@ -226,11 +243,16 @@ resource "aws_security_group" "this" {
 # in var.ingress_security_group_ids, regardless of attachment kind.
 resource "aws_vpc_security_group_ingress_rule" "from_caller_sgs" {
   # checkov:skip=CKV_AWS_260:False positive - this rule uses referenced_security_group_id (not cidr_ipv4), so the source is always a specific SG (e.g. ALB SG, API GW VPC link SG, peer service SG). The container port is configurable via var.container_port_for_ingress; default 80 is the convention for HTTP services. CKV_AWS_260 only fires on 0.0.0.0/0 sources, but the static analyzer can't tell from the resource shape that a referenced-SG ingress is not internet-open.
-  for_each = toset(var.ingress_security_group_ids)
+  #
+  # See task_inline above for the rationale on the static-labels-list
+  # pattern (Terraform marks a whole map as "known after apply" when any
+  # value is unknown, so we iterate the labels list and look up the SG
+  # ID by label inside the resource body).
+  for_each = toset(var.ingress_security_group_labels)
 
   security_group_id            = aws_security_group.this.id
-  description                  = "Ingress to ${var.service_name} container port from caller-supplied security group ${each.value}."
-  referenced_security_group_id = each.value
+  description                  = "Ingress to ${var.service_name} container port from ${each.value} (security group)."
+  referenced_security_group_id = lookup(var.ingress_security_group_ids, each.value, null)
   ip_protocol                  = "tcp"
   from_port                    = var.container_port_for_ingress
   to_port                      = var.container_port_for_ingress
@@ -259,12 +281,14 @@ resource "aws_vpc_security_group_egress_rule" "to_vpc" {
 # Per-SG egress to specific peer SGs - useful when the caller wants explicit
 # auditability over which downstream resources this service can reach (Aurora,
 # Redis, etc.). Stacks alongside the VPC-CIDR rule; redundancy is acceptable.
+#
+# Same static-labels-list pattern as task_inline / from_caller_sgs above.
 resource "aws_vpc_security_group_egress_rule" "to_peer_sgs" {
-  for_each = toset(var.allowed_egress_security_group_ids)
+  for_each = toset(var.allowed_egress_security_group_labels)
 
   security_group_id            = aws_security_group.this.id
-  description                  = "Egress from ${var.service_name} to peer security group ${each.value}."
-  referenced_security_group_id = each.value
+  description                  = "Egress from ${var.service_name} to ${each.value} (security group)."
+  referenced_security_group_id = lookup(var.allowed_egress_security_group_ids, each.value, null)
   ip_protocol                  = "tcp"
   from_port                    = 0
   to_port                      = 65535

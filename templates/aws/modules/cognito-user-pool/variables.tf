@@ -136,10 +136,22 @@ variable "pre_signup_lambda_arn" {
   default     = ""
 }
 
+variable "pre_signup_lambda_provided" {
+  description = "Static toggle that mirrors `var.pre_signup_lambda_arn != \"\"` from the caller's perspective. Required because Terraform's `count` cannot key off a string only known after apply (when the caller wires `aws_lambda_function.pre_signup.arn` from the same composition). Set true when wiring an external Lambda; default false. When false, the module ships its inert stub."
+  type        = bool
+  default     = false
+}
+
 variable "post_confirmation_lambda_arn" {
   description = "Optional. ARN of an external PostConfirmation Lambda (e.g. the example-agent group-assigner). When empty, the module ships an inert no-op stub. Default empty."
   type        = string
   default     = ""
+}
+
+variable "post_confirmation_lambda_provided" {
+  description = "Static toggle that mirrors `var.post_confirmation_lambda_arn != \"\"` from the caller's perspective. Required because Terraform's `count` cannot key off a string only known after apply. Set true when wiring an external Lambda; default false."
+  type        = bool
+  default     = false
 }
 
 variable "extra_tags" {

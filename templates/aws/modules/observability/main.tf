@@ -41,12 +41,23 @@ locals {
 
   # Which alarm groups are enabled. Computed once so each resource only repeats
   # the read on a known-cheap local.
+  #
+  # Pattern: each gating local is `var.<...>_enabled || <string-inspection>`.
+  # The static `_enabled` flag is what the orchestrator (which wires module
+  # outputs that are unknown at plan time) uses; the string-inspection
+  # fallback preserves backward compatibility with example callers that
+  # hard-code literal IDs/ARNs. Without the static flag, `count = local.X
+  # ? 1 : 0` blows up at plan time with "Invalid count argument" because
+  # Terraform cannot predict a conditional whose branch is gated on an
+  # unknown string. Same pattern across every consumer module — see
+  # specs/2026-04-25-strata-deploy-aws-design.md §"Phase 5 validation
+  # findings" for the architectural rule.
   alb_alarms_enabled        = var.alb_arn != "" && var.alb_arn_suffix != ""
-  ecs_alarms_enabled        = var.ecs_cluster_arn != "" && var.ecs_cluster_name != "" && length(var.ecs_service_names) > 0
-  aurora_alarms_enabled     = var.aurora_cluster_arn != "" && var.aurora_cluster_identifier != ""
-  redis_alarms_enabled      = var.redis_cache_arn != "" && var.redis_cache_name != ""
-  nat_anomaly_enabled       = length(var.nat_gateway_ids) > 0
-  cognito_alarms_enabled    = var.cognito_user_pool_id != ""
+  ecs_alarms_enabled        = var.ecs_alarms_enabled || (var.ecs_cluster_arn != "" && var.ecs_cluster_name != "" && length(var.ecs_service_names) > 0)
+  aurora_alarms_enabled     = var.aurora_alarms_enabled || (var.aurora_cluster_arn != "" && var.aurora_cluster_identifier != "")
+  redis_alarms_enabled      = var.redis_alarms_enabled || (var.redis_cache_arn != "" && var.redis_cache_name != "")
+  nat_anomaly_enabled       = var.nat_anomaly_enabled || length(var.nat_gateway_ids) > 0
+  cognito_alarms_enabled    = var.cognito_alarms_enabled || var.cognito_user_pool_id != ""
   redis_storage_threshold_b = floor(var.redis_max_data_storage_bytes * 0.8)
 
   # Per-runbook URL helper. Keep slug == alarm Terraform key; e.g. the alarm
@@ -327,10 +338,15 @@ resource "aws_cloudwatch_metric_alarm" "alb_p99_latency" {
 # --- 4c. ECS task shortfall (per service) -----------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "ecs_task_shortfall" {
-  for_each = local.ecs_alarms_enabled ? toset(var.ecs_service_names) : toset([])
+  # Static-labels-list pattern: iterate var.ecs_service_labels (a literal
+  # list known at plan time), look up the actual service name in
+  # var.ecs_service_names by label inside the resource body. Avoids
+  # "for_each map known only after apply" because Terraform marks any
+  # map literal with one or more unknown values as wholly unknown.
+  for_each = local.ecs_alarms_enabled ? toset(var.ecs_service_labels) : toset([])
 
   alarm_name          = "strata-${var.env_name}-ecs-task-shortfall-${each.value}"
-  alarm_description   = "Service ${each.value} has fewer running tasks than desired for 5+ minutes. Indicates task crash loop, image pull failure, or capacity provider exhaustion. Runbook: ${local.runbook_url}/ecs_task_shortfall.md"
+  alarm_description   = "Service ${lookup(var.ecs_service_names, each.value, "?")} (slot ${each.value}) has fewer running tasks than desired for 5+ minutes. Indicates task crash loop, image pull failure, or capacity provider exhaustion. Runbook: ${local.runbook_url}/ecs_task_shortfall.md"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 3
   datapoints_to_alarm = 2
@@ -353,7 +369,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_task_shortfall" {
       stat        = "Average"
       dimensions = {
         ClusterName = var.ecs_cluster_name
-        ServiceName = each.value
+        ServiceName = lookup(var.ecs_service_names, each.value, "?")
       }
     }
   }
@@ -367,7 +383,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_task_shortfall" {
       stat        = "Average"
       dimensions = {
         ClusterName = var.ecs_cluster_name
-        ServiceName = each.value
+        ServiceName = lookup(var.ecs_service_names, each.value, "?")
       }
     }
   }
@@ -377,7 +393,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_task_shortfall" {
 
   tags = merge(local.tags, {
     Name    = "strata-${var.env_name}-ecs-task-shortfall-${each.value}"
-    Service = each.value
+    Service = lookup(var.ecs_service_names, each.value, "?")
   })
 }
 
@@ -504,10 +520,14 @@ resource "aws_cloudwatch_metric_alarm" "redis_storage_high" {
 # --- 4h. NAT bytes-out 3σ anomaly (catches design Risk #3) -----------------
 
 resource "aws_cloudwatch_metric_alarm" "nat_bytes_out_anomaly" {
-  for_each = local.nat_anomaly_enabled ? toset(var.nat_gateway_ids) : toset([])
+  # Static-labels-list pattern: iterate var.nat_gateway_labels (a literal
+  # list known at plan time), look up the actual gateway ID in
+  # var.nat_gateway_ids by label inside the resource body. Avoids the
+  # "for_each map known only after apply" propagation problem.
+  for_each = local.nat_anomaly_enabled ? toset(var.nat_gateway_labels) : toset([])
 
   alarm_name          = "strata-${var.env_name}-nat-bytes-out-anomaly-${each.value}"
-  alarm_description   = "NAT Gateway ${each.value} BytesOutToDestination outside the 3σ anomaly band. Indicates a possible chatty agent or runaway outbound traffic — design Risk #3. Investigate via VPC Flow Logs filtered to dstaddr in the public LLM API range. Runbook: ${local.runbook_url}/nat_bytes_out_anomaly.md"
+  alarm_description   = "NAT Gateway ${lookup(var.nat_gateway_ids, each.value, "?")} (slot ${each.value}) BytesOutToDestination outside the 3-sigma anomaly band. Indicates a possible chatty agent or runaway outbound traffic — design Risk #3. Investigate via VPC Flow Logs filtered to dstaddr in the public LLM API range. Runbook: ${local.runbook_url}/nat_bytes_out_anomaly.md"
   comparison_operator = "GreaterThanUpperThreshold"
   evaluation_periods  = 3
   datapoints_to_alarm = 2
@@ -523,7 +543,7 @@ resource "aws_cloudwatch_metric_alarm" "nat_bytes_out_anomaly" {
       period      = 300
       stat        = "Sum"
       dimensions = {
-        NatGatewayId = each.value
+        NatGatewayId = lookup(var.nat_gateway_ids, each.value, "?")
       }
     }
   }
@@ -531,7 +551,7 @@ resource "aws_cloudwatch_metric_alarm" "nat_bytes_out_anomaly" {
   metric_query {
     id          = "ad1"
     expression  = "ANOMALY_DETECTION_BAND(m1, 3)"
-    label       = "Bytes out (anomaly band, 3σ)"
+    label       = "Bytes out (anomaly band, 3-sigma)"
     return_data = true
   }
 
@@ -540,7 +560,7 @@ resource "aws_cloudwatch_metric_alarm" "nat_bytes_out_anomaly" {
 
   tags = merge(local.tags, {
     Name       = "strata-${var.env_name}-nat-bytes-out-anomaly-${each.value}"
-    NatGateway = each.value
+    NatGateway = lookup(var.nat_gateway_ids, each.value, "?")
   })
 }
 
@@ -713,10 +733,10 @@ resource "aws_cloudwatch_dashboard" "slo" {
     env_name                  = var.env_name
     alb_arn_suffix            = var.alb_arn_suffix != "" ? var.alb_arn_suffix : "PLACEHOLDER"
     ecs_cluster_name          = var.ecs_cluster_name != "" ? var.ecs_cluster_name : "PLACEHOLDER"
-    ecs_service_names         = var.ecs_service_names
+    ecs_service_names         = values(var.ecs_service_names)
     aurora_cluster_identifier = var.aurora_cluster_identifier != "" ? var.aurora_cluster_identifier : "PLACEHOLDER"
     redis_cache_name          = var.redis_cache_name != "" ? var.redis_cache_name : "PLACEHOLDER"
-    nat_gateway_ids           = var.nat_gateway_ids
+    nat_gateway_ids           = values(var.nat_gateway_ids)
     cognito_user_pool_id      = var.cognito_user_pool_id != "" ? var.cognito_user_pool_id : "PLACEHOLDER"
   })
 }

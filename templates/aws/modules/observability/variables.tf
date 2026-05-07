@@ -119,15 +119,33 @@ variable "ecs_cluster_name" {
 }
 
 variable "ecs_service_names" {
-  description = "List of ECS service short names within ecs_cluster_arn to alarm on for task shortfall (RunningTaskCount < DesiredTaskCount). Empty disables ECS task-shortfall alarms."
+  description = "Map of caller-chosen static label -> ECS service short name within ecs_cluster_arn to alarm on for task shortfall. Pair with `var.ecs_service_labels` (static literal key list). Values can be unknown until apply (`module.X.service_name` is 'known after apply' on aws_ecs_service.this). Empty map disables ECS task-shortfall alarms."
+  type        = map(string)
+  default     = {}
+}
+
+variable "ecs_service_labels" {
+  description = "Static literal list of labels matching the keys of var.ecs_service_names. MUST be a literal at the call site (e.g. [\"strata\", \"example-agent\"]) so `for_each` can plan even when service-name values are unknown until apply."
   type        = list(string)
   default     = []
+}
+
+variable "ecs_alarms_enabled" {
+  description = "Static toggle that mirrors `length(var.ecs_service_names) > 0 && var.ecs_cluster_arn != \"\"` from the caller's perspective. Required because Terraform's `for_each` cannot key off a map whose size is only known after apply. Set true when wiring ECS services from another module; default false."
+  type        = bool
+  default     = false
 }
 
 variable "aurora_cluster_arn" {
   description = "Full ARN of the Aurora cluster. When non-empty, ACU-max and CPU-high alarms are created."
   type        = string
   default     = ""
+}
+
+variable "aurora_alarms_enabled" {
+  description = "Static toggle that mirrors `var.aurora_cluster_arn != \"\"` from the caller's perspective. Required because Terraform's `count` cannot key off a string only known after apply (the orchestrator wires `module.aurora_postgres.cluster_arn`). Set true when you ARE wiring the Aurora cluster; default false. When false, the module falls back to inspecting the strings (works for callers that hard-code an ARN)."
+  type        = bool
+  default     = false
 }
 
 variable "aurora_cluster_identifier" {
@@ -153,6 +171,12 @@ variable "redis_cache_arn" {
   default     = ""
 }
 
+variable "redis_alarms_enabled" {
+  description = "Static toggle mirroring `var.redis_cache_arn != \"\"` from the caller's perspective. Required because Terraform's `count` cannot key off a string only known after apply. Set true when wiring the Redis cache; default false."
+  type        = bool
+  default     = false
+}
+
 variable "redis_cache_name" {
   description = "Short name of the ElastiCache cache (e.g. strata-dev-redis). Used as the CacheClusterId dimension. Required when redis_cache_arn is non-empty."
   type        = string
@@ -166,7 +190,13 @@ variable "redis_max_data_storage_bytes" {
 }
 
 variable "nat_gateway_ids" {
-  description = "List of NAT Gateway IDs for which to create a 3σ anomaly alarm on BytesOutToDestination. Catches design Risk #3 — chatty agent driving NAT data-processing cost through the roof. Empty disables the anomaly alarm."
+  description = "Map of stable label -> NAT Gateway ID for which to create a 3-sigma anomaly alarm on BytesOutToDestination. Catches design Risk #3. Pair with `var.nat_gateway_labels` (static literal key list). Values can be unknown until apply. Empty map disables the anomaly alarm."
+  type        = map(string)
+  default     = {}
+}
+
+variable "nat_gateway_labels" {
+  description = "Static literal list of labels matching the keys of var.nat_gateway_ids. MUST be a literal at the call site (e.g. [\"az-a\", \"az-b\"]) so `for_each` can plan even when gateway-ID values are unknown until apply."
   type        = list(string)
   default     = []
 }
@@ -175,6 +205,18 @@ variable "cognito_user_pool_id" {
   description = "User Pool ID (e.g. us-east-1_AbCdEf123). When non-empty, the auth-failure-rate alarm is created. Catches design Risk #1 — Cognito → Strata claims drift surfacing as auth-throttle spikes."
   type        = string
   default     = ""
+}
+
+variable "cognito_alarms_enabled" {
+  description = "Static toggle mirroring `var.cognito_user_pool_id != \"\"` from the caller's perspective. Required because Terraform's `count` cannot key off a string only known after apply. Set true when wiring the Cognito user pool; default false."
+  type        = bool
+  default     = false
+}
+
+variable "nat_anomaly_enabled" {
+  description = "Static toggle mirroring `length(var.nat_gateway_ids) > 0` from the caller's perspective. Required because Terraform's `for_each` cannot key off a map whose size is only known after apply. Set true when wiring NAT gateway IDs from `module.network`; default false."
+  type        = bool
+  default     = false
 }
 
 ###############################################################################
