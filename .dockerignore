@@ -10,5 +10,3 @@ tests
 coverage
 .env
 *.test.ts
-src/
-tsconfig.json
