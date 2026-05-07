@@ -207,16 +207,25 @@ module "auth_secret" {
   secret_name = "cache/auth-token"
   description = "ElastiCache Redis AUTH token for ${local.cache_name}. Consumed by services connecting to the cache via TLS + AUTH. Rotation requires cache recreation; not auto-rotated."
 
-  # Use the per-cache CMK so all cache-related encryption material lives under
-  # one key — easier to audit, revoke, and account for in finops. We pass the
-  # alias *string* (computed from variables, known at plan time) rather than
-  # the key ARN (known only after apply). Passing the ARN tickles a known
-  # Terraform limitation in the child secrets module: its `count = var.kms_key_id == ""`
-  # expression cannot evaluate when kms_key_id is "known after apply". The
-  # alias literal sidesteps the issue and Secrets Manager resolves it the
-  # same way at apply time. We still ensure the alias resource exists before
-  # the secret is created via an explicit depends_on.
-  kms_key_id = "alias/${local.cache_name}"
+  # Use the per-cache CMK so all cache-related encryption material lives
+  # under one key (easier to audit, revoke, and account for in finops).
+  #
+  # Pre-Phase-5 we passed the alias *string* (`alias/...`) here because the
+  # secrets module's old `count = var.kms_key_id == ""` could not evaluate
+  # when the value was "known after apply" (the ARN comes from a sibling
+  # resource). That worked for `aws_secretsmanager_secret.kms_key_id`
+  # itself, but the alias-name string then leaked into the consumer IAM
+  # policy emitted by the secrets module, where AWS rejected with
+  # "Resource alias/... must be in ARN format or *". Phase 5 validation
+  # finding 2026-05-06.
+  #
+  # Fix: secrets module now exposes a static-toggle pattern via
+  # `var.kms_key_provided`. We pass the real key ARN AND the toggle. The
+  # secrets module skips CMK creation, the consumer policy emits a real
+  # ARN, and IAM accepts. depends_on no longer needed because the ARN
+  # reference creates an implicit dependency.
+  kms_key_id       = aws_kms_key.cache.arn
+  kms_key_provided = true
 
   create_initial_version = true
   initial_value          = random_password.auth.result
@@ -225,10 +234,10 @@ module "auth_secret" {
     CacheName = local.cache_name
   })
 
-  # Ensure the CMK + alias exist before Secrets Manager tries to use the
-  # alias as the encrypting key. Without this, an unlucky parallel apply
-  # ordering can race the secret-creation against the alias-creation.
-  depends_on = [aws_kms_alias.cache, aws_kms_key.cache]
+  # The kms_key_id reference to aws_kms_key.cache.arn establishes an
+  # implicit dependency on the key resource. The alias resource is no
+  # longer in the dependency path because we reference the key ARN
+  # directly (not the alias name).
 }
 
 ###############################################################################

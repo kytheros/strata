@@ -43,7 +43,13 @@ locals {
   # When the caller supplies a KMS key, use it directly. Otherwise fall back
   # to the module-created CMK (its ARN is computed below). The chained
   # coalesce/try keeps the expression valid even when the CMK isn't created.
-  create_cmk        = var.kms_key_id == ""
+  #
+  # Static-toggle pattern (Phase 5 validation findings): `create_cmk` keys
+  # off var.kms_key_provided OR the legacy string-inspection. Required so
+  # `count` can plan when the caller wires a real `aws_kms_key.X.arn`
+  # (unknown until apply). The legacy fallback preserves backward-compat
+  # with example callers that hard-code an ARN string.
+  create_cmk        = !(var.kms_key_provided || var.kms_key_id != "")
   effective_kms_arn = local.create_cmk ? aws_kms_key.this[0].arn : var.kms_key_id
 
   rotation_enabled = var.rotation_lambda_arn != ""

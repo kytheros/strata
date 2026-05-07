@@ -35,9 +35,15 @@ variable "description" {
 }
 
 variable "kms_key_id" {
-  description = "Optional. KMS key ID, ARN, or alias to encrypt the secret. When empty (the default) the module creates a per-secret CMK with rotation enabled. Pass an existing key ARN to share encryption across multiple secrets (e.g. one CMK per service)."
+  description = "Optional. KMS key ARN to encrypt the secret. When empty (the default) the module creates a per-secret CMK with rotation enabled. Pass an existing key ARN to share encryption across multiple secrets (e.g. one CMK per service). MUST be a full ARN -- alias names like `alias/foo` work for `aws_secretsmanager_secret.kms_key_id` itself but break the consumer IAM policy emitted by this module (IAM Resource clauses reject alias names; AWS demands ARNs or `*`)."
   type        = string
   default     = ""
+}
+
+variable "kms_key_provided" {
+  description = "Static toggle that mirrors `var.kms_key_id != \"\"` from the caller's perspective. Required because the module's `count = local.create_cmk` keys off the kms_key_id string at plan time; when the caller wires the ARN from another resource (e.g. `aws_kms_key.X.arn`) the value is unknown until apply and `count` cannot evaluate. Set true when wiring an external key; default false. When false, the module mints its own per-secret CMK."
+  type        = bool
+  default     = false
 }
 
 variable "recovery_window_days" {
