@@ -379,11 +379,16 @@ module "ingress_authorizer" {
   strata_integration_uri = "http://strata.strata-${local.env_name}:3000"
 
   # ---- Example-agent integration target for $default ---------------------
-  # `..._enabled = true` is the static toggle the composition uses to gate
-  # `count` on the route at plan time (the integration_id string is unknown
-  # until apply when wired from module.example_agent).
-  example_agent_integration_id        = module.example_agent.apigw_integration_id
-  example_agent_default_route_enabled = true
+  # Disabled in v1.6.x — the example-agent module no longer creates its own
+  # apigw integration (enable_apigw_integration = false on module.example_agent
+  # to avoid the zombie-integration VPC Link error). Reaching the example-agent
+  # UI from outside requires either (a) adding a separate NLB + listener for
+  # example-agent and an ingress-authorizer integration pointing at it, or
+  # (b) registering example-agent in Cloud Map and pointing apigw at the
+  # service ARN. Tracked as a follow-up; Strata's /mcp path is the validation
+  # priority for this cycle.
+  example_agent_integration_id        = null
+  example_agent_default_route_enabled = false
 
   extra_tags = local.default_tags
 }
