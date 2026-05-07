@@ -32,7 +32,12 @@ locals {
   # Uses the static-toggle pattern (Phase 5 validation finding): the
   # boolean must be plan-time resolvable so `count` can plan. Falls back
   # to inspecting the integration_id string for callers that hard-code one.
-  wire_example_agent_default = var.example_agent_default_route_enabled || var.example_agent_integration_id != ""
+  wire_example_agent_default = var.example_agent_default_route_enabled || var.example_agent_integration_id != "" || var.enable_example_agent_path
+
+  # When true the catch-all $default route uses the integration this module
+  # creates internally (NLB-backed). When false (back-compat path), the route
+  # uses the externally-supplied var.example_agent_integration_id.
+  use_internal_example_agent_integration = var.enable_example_agent_path
 }
 
 ###############################################################################
@@ -174,6 +179,31 @@ resource "aws_vpc_security_group_egress_rule" "nlb_to_strata" {
   tags = local.default_tags
 }
 
+# Ingress on the example-agent listener port (when enabled). VPC link ENIs
+# enter on a different listener port than Strata so the API GW integration
+# can route by port without a path-based rule on the NLB (NLBs don't have
+# path routing — different listeners = different upstreams).
+resource "aws_vpc_security_group_ingress_rule" "nlb_from_vpc_example_agent" {
+  count = var.enable_example_agent_path ? 1 : 0
+
+  security_group_id = aws_security_group.nlb.id
+  description       = "TCP from the VPC CIDR on the example-agent NLB listener port"
+  cidr_ipv4         = var.vpc_cidr
+  ip_protocol       = "tcp"
+  from_port         = var.example_agent_listener_port
+  to_port           = var.example_agent_listener_port
+
+  tags = local.default_tags
+}
+
+# NOTE: No separate egress rule for the example-agent port. When the
+# example-agent uses the SAME container port as Strata (default 3000),
+# nlb_to_strata above already permits the NLB SG to reach any task ENI in
+# the VPC CIDR on TCP 3000. Adding a second rule with identical
+# (CIDR, protocol, port-range) tuple raises InvalidPermission.Duplicate.
+# Operators who deploy example-agent on a non-default port must add a
+# bespoke egress rule outside this module.
+
 resource "aws_lb" "mcp" {
   # checkov:skip=CKV_AWS_91:Access logging is not enabled by default for this internal NLB. v1.6.6 ships without it; AWS-1.6.4's access-log work covers the API GW edge where the JWT subject claim lives. Enabling NLB access logs would require an S3 bucket policy with the AWS-managed NLB-log-delivery principal — defer to a follow-up if needed.
   # checkov:skip=CKV_AWS_150:Deletion protection is variable-driven (var.nlb_deletion_protection). Default false in dev to support the destroy/recreate cadence; staging/prod tfvars set true.
@@ -238,6 +268,70 @@ resource "aws_lb_listener" "mcp" {
 }
 
 ###############################################################################
+# Example-agent target group + listener (AWS-3.x — public web UI path).
+#
+# Same NLB as Strata, distinct listener port (default 3001) and target group.
+# The API GW $default integration uses this listener's ARN as integration_uri.
+# The example-agent ECS service registers its tasks on this target group via
+# its `attach_to_nlb_target_group_arn` input.
+#
+# Health check is on `/` (Next.js root returns 200 for unauthenticated users
+# — the login redirect is server-rendered with a 200 status). This matches
+# the container's own HEALTHCHECK in the example-agent Dockerfile.
+###############################################################################
+
+resource "aws_lb_target_group" "example_agent" {
+  count = var.enable_example_agent_path ? 1 : 0
+
+  # checkov:skip=CKV_AWS_378:Internal NLB to Fargate, no internet exposure. Per-task TLS deferred — same posture as the Strata target group.
+  name        = "strata-${var.env_name}-app-tg"
+  port        = var.example_agent_container_port
+  protocol    = "TCP"
+  target_type = "ip"
+  vpc_id      = var.vpc_id
+
+  # HTTP health check on `/` with a permissive matcher. Next.js middleware
+  # only gates /chat/*; `/` renders the public landing page (200) for
+  # signed-out callers. The 200-499 range tolerates any client-side
+  # response (auth-required redirects from future middleware additions
+  # would be 3xx; 401/403 handled gracefully).
+  health_check {
+    enabled             = true
+    protocol            = "HTTP"
+    path                = "/"
+    port                = "traffic-port"
+    matcher             = "200-499"
+    interval            = 30
+    timeout             = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 5
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = merge(local.default_tags, {
+    Name = "strata-${var.env_name}-app-tg"
+  })
+}
+
+resource "aws_lb_listener" "example_agent" {
+  count = var.enable_example_agent_path ? 1 : 0
+
+  load_balancer_arn = aws_lb.mcp.arn
+  port              = var.example_agent_listener_port
+  protocol          = "TCP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.example_agent[0].arn
+  }
+
+  tags = local.default_tags
+}
+
+###############################################################################
 # NLB propagation gate (AWS-1.6.6 follow-up, Phase 5 validation finding).
 #
 # The API GW HTTP API integration creation hits a known propagation race
@@ -254,6 +348,13 @@ resource "aws_lb_listener" "mcp" {
 
 resource "time_sleep" "nlb_propagation" {
   depends_on      = [aws_lb_listener.mcp]
+  create_duration = "60s"
+}
+
+# Same propagation race applies to the example-agent listener.
+resource "time_sleep" "example_agent_nlb_propagation" {
+  count           = var.enable_example_agent_path ? 1 : 0
+  depends_on      = [aws_lb_listener.example_agent]
   create_duration = "60s"
 }
 
@@ -429,10 +530,34 @@ resource "aws_apigatewayv2_route" "strata_health" {
 #   - Static assets and the login page must be reachable anonymously.
 # Next.js middleware in services/example-agent enforces auth on the routes
 # that need it (every API route checks cognito:groups for `approved`).
+###############################################################################
+# Example-agent integration (when enable_example_agent_path = true). No
+# request_parameters block — example-agent enforces auth in Next.js
+# middleware via Cognito Hosted UI session cookies, NOT via Strata's
+# X-Strata-Verified contract.
+###############################################################################
+
+resource "aws_apigatewayv2_integration" "example_agent" {
+  count = var.enable_example_agent_path ? 1 : 0
+
+  depends_on = [time_sleep.example_agent_nlb_propagation]
+
+  api_id           = var.apigw_api_id
+  integration_type = "HTTP_PROXY"
+  integration_uri  = aws_lb_listener.example_agent[0].arn
+
+  integration_method     = "ANY"
+  connection_type        = "VPC_LINK"
+  connection_id          = var.apigw_vpc_link_id
+  payload_format_version = "1.0"
+
+  timeout_milliseconds = 30000
+}
+
 resource "aws_apigatewayv2_route" "example_agent_default" {
   count = local.wire_example_agent_default ? 1 : 0
 
   api_id    = var.apigw_api_id
   route_key = "$default"
-  target    = "integrations/${var.example_agent_integration_id}"
+  target    = local.use_internal_example_agent_integration ? "integrations/${aws_apigatewayv2_integration.example_agent[0].id}" : "integrations/${var.example_agent_integration_id}"
 }

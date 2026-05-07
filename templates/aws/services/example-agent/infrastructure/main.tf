@@ -649,6 +649,15 @@ module "ecs_service" {
       ]
       environment = concat(
         [
+          # Fargate sets the container's HOSTNAME env var to the
+          # EC2-internal hostname (e.g. ip-10-40-40-124.ec2.internal),
+          # which overrides the Dockerfile's `ENV HOSTNAME=0.0.0.0`.
+          # Next.js standalone reads HOSTNAME and binds to that interface
+          # only — `wget localhost:3000` from inside the container then
+          # fails because there's no loopback listener. Explicit re-set
+          # forces a 0.0.0.0 bind so both the in-container HEALTHCHECK
+          # and the NLB target group health check succeed.
+          { name = "HOSTNAME", value = "0.0.0.0" },
           { name = "AWS_REGION", value = var.aws_region },
           { name = "ENV_NAME", value = var.env_name },
           { name = "COGNITO_USER_POOL_ID", value = module.cognito_user_pool.user_pool_id },
@@ -725,6 +734,10 @@ module "ecs_service" {
   attach_to_apigw_provided    = var.ingress_backend == "apigw" && var.enable_apigw_integration
   apigw_api_id                = (var.ingress_backend == "apigw" && var.enable_apigw_integration) ? var.apigw_api_id : ""
   apigw_integration_uri       = (var.ingress_backend == "apigw" && var.enable_apigw_integration) ? var.apigw_integration_uri : ""
+
+  # Internal NLB target group (set when the env composition exposes the
+  # example-agent UI via API GW → VPC Link → NLB). Empty disables.
+  attach_to_nlb_target_group_arn = var.attach_to_nlb_target_group_arn
 
   # Ingress security-group allow-list (HIGH from AWS-1.6.1 review). Without
   # this the SG accepts no inbound traffic and the apigw $default route

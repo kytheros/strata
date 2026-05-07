@@ -218,13 +218,14 @@ module "example_agent" {
   enable_test_user_client = var.canary_enabled
 
   # ---- App URL — drives Cognito callback / logout URLs -------------------
-  # On first apply, var.example_agent_app_url is the placeholder from
-  # tfvars (no ingress yet). After the first apply lands the ingress, the
-  # operator updates the tfvars to module.ingress.endpoint_dns and re-applies
-  # — Cognito picks up the new URLs. See README §"Two-pass apply pattern".
-  app_url       = var.example_agent_app_url
-  callback_urls = ["${var.example_agent_app_url}/api/auth/callback"]
-  logout_urls   = [var.example_agent_app_url]
+  # Single-pass apply (was two-pass). Sourced directly from the API GW
+  # endpoint. Cognito accepts callback URLs as opaque strings at create
+  # time (no network probe), so resolving from `module.ingress.endpoint_dns`
+  # within the same apply works. This replaced the prior tfvars placeholder
+  # pattern which forced a second apply to wire real URLs.
+  app_url       = "https://${module.ingress.endpoint_dns}"
+  callback_urls = ["https://${module.ingress.endpoint_dns}/api/auth/callback"]
+  logout_urls   = ["https://${module.ingress.endpoint_dns}"]
 
   # ---- Container image ---------------------------------------------------
   container_image = var.example_agent_container_image
@@ -255,10 +256,19 @@ module "example_agent" {
   # ecs-service's for_each iterates; the map is looked up by label inside
   # the resource body. Required because Terraform marks any map literal
   # with one or more unknown values as wholly unknown.
-  ingress_security_group_labels = ["vpc-link"]
+  ingress_security_group_labels = ["vpc-link", "mcp-nlb"]
   ingress_security_group_ids = {
     vpc-link = module.ingress.security_group_id
+    # The NLB SG must be allowed to reach example-agent task ENIs on the
+    # container port. Without this, the NLB target group's health checks
+    # fail and the $default route times out at runtime.
+    mcp-nlb = module.ingress_authorizer.strata_nlb_security_group_id
   }
+
+  # Register example-agent tasks with the example-agent target group on the
+  # internal NLB. The ingress_authorizer module creates the target group +
+  # listener; the API GW $default integration routes to that listener.
+  attach_to_nlb_target_group_arn = module.ingress_authorizer.example_agent_nlb_target_group_arn
 
   # ---- Service Connect (MEDIUM-1 from AWS-1.6.1 review) ------------------
   # Joins the orchestrator-owned namespace so the example-agent's Envoy
@@ -383,21 +393,18 @@ module "ingress_authorizer" {
   private_subnet_ids    = module.network.private_subnet_ids
   strata_container_port = 3000
 
-  # ---- DEPRECATED in v1.6.6 — kept for example back-compat ---------------
-  # Routing now uses the NLB listener ARN above; this string is unused.
-  strata_integration_uri = "http://strata.strata-${local.env_name}:3000"
-
-  # ---- Example-agent integration target for $default ---------------------
-  # Disabled in v1.6.x — the example-agent module no longer creates its own
-  # apigw integration (enable_apigw_integration = false on module.example_agent
-  # to avoid the zombie-integration VPC Link error). Reaching the example-agent
-  # UI from outside requires either (a) adding a separate NLB + listener for
-  # example-agent and an ingress-authorizer integration pointing at it, or
-  # (b) registering example-agent in Cloud Map and pointing apigw at the
-  # service ARN. Tracked as a follow-up; Strata's /mcp path is the validation
-  # priority for this cycle.
+  # ---- Example-agent UI public path (option (a) from prior comment) ------
+  # `enable_example_agent_path` provisions a second NLB target group +
+  # listener (port 3001) and an API GW integration. The catch-all $default
+  # route (provisioned when default_route_enabled = true) targets that
+  # integration with NO authorizer — the example-agent's Next.js middleware
+  # enforces auth itself via Cognito Hosted UI session cookies.
+  enable_example_agent_path           = true
+  example_agent_default_route_enabled = true
   example_agent_integration_id        = ""
-  example_agent_default_route_enabled = false
+
+  # ---- DEPRECATED — old back-compat knob kept for module symmetry --------
+  strata_integration_uri = "http://strata.strata-${local.env_name}:3000"
 
   extra_tags = local.default_tags
 }

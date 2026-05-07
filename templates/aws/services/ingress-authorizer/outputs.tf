@@ -86,3 +86,24 @@ output "strata_nlb_security_group_id" {
   description = "Security group ID protecting the NLB. The Strata service composition must include this in its `ingress_security_group_ids` so task ENIs accept inbound traffic from the NLB. Without this the NLB health checks fail and external MCP requests time out."
   value       = aws_security_group.nlb.id
 }
+
+###############################################################################
+# Example-agent path outputs (only meaningful when var.enable_example_agent_path
+# = true). The env composition wires example_agent_nlb_target_group_arn into
+# the example-agent service so its tasks register as targets.
+###############################################################################
+
+output "example_agent_nlb_target_group_arn" {
+  description = "ARN of the NLB target group fronting the example-agent service. Wire this into example-agent's `attach_to_nlb_target_group_arn` so launched tasks register as targets. null when var.enable_example_agent_path = false."
+  value       = var.enable_example_agent_path ? aws_lb_target_group.example_agent[0].arn : null
+}
+
+output "example_agent_nlb_listener_arn" {
+  description = "ARN of the NLB listener routing to the example-agent target group. Diagnostic — same value used as `integration_uri` on the API GW $default integration. null when var.enable_example_agent_path = false."
+  value       = var.enable_example_agent_path ? aws_lb_listener.example_agent[0].arn : null
+}
+
+output "example_agent_integration_id_internal" {
+  description = "API GW integration ID created when var.enable_example_agent_path = true. Used by the $default route. null otherwise."
+  value       = var.enable_example_agent_path ? aws_apigatewayv2_integration.example_agent[0].id : null
+}

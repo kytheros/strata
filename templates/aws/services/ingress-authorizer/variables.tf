@@ -73,6 +73,29 @@ variable "additional_jwt_audiences" {
   default     = []
 }
 
+variable "enable_example_agent_path" {
+  description = "When true, provisions a second target group + NLB listener + API GW integration for the example-agent UI, AND wires the `$default` route at the API GW to that integration with NO authorizer. The example-agent's Next.js middleware enforces auth itself (Cognito Hosted UI OAuth code flow). When this is true, callers should ALSO set var.example_agent_default_route_enabled = true and pass var.attach_example_agent_to_nlb (the example-agent ECS service must register tasks with the NLB target group output by this module). Default false keeps the example-agent UI off the public path."
+  type        = bool
+  default     = false
+}
+
+variable "example_agent_container_port" {
+  description = "Port the example-agent container listens on (matches the example-agent service's container_port). Used as the NLB target port and the listener forward target."
+  type        = number
+  default     = 3000
+}
+
+variable "example_agent_listener_port" {
+  description = "NLB listener port for the example-agent traffic. MUST differ from var.strata_container_port — the same NLB hosts both Strata and example-agent listeners on different ports."
+  type        = number
+  default     = 3001
+
+  validation {
+    condition     = var.example_agent_listener_port != 3000
+    error_message = "example_agent_listener_port must differ from the Strata listener port (3000) — both listeners share the same NLB."
+  }
+}
+
 ###############################################################################
 # Ingress — consumed from the ingress module
 ###############################################################################

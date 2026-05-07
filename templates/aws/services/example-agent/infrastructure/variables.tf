@@ -223,6 +223,12 @@ variable "enable_test_user_client" {
   default     = false
 }
 
+variable "attach_to_nlb_target_group_arn" {
+  description = "Optional. ARN of an internal NLB target group the ECS service should register tasks with. When set, the ecs-service module wires the LoadBalancers block on the service so launched tasks join the target group as IP targets. Used by the env composition to expose the example-agent UI through API GW → VPC Link → NLB. Empty disables (default)."
+  type        = string
+  default     = ""
+}
+
 ###############################################################################
 # Strata-on-AWS internal endpoint — used by AWS-3.3 to dogfood Strata as
 # the conversational memory backend. AWS-3.1 just passes the value through
