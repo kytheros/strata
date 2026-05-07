@@ -155,9 +155,15 @@ variable "apigw_api_id" {
 }
 
 variable "apigw_integration_uri" {
-  description = "Backend URI for the API GW HTTP_PROXY integration (when ingress_backend = apigw). Typically a private NLB or Service Connect endpoint."
+  description = "Backend URI for the API GW HTTP_PROXY integration (when ingress_backend = apigw AND var.enable_apigw_integration=true). Typically a private NLB or Service Connect endpoint."
   type        = string
   default     = ""
+}
+
+variable "enable_apigw_integration" {
+  description = "Whether to create the stub `aws_apigatewayv2_integration` inside the underlying ecs-service module. Default true preserves backwards-compat with example-callers that wire a direct apigw -> ecs path through this module. The orchestrator path (envs/dev) sets this to false because services/ingress-authorizer owns the real catch-all $default integration. See Phase 5 second-cycle apply findings."
+  type        = bool
+  default     = true
 }
 
 variable "ingress_security_group_ids" {

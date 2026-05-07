@@ -196,9 +196,15 @@ variable "ingress_apigw_api_id" {
 }
 
 variable "ingress_apigw_integration_uri" {
-  description = "Backend URI for the HTTP_PROXY API GW integration (when backend=apigw). Typically a private NLB URL or Service Connect DNS for the Strata service. Required for backend=apigw; ignored otherwise. NOTE: API GW VPC-Link integrations require an NLB or Cloud Map endpoint; the v1 wiring is documented in README §\"API GW backend gap.\""
+  description = "Backend URI for the HTTP_PROXY API GW integration (when backend=apigw AND var.enable_apigw_integration=true). Typically a private NLB URL or Service Connect DNS for the Strata service. Required for the apigw stub integration path. Ignored when var.enable_apigw_integration=false (the orchestrator path, where services/ingress-authorizer owns the real apigw integration with X-Strata-Verified injection)."
   type        = string
   default     = ""
+}
+
+variable "enable_apigw_integration" {
+  description = "Whether to create the stub `aws_apigatewayv2_integration` inside the underlying ecs-service module. Default true preserves backwards-compat with example-callers that wire a direct apigw -> ecs path through this module. The orchestrator path (envs/dev) sets this to false because services/ingress-authorizer owns the real integration with X-Strata-Verified injection -- two integrations targeting the same backend with the same VPC link is a zombie resource that AWS rejects on apply with `BadRequestException: Resource handler returned message`."
+  type        = bool
+  default     = true
 }
 
 variable "ingress_endpoint_dns" {

@@ -344,15 +344,16 @@ module "service" {
   target_group_port          = var.container_port
   health_check_path          = "/health"
 
-  # ---- API GW attachment (active when backend=apigw) -----------------------
-  # `attach_to_apigw_provided` is the static toggle the ecs-service module
-  # uses to gate the apigw integration's `count` at plan time (the
-  # vpc_link_id ARN is unknown until apply when the orchestrator wires it
-  # from module.ingress).
-  attach_to_apigw_vpc_link_id = local.is_apigw ? var.ingress_vpc_link_id : ""
-  attach_to_apigw_provided    = local.is_apigw
-  apigw_integration_uri       = local.is_apigw ? var.ingress_apigw_integration_uri : ""
-  apigw_api_id                = local.is_apigw ? var.ingress_apigw_api_id : ""
+  # ---- API GW attachment (active when backend=apigw AND enable_apigw_integration=true) ----
+  # The orchestrator path sets enable_apigw_integration=false because
+  # services/ingress-authorizer creates the real integration (with
+  # X-Strata-Verified injection). Two integrations targeting the same
+  # NLB listener via the same VPC link is a zombie resource the second
+  # apply trips on. See Phase 5 second-cycle apply findings.
+  attach_to_apigw_vpc_link_id = (local.is_apigw && var.enable_apigw_integration) ? var.ingress_vpc_link_id : ""
+  attach_to_apigw_provided    = local.is_apigw && var.enable_apigw_integration
+  apigw_integration_uri       = (local.is_apigw && var.enable_apigw_integration) ? var.ingress_apigw_integration_uri : ""
+  apigw_api_id                = (local.is_apigw && var.enable_apigw_integration) ? var.ingress_apigw_api_id : ""
 
   # ---- Internal NLB attachment (AWS-1.6.6) --------------------------------
   # Closes the runtime gap: API GW VPC links cannot resolve Service Connect

@@ -233,15 +233,16 @@ module "example_agent" {
   subnet_ids = module.network.private_subnet_ids
 
   # ---- Ingress wiring (apigw backend, dev tier) --------------------------
+  # `enable_apigw_integration = false` because services/ingress-authorizer
+  # owns the real catch-all $default integration. Without this flag, the
+  # underlying ecs-service module would create a zombie stub integration
+  # targeting the same VPC link, which collides at apply time (Phase 5
+  # second-cycle apply finding 2026-05-06).
   ingress_backend             = "apigw"
+  enable_apigw_integration    = false
   attach_to_apigw_vpc_link_id = module.ingress.vpc_link_id
   apigw_api_id                = module.ingress.api_id
-  # Service Connect alias — used by the API GW HTTP_PROXY integration's URI.
-  # See KNOWN GAP note on the namespace resource above: the API GW VPC link
-  # cannot resolve Service Connect aliases. The URI here is structural; the
-  # working internal path between example-agent and Strata is the
-  # client_alias-resolved DNS handled by each task's Envoy sidecar.
-  apigw_integration_uri = "http://example-agent.strata-${local.env_name}:3000"
+  apigw_integration_uri       = "http://example-agent.strata-${local.env_name}:3000"
 
   # ---- Ingress security-group allow-list (HIGH from AWS-1.6.1 review) ---
   # Static-labels-list pattern: the `_labels` companion list is what
@@ -434,7 +435,13 @@ module "strata_service" {
   cognito_jwks_uri            = module.example_agent.cognito_jwks_uri
 
   # ---- Ingress (apigw backend) -------------------------------------------
+  # `enable_apigw_integration = false` because services/ingress-authorizer
+  # owns the real /mcp + /health integrations (with X-Strata-Verified
+  # injection). The underlying ecs-service module's stub integration is
+  # a zombie in this path -- gating it off avoids the apply-time
+  # collision (Phase 5 second-cycle apply finding 2026-05-06).
   ingress_backend               = "apigw"
+  enable_apigw_integration      = false
   ingress_vpc_link_id           = module.ingress.vpc_link_id
   ingress_apigw_api_id          = module.ingress.api_id
   ingress_apigw_integration_uri = "http://strata.strata-${local.env_name}:3000"

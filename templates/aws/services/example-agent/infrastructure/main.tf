@@ -710,12 +710,17 @@ module "ecs_service" {
   alb_listener_priority      = var.alb_listener_priority
   # Static-toggle: `attach_to_apigw_provided` lets the ecs-service module
   # plan its apigw-integration `count` even when the vpc_link_id string is
-  # unknown until apply (orchestrator path). See Phase 5 validation
-  # findings in the design spec.
-  attach_to_apigw_vpc_link_id = var.ingress_backend == "apigw" ? var.attach_to_apigw_vpc_link_id : ""
-  attach_to_apigw_provided    = var.ingress_backend == "apigw"
-  apigw_api_id                = var.ingress_backend == "apigw" ? var.apigw_api_id : ""
-  apigw_integration_uri       = var.ingress_backend == "apigw" ? var.apigw_integration_uri : ""
+  # unknown until apply.
+  #
+  # `enable_apigw_integration = false` (orchestrator path) skips creating
+  # the stub integration entirely because services/ingress-authorizer
+  # owns the real catch-all $default integration. Two integrations
+  # targeting the same VPC link via the same backend would collide on
+  # apply. See Phase 5 second-cycle apply findings.
+  attach_to_apigw_vpc_link_id = (var.ingress_backend == "apigw" && var.enable_apigw_integration) ? var.attach_to_apigw_vpc_link_id : ""
+  attach_to_apigw_provided    = var.ingress_backend == "apigw" && var.enable_apigw_integration
+  apigw_api_id                = (var.ingress_backend == "apigw" && var.enable_apigw_integration) ? var.apigw_api_id : ""
+  apigw_integration_uri       = (var.ingress_backend == "apigw" && var.enable_apigw_integration) ? var.apigw_integration_uri : ""
 
   # Ingress security-group allow-list (HIGH from AWS-1.6.1 review). Without
   # this the SG accepts no inbound traffic and the apigw $default route
