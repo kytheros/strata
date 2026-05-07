@@ -280,11 +280,17 @@ resource "aws_cloudwatch_log_metric_filter" "failure" {
   log_group_name = aws_cloudwatch_log_group.lambda[0].name
   pattern        = "CANARY_FAIL"
 
+  # NOTE: dimensions and default_value are mutually exclusive on a metric
+  # filter (AWS validation: "Invalid metric transformation: dimensions
+  # and default value are mutually exclusive properties"). We keep
+  # dimensions (the Environment label is what the alarm filters on) and
+  # drop default_value. Standard "no match" behavior emits no datapoint;
+  # the failure alarm tolerates that via treat_missing_data. Phase 5
+  # third-cycle apply finding 2026-05-06.
   metric_transformation {
-    name          = "CanaryFailureCount"
-    namespace     = local.metric_namespace
-    value         = "1"
-    default_value = "0"
+    name      = "CanaryFailureCount"
+    namespace = local.metric_namespace
+    value     = "1"
     dimensions = {
       Environment = var.env_name
     }
