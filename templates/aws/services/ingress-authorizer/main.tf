@@ -238,6 +238,26 @@ resource "aws_lb_listener" "mcp" {
 }
 
 ###############################################################################
+# NLB propagation gate (AWS-1.6.6 follow-up, Phase 5 validation finding).
+#
+# The API GW HTTP API integration creation hits a known propagation race
+# when an NLB listener was just created. Symptom on apply: integration
+# creation returns BadRequestException claiming the listener is not
+# reachable, even though all routing pieces (subnets, SGs, listener,
+# target group) are correct. AWS-side propagation typically settles
+# within 30-60 seconds.
+#
+# `time_sleep` blocks until the listener has been live for create_duration,
+# then unblocks the integrations below. Belt-and-suspenders: dependency on
+# the listener resource is also explicit on each integration via depends_on.
+###############################################################################
+
+resource "time_sleep" "nlb_propagation" {
+  depends_on      = [aws_lb_listener.mcp]
+  create_duration = "60s"
+}
+
+###############################################################################
 # 4. Strata-bound API GW integration with X-Strata-Verified injection.
 #
 # A dedicated integration (separate from the one services/strata/ creates via
@@ -270,6 +290,9 @@ resource "aws_lb_listener" "mcp" {
 ###############################################################################
 
 resource "aws_apigatewayv2_integration" "strata_with_header" {
+  # NLB propagation: see time_sleep above.
+  depends_on = [time_sleep.nlb_propagation]
+
   api_id           = var.apigw_api_id
   integration_type = "HTTP_PROXY"
   integration_uri  = aws_lb_listener.mcp.arn
@@ -314,6 +337,9 @@ resource "aws_apigatewayv2_integration" "strata_with_header" {
 ###############################################################################
 
 resource "aws_apigatewayv2_integration" "strata_no_header" {
+  # NLB propagation: see time_sleep above.
+  depends_on = [time_sleep.nlb_propagation]
+
   api_id           = var.apigw_api_id
   integration_type = "HTTP_PROXY"
   integration_uri  = aws_lb_listener.mcp.arn
@@ -325,7 +351,7 @@ resource "aws_apigatewayv2_integration" "strata_no_header" {
 
   timeout_milliseconds = 30000
 
-  # NO request_parameters block — the X-Strata-Verified header is intentionally
+  # NO request_parameters block. The X-Strata-Verified header is intentionally
   # not injected on this integration. Used only by the /health route.
 }
 
