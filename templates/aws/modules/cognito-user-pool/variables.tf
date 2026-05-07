@@ -22,6 +22,12 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "enable_test_user_client" {
+  description = "When true, provisions a second app client `{env}-test-user-client` configured for `ALLOW_ADMIN_USER_PASSWORD_AUTH` only. Used by synthetic canaries that authenticate a known test user from a Lambda. The client has no OAuth flows and no callback/logout URLs — it is machine-only and cannot be used from a browser. Default `false` keeps the surface area off for environments without a canary."
+  type        = bool
+  default     = false
+}
+
 variable "domain_prefix_override" {
   description = "Optional. Override the computed Hosted UI domain prefix. The default is `strata-{env_name}-{account_id}` to guarantee global uniqueness (Cognito Hosted UI prefixes share a single global namespace per region). Use this to wire a custom-domain ACM cert flow in prod where the hosted-ui prefix is purely internal to Cognito."
   type        = string

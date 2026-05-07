@@ -63,6 +63,11 @@ output "user_pool_client_secret" {
   sensitive   = true
 }
 
+output "test_user_client_id" {
+  description = "Test-user app client ID, configured for ADMIN_USER_PASSWORD_AUTH (null when var.enable_test_user_client = false). Wired into the synthetic canary by env compositions."
+  value       = module.cognito_user_pool.test_user_client_id
+}
+
 output "cognito_hosted_ui_url" {
   description = "Fully-qualified Cognito Hosted UI base URL. The Next.js /api/auth/login route appends OAuth params to this."
   value       = module.cognito_user_pool.hosted_ui_base_url

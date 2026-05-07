@@ -211,6 +211,12 @@ module "example_agent" {
   # ---- Allowlist seed ----------------------------------------------------
   initial_allowlist = var.allowlist_emails
 
+  # ---- Synthetic-canary test-user app client ----------------------------
+  # Provisions a second Cognito app client (ADMIN_USER_PASSWORD_AUTH only)
+  # used by the canary Lambda to authenticate as a known test user. Off
+  # when var.canary_enabled is false; otherwise on.
+  enable_test_user_client = var.canary_enabled
+
   # ---- App URL — drives Cognito callback / logout URLs -------------------
   # On first apply, var.example_agent_app_url is the placeholder from
   # tfvars (no ingress yet). After the first apply lands the ingress, the
@@ -358,6 +364,9 @@ module "ingress_authorizer" {
   # ---- Cognito (sourced via example-agent's pool) ------------------------
   cognito_user_pool_id        = module.example_agent.user_pool_id
   cognito_user_pool_client_id = module.example_agent.user_pool_client_id
+  # Admit access tokens minted by the synthetic canary's test-user app
+  # client. Compact() drops the null when canary_enabled=false.
+  additional_jwt_audiences = compact([module.example_agent.test_user_client_id])
 
   # ---- Ingress (raw IDs from the ingress module) -------------------------
   apigw_api_id      = module.ingress.api_id
@@ -676,9 +685,13 @@ module "canary" {
   canary_enabled = var.canary_enabled
 
   # Cognito (sourced via example-agent's pool, same as ingress-authorizer).
+  # The canary uses the dedicated test-user client (ADMIN_USER_PASSWORD_AUTH),
+  # NOT the public web client (SRP-only). Without the dedicated client, the
+  # AdminInitiateAuth call in the canary Lambda fails with
+  # `NotAuthorizedException: Auth flow not enabled for this client`.
   cognito_user_pool_id        = module.example_agent.user_pool_id
   cognito_user_pool_arn       = module.example_agent.user_pool_arn
-  cognito_user_pool_client_id = module.example_agent.user_pool_client_id
+  cognito_user_pool_client_id = module.example_agent.test_user_client_id
 
   # Hits the public API GW endpoint with a real Cognito JWT — exercises the
   # full external-MCP path: API GW JWT authorizer → header-injecting

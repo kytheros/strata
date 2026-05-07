@@ -67,6 +67,12 @@ variable "cognito_user_pool_client_id" {
   }
 }
 
+variable "additional_jwt_audiences" {
+  description = "Optional. Additional Cognito App Client IDs to admit on the JWT authorizer. The HTTP API authorizer matches an inbound token if its `aud` (ID tokens) or `client_id` (access tokens) appears in this list. Use to allow machine-only clients (synthetic canaries, integration tests) without weakening the public web client. Default empty."
+  type        = list(string)
+  default     = []
+}
+
 ###############################################################################
 # Ingress — consumed from the ingress module
 ###############################################################################

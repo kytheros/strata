@@ -141,6 +141,12 @@ variable "cognito_user_pool_client_id" {
   default     = ""
 }
 
+variable "additional_jwt_audiences" {
+  description = "Optional. Additional Cognito App Client IDs to accept as `audience` (ID tokens) or `client_id` (access tokens) on the API GW JWT authorizer. Use this to admit machine-only clients (e.g. a synthetic-canary test-user app client) without weakening the public web client. Each entry is appended to the authorizer's audience list."
+  type        = list(string)
+  default     = []
+}
+
 variable "cognito_user_pool_arn" {
   description = "Cognito User Pool ARN. Required by the alb authenticate_cognito action; ignored for apigw (which uses cognito_user_pool_id to construct the issuer)."
   type        = string

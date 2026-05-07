@@ -670,6 +670,53 @@ resource "aws_cognito_user_pool_client" "this" {
 }
 
 ###############################################################################
+# 8b. App Client — test user (machine-only, ADMIN_USER_PASSWORD_AUTH)
+#
+# Optional. Provisions a second app client used by synthetic canaries to
+# authenticate a known test user via `AdminInitiateAuth(ADMIN_USER_PASSWORD_AUTH)`.
+# Disabled by default. Configured to be unusable from a browser:
+#   - No OAuth flows
+#   - No callback / logout URLs
+#   - No client secret (Admin* APIs do not require it)
+#   - explicit_auth_flows: ADMIN_USER_PASSWORD_AUTH + REFRESH_TOKEN_AUTH only
+#
+# The caller IAM role must hold `cognito-idp:AdminInitiateAuth` against the
+# user pool ARN — see services/canary for the policy attachment pattern.
+###############################################################################
+
+resource "aws_cognito_user_pool_client" "test_user" {
+  count = var.enable_test_user_client ? 1 : 0
+
+  name         = "${local.app_client_name}-test-user"
+  user_pool_id = aws_cognito_user_pool.this.id
+
+  generate_secret = false
+
+  allowed_oauth_flows_user_pool_client = false
+
+  read_attributes  = ["email", "email_verified"]
+  write_attributes = []
+
+  explicit_auth_flows = [
+    "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+  ]
+
+  prevent_user_existence_errors = "ENABLED"
+  enable_token_revocation       = true
+
+  id_token_validity      = 1
+  access_token_validity  = 1
+  refresh_token_validity = 30
+
+  token_validity_units {
+    id_token      = "hours"
+    access_token  = "hours"
+    refresh_token = "days"
+  }
+}
+
+###############################################################################
 # 9. Cognito Groups (5 total)
 #
 # owner/admin/member/viewer  → Strata 4-role RBAC (precedence 0–3)

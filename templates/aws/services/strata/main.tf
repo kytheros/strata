@@ -266,6 +266,19 @@ module "service" {
       name      = "strata"
       image     = var.container_image
       essential = true
+      # Override the image's CMD. Strata's CLI only reads the `--multi-tenant`
+      # flag — the STRATA_MULTI_TENANT env var below is currently ignored by
+      # cli.ts (tracked as follow-up: make the CLI honor STRATA_TRANSPORT and
+      # STRATA_MULTI_TENANT env vars). Until that lands, the only way to put
+      # the container into multi-tenant HTTP mode is to override the entrypoint
+      # command here.
+      command = [
+        "node",
+        "dist/cli.js",
+        "serve",
+        "--multi-tenant",
+        "--port", tostring(var.container_port),
+      ]
       port_mappings = [
         {
           container_port = var.container_port
@@ -282,19 +295,23 @@ module "service" {
         { name = "STRATA_LOG_LEVEL", value = var.log_level },
 
         # ---- Multi-tenant HTTP transport ----------------------------------
-        # Strata's `serve --multi-tenant` accepts these as env-var equivalents
-        # of the CLI flags. The image's entrypoint maps them onto the right
-        # CLI invocation. See strata/CLAUDE.md §"Transport Modes".
+        # NOTE: Strata's CLI does NOT currently honor STRATA_MULTI_TENANT or
+        # STRATA_TRANSPORT — only the `--multi-tenant` flag works. We pass
+        # these env vars anyway so future versions that read them will Just
+        # Work, and the runtime invariant (multi-tenant mode) is asserted by
+        # the explicit `command` override on the container above.
         { name = "STRATA_TRANSPORT", value = "http" },
         { name = "STRATA_MULTI_TENANT", value = "1" },
-        { name = "STRATA_PORT", value = tostring(var.container_port) },
-        # Strata's HTTP server actually reads process.env.PORT (Node convention),
-        # not STRATA_PORT. The Dockerfile bakes ENV PORT=8080 which wins over
-        # STRATA_PORT. We override PORT here so Strata listens on the same port
-        # the NLB target group + Service Connect alias expect.
+        # PORT is consumed by Strata's HTTP server via process.env.PORT
+        # (Node convention). We also pass it as a CLI arg in `command` above
+        # so it survives any future Dockerfile CMD changes.
         { name = "PORT", value = tostring(var.container_port) },
         { name = "STRATA_MAX_DBS", value = tostring(var.max_dbs) },
-        { name = "STRATA_DATA_DIR", value = "/var/strata" },
+        # Must match a directory that's chown'd to the `strata` runtime user
+        # in the image. Dockerfile prepares /data; /var/strata is not.
+        # Per-user databases land at {STRATA_DATA_DIR}/{userId}/strata.db.
+        # On Fargate without EFS this is ephemeral — fine for the canary.
+        { name = "STRATA_DATA_DIR", value = "/data" },
 
         # ---- Auth-proxy enforcement ---------------------------------------
         # Strata refuses the X-Strata-User header unless X-Strata-Verified

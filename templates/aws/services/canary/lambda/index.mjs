@@ -66,30 +66,58 @@ async function mintAccessToken() {
   return token;
 }
 
-async function callToolsList(token) {
+async function postMcp(token, body, sessionId) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  let response;
+  const headers = {
+    "Content-Type": "application/json",
+    Accept: "application/json, text/event-stream",
+    Authorization: `Bearer ${token}`,
+  };
+  if (sessionId) headers["mcp-session-id"] = sessionId;
   try {
-    response = await fetch(MCP_ENDPOINT, {
+    return await fetch(MCP_ENDPOINT, {
       method: "POST",
       signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/list",
-        params: {},
-      }),
+      headers,
+      body: JSON.stringify(body),
     });
   } finally {
     clearTimeout(timer);
   }
-  return response;
+}
+
+// Strata's multi-tenant transport (StreamableHTTPServerTransport) requires the
+// MCP `initialize` handshake before any other JSON-RPC method. The first POST
+// returns an `mcp-session-id` header that must accompany every subsequent
+// request in the same logical session.
+async function initializeSession(token) {
+  const response = await postMcp(token, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "strata-canary", version: "1.0.0" },
+    },
+  });
+  if (response.status !== 200) {
+    throw new Error(`initialize_failed status=${response.status}`);
+  }
+  const sessionId = response.headers.get("mcp-session-id");
+  if (!sessionId) {
+    throw new Error("initialize_missing_session_id_header");
+  }
+  return sessionId;
+}
+
+async function callToolsList(token, sessionId) {
+  return postMcp(
+    token,
+    { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    sessionId,
+  );
 }
 
 export const handler = async () => {
@@ -108,9 +136,17 @@ export const handler = async () => {
     throw err;
   }
 
+  let sessionId;
+  try {
+    sessionId = await initializeSession(token);
+  } catch (err) {
+    console.error("CANARY_FAIL stage=mcp_initialize", err.message, ctx);
+    throw err;
+  }
+
   let response;
   try {
-    response = await callToolsList(token);
+    response = await callToolsList(token, sessionId);
   } catch (err) {
     console.error("CANARY_FAIL stage=tools_list_request", err.message, ctx);
     throw err;
@@ -135,12 +171,22 @@ export const handler = async () => {
   }
 
   const text = await response.text();
+  // MCP Streamable HTTP transport may return either JSON or text/event-stream
+  // (SSE), depending on what the server picks when both are in Accept. Strata
+  // emits SSE: `event: message\ndata: {...}\n\n`. Extract the JSON payload
+  // from the first `data:` line; fall back to the raw text for pure-JSON
+  // responses.
+  const contentType = response.headers.get("content-type") || "";
+  const jsonText = contentType.includes("text/event-stream")
+    ? (text.match(/^data:\s*(.+)$/m)?.[1] ?? "")
+    : text;
   let parsed;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(jsonText);
   } catch (err) {
     console.error("CANARY_FAIL stage=parse_body", err.message, {
       body: text.slice(0, 500),
+      contentType,
       ...ctx,
     });
     throw err;

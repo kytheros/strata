@@ -13,11 +13,11 @@ output "backend" {
 }
 
 output "endpoint_dns" {
-  description = "Public DNS hostname of the ingress. ALB: the load-balancer DNS name (alias-target). API GW: the api_endpoint URL (https://abc123.execute-api.{region}.amazonaws.com)."
+  description = "Public DNS hostname of the ingress (scheme-stripped). ALB: the load-balancer DNS name. API GW: the api_endpoint hostname (the upstream `api_endpoint` attribute is `https://...` — we strip the scheme so consumers can prepend `https://` consistently regardless of backend)."
   value = (
     var.backend == "alb"
     ? try(aws_lb.this[0].dns_name, null)
-    : try(aws_apigatewayv2_api.this[0].api_endpoint, null)
+    : try(replace(aws_apigatewayv2_api.this[0].api_endpoint, "https://", ""), null)
   )
 }
 

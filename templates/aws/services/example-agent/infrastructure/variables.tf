@@ -217,6 +217,12 @@ variable "logout_urls" {
   default     = ["https://localhost:3000"]
 }
 
+variable "enable_test_user_client" {
+  description = "When true, provisions a second Cognito app client configured for ADMIN_USER_PASSWORD_AUTH only. Used by the synthetic canary in env compositions. Default `false`."
+  type        = bool
+  default     = false
+}
+
 ###############################################################################
 # Strata-on-AWS internal endpoint — used by AWS-3.3 to dogfood Strata as
 # the conversational memory backend. AWS-3.1 just passes the value through

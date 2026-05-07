@@ -102,7 +102,7 @@ resource "aws_apigatewayv2_authorizer" "cognito" {
   identity_sources = ["$request.header.Authorization"]
 
   jwt_configuration {
-    audience = [var.cognito_user_pool_client_id]
+    audience = concat([var.cognito_user_pool_client_id], var.additional_jwt_audiences)
     issuer   = local.jwt_issuer
   }
 }
@@ -310,6 +310,12 @@ resource "aws_apigatewayv2_integration" "strata_with_header" {
   # the ECS task resolves at launch.
   request_parameters = {
     "overwrite:header.X-Strata-Verified" = random_password.auth_proxy_token.result
+    # AWS-1.6.4 — inject the caller's Cognito user UUID. After the JWT authorizer
+    # validates the bearer token, the `sub` claim is the user's stable Cognito
+    # UUID. Strata's multi-tenant transport scopes per-user databases by this
+    # header. `overwrite:` ensures a hostile external client cannot spoof it
+    # by pre-setting the header — API GW always replaces it with the JWT sub.
+    "overwrite:header.X-Strata-User" = "$context.authorizer.claims.sub"
   }
 }
 

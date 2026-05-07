@@ -24,6 +24,11 @@ output "user_pool_client_secret" {
   sensitive   = true
 }
 
+output "test_user_client_id" {
+  description = "Test-user app client ID (null when var.enable_test_user_client = false). Configured for ADMIN_USER_PASSWORD_AUTH only — used by synthetic canaries that AdminInitiateAuth a known user from a Lambda."
+  value       = var.enable_test_user_client ? aws_cognito_user_pool_client.test_user[0].id : null
+}
+
 output "hosted_ui_domain" {
   description = "Cognito Hosted UI domain prefix (the unqualified prefix, not the full URL). Combine with the region to construct the hosted-ui base URL."
   value       = aws_cognito_user_pool_domain.this.domain

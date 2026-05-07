@@ -87,6 +87,10 @@ module "cognito_user_pool" {
   post_confirmation_lambda_arn      = aws_lambda_function.post_confirmation.arn
   post_confirmation_lambda_provided = true
 
+  # Optional second app client used by the synthetic canary
+  # (ADMIN_USER_PASSWORD_AUTH only — never used from a browser).
+  enable_test_user_client = var.enable_test_user_client
+
   extra_tags = local.default_tags
 }
 
