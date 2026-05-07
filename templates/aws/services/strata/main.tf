@@ -116,7 +116,7 @@ module "auth_proxy_secret" {
   env_name    = var.env_name
   aws_region  = var.aws_region
   secret_name = "strata-service/auth-proxy-token"
-  description = "Shared sentinel set by the ${var.ingress_backend} ingress on X-Strata-Verified after Cognito JWT verification. Strata's multi-tenant HTTP transport rejects any request whose X-Strata-Verified does not match this value. STANDALONE mode — the orchestrator path replaces this with a secret owned by services/ingress-authorizer."
+  description = "Shared sentinel set by the ${var.ingress_backend} ingress on X-Strata-Verified after Cognito JWT verification. Strata's multi-tenant HTTP transport rejects any request whose X-Strata-Verified does not match this value. STANDALONE mode: the orchestrator path replaces this with a secret owned by services/ingress-authorizer."
 
   create_initial_version = true
   initial_value          = random_password.auth_proxy_token[0].result

@@ -303,7 +303,7 @@ resource "aws_lambda_function" "pre_signup_stub" {
   # checkov:skip=CKV_AWS_173:No env vars.
   # checkov:skip=CKV_AWS_272:See pre_token_generation.
   function_name = "strata-${var.env_name}-pre-signup-stub"
-  description   = "Inert PreSignUp stub — auto-confirms signups. Replaced by the example-agent allowlist enforcer once that service deploys."
+  description   = "Inert PreSignUp stub. Auto-confirms signups. Replaced by the example-agent allowlist enforcer once that service deploys."
   role          = aws_iam_role.pre_signup_stub.arn
   handler       = "index.handler"
   runtime       = "nodejs22.x"

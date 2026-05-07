@@ -311,7 +311,7 @@ resource "aws_cloudwatch_metric_alarm" "alb_p99_latency" {
   count = local.alb_alarms_enabled ? 1 : 0
 
   alarm_name          = "strata-${var.env_name}-alb-p99-latency"
-  alarm_description   = "ALB p99 target response time exceeded 800ms — design SLO breach. Runbook: ${local.runbook_url}/alb_p99_latency.md"
+  alarm_description   = "ALB p99 target response time exceeded 800ms (design SLO breach). Runbook: ${local.runbook_url}/alb_p99_latency.md"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3
   datapoints_to_alarm = 2
@@ -403,7 +403,7 @@ resource "aws_cloudwatch_metric_alarm" "aurora_acu_max" {
   count = local.aurora_alarms_enabled ? 1 : 0
 
   alarm_name          = "strata-${var.env_name}-aurora-acu-max"
-  alarm_description   = "Aurora Serverless v2 ServerlessDatabaseCapacity exceeded ${var.aurora_acu_alarm_threshold} ACU — approaching the cluster max (${var.aurora_acu_alarm_threshold + 2}). Sustained breach indicates a need to raise the cap or audit query plans. Runbook: ${local.runbook_url}/aurora_acu_max.md"
+  alarm_description   = "Aurora Serverless v2 ServerlessDatabaseCapacity exceeded ${var.aurora_acu_alarm_threshold} ACU (approaching the cluster max ${var.aurora_acu_alarm_threshold + 2}). Sustained breach indicates a need to raise the cap or audit query plans. Runbook: ${local.runbook_url}/aurora_acu_max.md"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3
   datapoints_to_alarm = 2
@@ -527,7 +527,7 @@ resource "aws_cloudwatch_metric_alarm" "nat_bytes_out_anomaly" {
   for_each = local.nat_anomaly_enabled ? toset(var.nat_gateway_labels) : toset([])
 
   alarm_name          = "strata-${var.env_name}-nat-bytes-out-anomaly-${each.value}"
-  alarm_description   = "NAT Gateway ${lookup(var.nat_gateway_ids, each.value, "?")} (slot ${each.value}) BytesOutToDestination outside the 3-sigma anomaly band. Indicates a possible chatty agent or runaway outbound traffic — design Risk #3. Investigate via VPC Flow Logs filtered to dstaddr in the public LLM API range. Runbook: ${local.runbook_url}/nat_bytes_out_anomaly.md"
+  alarm_description   = "NAT Gateway ${lookup(var.nat_gateway_ids, each.value, "?")} (slot ${each.value}) BytesOutToDestination outside the 3-sigma anomaly band. Indicates a possible chatty agent or runaway outbound traffic (design Risk #3). Investigate via VPC Flow Logs filtered to dstaddr in the public LLM API range. Runbook: ${local.runbook_url}/nat_bytes_out_anomaly.md"
   comparison_operator = "GreaterThanUpperThreshold"
   evaluation_periods  = 3
   datapoints_to_alarm = 2
@@ -570,7 +570,7 @@ resource "aws_cloudwatch_metric_alarm" "cognito_auth_failure_rate" {
   count = local.cognito_alarms_enabled ? 1 : 0
 
   alarm_name          = "strata-${var.env_name}-cognito-auth-failure-rate"
-  alarm_description   = "Cognito User Pool sign-in throttle rate exceeded 5% of successful sign-ins over 15 minutes. Often the first symptom of design Risk #1 — Cognito → Strata claims-shape drift causing repeated auth retries by the client. Runbook: ${local.runbook_url}/cognito_auth_failure_rate.md"
+  alarm_description   = "Cognito User Pool sign-in throttle rate exceeded 5% of successful sign-ins over 15 minutes. Often the first symptom of design Risk #1: Cognito to Strata claims-shape drift causing repeated auth retries by the client. Runbook: ${local.runbook_url}/cognito_auth_failure_rate.md"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 3
   datapoints_to_alarm = 2
@@ -647,11 +647,17 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_auth_error_count" {
   log_group_name = var.apigw_log_group_name
   pattern        = "{ ($.authError != \"\") && ($.authError != \"-\") }"
 
+  # NOTE: dimensions and default_value are mutually exclusive on a metric
+  # filter (AWS validation: "When dimensions are specified, you cannot
+  # specify defaultValue."). We don't set dimensions today, but Terraform
+  # / AWS reject `default_value` here on apply nonetheless — observed in
+  # the validation cycle of 2026-05-06. Standard CW Metric Filter
+  # semantics already cover the "no match" case (no datapoint emitted),
+  # which the downstream alarms tolerate via treat_missing_data.
   metric_transformation {
-    name          = "JwtAuthErrorCount"
-    namespace     = var.apigw_metric_namespace
-    value         = "1"
-    default_value = "0"
+    name      = "JwtAuthErrorCount"
+    namespace = var.apigw_metric_namespace
+    value     = "1"
   }
 }
 
@@ -662,11 +668,11 @@ resource "aws_cloudwatch_log_metric_filter" "jwt_auth_request_count" {
   log_group_name = var.apigw_log_group_name
   pattern        = "{ $.requestId = \"*\" }"
 
+  # See jwt_auth_error_count above for the default_value omission rationale.
   metric_transformation {
-    name          = "JwtAuthRequestCount"
-    namespace     = var.apigw_metric_namespace
-    value         = "1"
-    default_value = "0"
+    name      = "JwtAuthRequestCount"
+    namespace = var.apigw_metric_namespace
+    value     = "1"
   }
 }
 

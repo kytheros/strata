@@ -200,7 +200,7 @@ data "aws_iam_policy_document" "pre_signup_assume" {
 resource "aws_iam_role" "pre_signup" {
   name               = "example-agent-${var.env_name}-pre-signup"
   assume_role_policy = data.aws_iam_policy_document.pre_signup_assume.json
-  description        = "Execution role for the example-agent ${var.env_name} PreSignUp Lambda — reads the SSM allowlist and decrypts via the allowlist CMK."
+  description        = "Execution role for the example-agent ${var.env_name} PreSignUp Lambda. Reads the SSM allowlist and decrypts via the allowlist CMK."
 
   tags = local.default_tags
 }
@@ -247,7 +247,7 @@ resource "aws_lambda_function" "pre_signup" {
   # checkov:skip=CKV_AWS_173:Env vars contain only the SSM parameter NAME (a non-secret identifier); KMS-encrypting adds operational cost without confidentiality benefit.
   # checkov:skip=CKV_AWS_272:Lambda code-signing is account-level work tracked under AWS-5.x (security polish phase).
   function_name    = "example-agent-${var.env_name}-pre-signup"
-  description      = "Cognito PreSignUp trigger for the example-agent — enforces SSM-backed email allowlist."
+  description      = "Cognito PreSignUp trigger for the example-agent. Enforces SSM-backed email allowlist."
   role             = aws_iam_role.pre_signup.arn
   runtime          = "nodejs22.x"
   architectures    = ["x86_64"]
@@ -310,7 +310,7 @@ data "aws_iam_policy_document" "post_confirmation_assume" {
 resource "aws_iam_role" "post_confirmation" {
   name               = "example-agent-${var.env_name}-post-confirmation"
   assume_role_policy = data.aws_iam_policy_document.post_confirmation_assume.json
-  description        = "Execution role for the example-agent ${var.env_name} PostConfirmation Lambda — adds confirmed users to the `approved` Cognito group."
+  description        = "Execution role for the example-agent ${var.env_name} PostConfirmation Lambda. Adds confirmed users to the `approved` Cognito group."
 
   tags = local.default_tags
 }
@@ -362,7 +362,7 @@ resource "aws_lambda_function" "post_confirmation" {
   # checkov:skip=CKV_AWS_173:Env vars contain only the group name (non-secret); KMS-encrypting adds operational cost without confidentiality benefit.
   # checkov:skip=CKV_AWS_272:Lambda code-signing is account-level work tracked under AWS-5.x.
   function_name    = "example-agent-${var.env_name}-post-confirmation"
-  description      = "Cognito PostConfirmation trigger for the example-agent — adds confirmed users to the `approved` group."
+  description      = "Cognito PostConfirmation trigger for the example-agent. Adds confirmed users to the `approved` group."
   role             = aws_iam_role.post_confirmation.arn
   runtime          = "nodejs22.x"
   architectures    = ["x86_64"]
