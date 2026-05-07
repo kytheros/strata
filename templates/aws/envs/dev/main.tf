@@ -387,7 +387,7 @@ module "ingress_authorizer" {
   # (b) registering example-agent in Cloud Map and pointing apigw at the
   # service ARN. Tracked as a follow-up; Strata's /mcp path is the validation
   # priority for this cycle.
-  example_agent_integration_id        = null
+  example_agent_integration_id        = ""
   example_agent_default_route_enabled = false
 
   extra_tags = local.default_tags
