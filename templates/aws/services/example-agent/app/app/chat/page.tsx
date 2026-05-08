@@ -11,6 +11,7 @@
 
 import { redirect } from 'next/navigation';
 import { authenticateRequest } from '../lib/auth-middleware';
+import { AppHeader } from '../components/AppHeader';
 import ChatClient from './ChatClient';
 
 export const dynamic = 'force-dynamic';
@@ -24,16 +25,23 @@ export default async function ChatPage() {
     return null;
   }
 
+  const identity = result.claims.email ?? result.claims.username ?? null;
+
   return (
-    <main>
-      <header className="chat-header">
-        <h1>AWS Introspection</h1>
-        <p>
-          Signed in as <code>{result.claims.email ?? result.claims.username}</code>.{' '}
-          <a href="/api/auth/logout">Sign out</a>
-        </p>
-      </header>
-      <ChatClient />
-    </main>
+    <>
+      <AppHeader signedIn identity={identity} />
+      <main>
+        <section className="chat-shell">
+          <div className="chat-context">
+            <h1>AWS Introspection</h1>
+            <p className="chat-context-sub">
+              Read-only queries against this AWS account. Tool calls run as{' '}
+              <code>example-agent</code>; results are returned inline.
+            </p>
+          </div>
+          <ChatClient />
+        </section>
+      </main>
+    </>
   );
 }
