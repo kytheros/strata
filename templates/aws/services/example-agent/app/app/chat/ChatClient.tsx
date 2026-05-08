@@ -67,15 +67,26 @@ export default function ChatClient() {
 
   async function submit(message: string) {
     if (!message || busy) return;
-    setTurns((prev) => [...prev, { role: 'user', text: message }]);
+    // Snapshot history BEFORE state update so the request body and the
+    // local state stay in sync (setTurns is async).
+    const history = [...turns, { role: 'user' as const, text: message }];
+    setTurns(history);
     setInput('');
     setBusy(true);
 
     try {
+      // Send the full conversation history each turn — Anthropic's
+      // Messages API requires it for the model to reason about prior
+      // exchanges. The server treats `messages` as authoritative; the
+      // legacy `message` field is the no-history fallback.
+      // Errors are excluded — they aren't part of the model's context.
+      const messages = history
+        .filter((t) => t.role === 'user' || t.role === 'assistant')
+        .map((t) => ({ role: t.role, content: t.text }));
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ messages }),
       });
       if (!res.ok) {
         let reason = `${res.status}`;

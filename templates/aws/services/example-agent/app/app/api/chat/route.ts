@@ -33,7 +33,14 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 interface ChatRequestBody {
+  // Legacy shape — single-turn (still used by test scripts and the
+  // synthetic canary). Coerced to a one-message conversation.
   message?: unknown;
+  // Full conversation history. Each entry is `{role, content}` matching
+  // Anthropic's Messages API. The UI sends this so the model sees prior
+  // turns and can reason across them ("can you check that?" needs the
+  // assistant's prior turn for context).
+  messages?: unknown;
 }
 
 // Module-level singleton — reused across warm Lambda / Fargate task
@@ -56,19 +63,48 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const userMessage =
-    typeof body.message === 'string' ? body.message.trim() : '';
+  // Resolve the conversation. Two accepted shapes:
+  //   1. { messages: [{role, content}, ...] } — full history (UI default)
+  //   2. { message: string }                  — legacy single-turn
+  let conversation: MessageParam[] = [];
+  if (Array.isArray(body.messages)) {
+    for (const m of body.messages) {
+      if (
+        m &&
+        typeof m === 'object' &&
+        'role' in m &&
+        'content' in m &&
+        (m.role === 'user' || m.role === 'assistant') &&
+        typeof m.content === 'string' &&
+        m.content.trim().length > 0
+      ) {
+        conversation.push({ role: m.role, content: m.content });
+      }
+    }
+  } else if (typeof body.message === 'string' && body.message.trim()) {
+    conversation = [{ role: 'user', content: body.message.trim() }];
+  }
 
-  if (!userMessage) {
+  if (conversation.length === 0 || conversation[conversation.length - 1].role !== 'user') {
     return NextResponse.json(
-      { error: 'Empty message.' },
+      {
+        error:
+          'Empty conversation. Expected { messages: [{role, content}, ...] } ending with a user turn.',
+      },
       { status: 400 },
     );
   }
 
+  // The most recent user turn drives recall + storage. Anthropic's
+  // Messages API treats prior turns as model-side context only.
+  const userMessage = conversation[conversation.length - 1].content as string;
+
   const strata = new StrataClient(auth.claims.sub);
 
-  // 1. Recall — search prior memories scoped to this user.
+  // 1. Cross-session recall — search prior memories scoped to this user.
+  // Note: turn-level continuity comes from `conversation` above; Strata
+  // recall is for cross-session semantic memory ("last week the operator
+  // asked about NAT costs"), not the immediately-prior assistant turn.
   let recall: Array<Record<string, unknown>> = [];
   try {
     const history = await strata.searchHistory({
@@ -99,10 +135,9 @@ export async function POST(request: NextRequest) {
       : '(no prior memories matched)'
   }`;
 
-  // 4. Run the loop.
-  const messages: MessageParam[] = [{ role: 'user', content: userMessage }];
+  // 4. Run the loop with the full conversation.
   const ctx = buildDefaultContext(cache);
-  const result = await runAgentLoop({ systemPrompt, messages, ctx });
+  const result = await runAgentLoop({ systemPrompt, messages: conversation, ctx });
 
   // 5. Persist the assistant's response. Tag separately so the recall
   // tool can de-bias toward operator turns later if needed.
