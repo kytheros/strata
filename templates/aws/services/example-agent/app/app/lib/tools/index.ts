@@ -10,6 +10,7 @@ import * as listEcsServices from './list-ecs-services';
 import * as describeAuroraCluster from './describe-aurora-cluster';
 import * as listActiveAlarms from './list-active-alarms';
 import * as tailRecentLogs from './tail-recent-logs';
+import * as listLogGroups from './list-log-groups';
 import * as listVpcResources from './list-vpc-resources';
 import * as describeLoadBalancers from './describe-load-balancers';
 import * as s3BucketSummary from './s3-bucket-summary';
@@ -27,6 +28,7 @@ const REGISTRY: Record<string, ToolModule> = {
   describe_aurora_cluster: describeAuroraCluster,
   list_active_alarms: listActiveAlarms,
   tail_recent_logs: tailRecentLogs,
+  list_log_groups: listLogGroups,
   list_vpc_resources: listVpcResources,
   describe_load_balancers: describeLoadBalancers,
   s3_bucket_summary: s3BucketSummary,
