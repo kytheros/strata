@@ -136,8 +136,36 @@ export async function POST(request: NextRequest) {
   }`;
 
   // 4. Run the loop with the full conversation.
+  //
+  // AWS-3.4: Anthropic billing failure ("credit balance is too low") is a
+  // distinct operator-actionable failure — surface it as 503 with a
+  // human-readable hint instead of a generic 500. The UI's error path
+  // renders `Error <status>: <reason>` so this lands cleanly in the chat.
   const ctx = buildDefaultContext(cache);
-  const result = await runAgentLoop({ systemPrompt, messages: conversation, ctx });
+  let result;
+  try {
+    result = await runAgentLoop({ systemPrompt, messages: conversation, ctx });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.toLowerCase().includes('credit balance is too low') ||
+      msg.toLowerCase().includes('credit_balance_too_low')
+    ) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[chat] Anthropic billing failure — credit balance is too low:',
+        msg,
+      );
+      return NextResponse.json(
+        {
+          error:
+            'AI service is temporarily unavailable. Operator: top up Anthropic credits.',
+        },
+        { status: 503 },
+      );
+    }
+    throw err;
+  }
 
   // 5. Persist the assistant's response. Tag separately so the recall
   // tool can de-bias toward operator turns later if needed.

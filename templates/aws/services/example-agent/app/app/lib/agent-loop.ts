@@ -21,6 +21,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/messages';
 import { TOOLS, executeTool } from './tools';
 import type { ToolContext } from './tools/context';
+import { publishTokenMetric } from './metrics';
 
 const DEFAULT_MAX_ITERATIONS = 10;
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -63,6 +64,11 @@ export async function runAgentLoop(
   const conversation: MessageParam[] = [...args.messages];
   const toolCalls: AgentTurnTrace[] = [];
 
+  // Tag spend metrics with the deploy's env so dev/staging/prod alarms
+  // don't co-mingle. Falls back to "unknown" rather than throwing — a
+  // missing env tag is a metric-fidelity issue, not a chat-blocking one.
+  const metricEnv = process.env.ENV_NAME ?? 'unknown';
+
   for (let i = 0; i < maxIterations; i++) {
     const response = await client.messages.create({
       model,
@@ -71,6 +77,24 @@ export async function runAgentLoop(
       tools: TOOLS,
       messages: conversation,
     });
+
+    // AWS-3.4: emit token-usage metrics per direction so the
+    // Concierge/Anthropic/TokensConsumed alarm can page on runaway burn.
+    // Fire-and-forget — CloudWatch outage MUST NOT break the chat turn.
+    if (response.usage) {
+      void publishTokenMetric({
+        env: metricEnv,
+        model,
+        direction: 'input',
+        tokens: response.usage.input_tokens ?? 0,
+      });
+      void publishTokenMetric({
+        env: metricEnv,
+        model,
+        direction: 'output',
+        tokens: response.usage.output_tokens ?? 0,
+      });
+    }
 
     if (response.stop_reason === 'end_turn' || response.stop_reason === 'stop_sequence') {
       const finalText = response.content
