@@ -41,6 +41,170 @@ tasks:
         fi
         echo "AWS account: $ACCT (OK)"
 
+  dev:preflight:
+    desc: 'Extended pre-flight checks for dev:up — Anthropic key, AWS auth, Docker, orphan resources, optional API quota probe. Catches operational footguns before terraform apply.'
+    silent: true
+    deps: [preflight]
+    vars:
+      ENV_FILE: 'E:/strata/.env'
+      SKIP_ANTHROPIC_PROBE: '{{.SKIP_ANTHROPIC_PROBE | default ""}}'
+    cmds:
+      - |
+        # Each check echoes a tagged status line and tracks fail count.
+        FAILS=0
+
+        # ---- 1. Anthropic key file present (HARD FAIL) -----------------------
+        # Order matters: the optional probe (check 5) reuses this key, so this
+        # must run first. Hard-fail if missing/placeholder — apply would create
+        # a stack whose example-agent crashes on every chat turn.
+        ENV_FILE='{{.ENV_FILE}}'
+        if [ ! -f "$ENV_FILE" ]; then
+          echo "[fail] anthropic-key: $ENV_FILE not found — create it with ANTHROPIC_API_KEY=sk-ant-..."
+          FAILS=$((FAILS+1))
+          ANTHROPIC_KEY=""
+        else
+          # Strip CR (Windows line endings) + surrounding quotes; pull first match.
+          ANTHROPIC_KEY=$(grep -E '^ANTHROPIC_API_KEY[[:space:]]*=' "$ENV_FILE" \
+            | head -n1 \
+            | sed -E 's/^ANTHROPIC_API_KEY[[:space:]]*=[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//' \
+            | tr -d '\r')
+          if [ -z "$ANTHROPIC_KEY" ]; then
+            echo "[fail] anthropic-key: ANTHROPIC_API_KEY missing from $ENV_FILE"
+            FAILS=$((FAILS+1))
+          elif [ "${ANTHROPIC_KEY#sk-ant-PLACEHOLDER}" != "$ANTHROPIC_KEY" ]; then
+            echo "[fail] anthropic-key: placeholder value detected (sk-ant-PLACEHOLDER...) — seed a real key in $ENV_FILE"
+            FAILS=$((FAILS+1))
+            ANTHROPIC_KEY=""
+          elif [ "${#ANTHROPIC_KEY}" -lt 30 ]; then
+            echo "[fail] anthropic-key: ANTHROPIC_API_KEY length ${#ANTHROPIC_KEY} is too short (need >=30 chars)"
+            FAILS=$((FAILS+1))
+            ANTHROPIC_KEY=""
+          else
+            echo "[ok]   anthropic-key: present in $ENV_FILE (len=${#ANTHROPIC_KEY})"
+          fi
+        fi
+
+        # ---- 2. AWS credentials current + correct account (HARD FAIL) --------
+        # The `preflight` dep already validated this, but we re-emit a tagged
+        # line so dev:preflight has a complete green-line audit on its own.
+        ACCT=$(aws sts get-caller-identity --profile {{.AWS_PROFILE}} --query Account --output text 2>/dev/null | tr -d '[:space:]')
+        if [ -z "$ACCT" ]; then
+          echo "[fail] aws-auth: aws sts get-caller-identity failed — credentials missing or expired"
+          FAILS=$((FAILS+1))
+        elif [ "$ACCT" != "{{.EXPECTED_ACCOUNT}}" ]; then
+          echo "[fail] aws-auth: account '$ACCT' != expected {{.EXPECTED_ACCOUNT}}"
+          FAILS=$((FAILS+1))
+        else
+          echo "[ok]   aws-auth: account $ACCT"
+        fi
+
+        # ---- 3. Docker reachable (SOFT WARN) ---------------------------------
+        # Only matters if operator plans to rebuild service images. dev:up
+        # itself does not need Docker — terraform consumes published images.
+        if docker info >/dev/null 2>&1; then
+          echo "[ok]   docker: reachable"
+        else
+          echo "[warn] docker: 'docker info' failed — image rebuilds will not work, but terraform apply does not need Docker"
+        fi
+
+        # ---- 4. No orphan KMS/Secrets from prior teardown (HARD FAIL) --------
+        # Phase 3 introduces 'task cleanup:orphans' to clear these. Until then,
+        # the preflight surfaces the dependency and tells operators what to do.
+        # Query: KMS keys + Secrets in PendingDeletion that match strata-dev tags.
+        ORPHAN_KMS=$(aws kms list-keys --query 'Keys[].KeyId' --output text 2>/dev/null \
+          | tr '\t' '\n' \
+          | while read -r kid; do
+              [ -z "$kid" ] && continue
+              STATE=$(aws kms describe-key --key-id "$kid" --query 'KeyMetadata.KeyState' --output text 2>/dev/null)
+              if [ "$STATE" = "PendingDeletion" ]; then
+                # Filter to strata-dev tags to avoid noise from other workloads.
+                TAGS=$(aws kms list-resource-tags --key-id "$kid" --query 'Tags[?TagKey==`Project`].TagValue' --output text 2>/dev/null)
+                if [ "$TAGS" = "strata" ] || [ "$TAGS" = "strata-dev" ]; then
+                  echo "$kid"
+                fi
+              fi
+            done | wc -l | tr -d '[:space:]')
+        ORPHAN_SECRETS=$(aws secretsmanager list-secrets \
+          --include-planned-deletion \
+          --filters 'Key=tag-key,Values=Project' 'Key=tag-value,Values=strata,strata-dev' \
+          --query 'SecretList[?DeletedDate!=null].Name' \
+          --output text 2>/dev/null \
+          | tr '\t' '\n' | grep -c . || true)
+        ORPHAN_SECRETS=${ORPHAN_SECRETS:-0}
+        TOTAL_ORPHANS=$((ORPHAN_KMS + ORPHAN_SECRETS))
+        if [ "$TOTAL_ORPHANS" -gt 0 ]; then
+          echo "[fail] orphan-resources: $ORPHAN_KMS KMS key(s) + $ORPHAN_SECRETS secret(s) pending deletion from prior teardown — Run 'task cleanup:orphans' first (Phase 3) or wait out the recovery window"
+          FAILS=$((FAILS+1))
+        else
+          echo "[ok]   orphan-resources: none pending deletion"
+        fi
+
+        # ---- 5. Anthropic API quota probe (SOFT WARN, optional, cached) ------
+        # Skipped if SKIP_ANTHROPIC_PROBE=1 or if the key check above failed.
+        # Cached for 1h in $ANTHROPIC_PROBE_CACHE so repeated preflights don't
+        # spend tokens. Probe makes a 1-token request; we only care whether the
+        # response is HTTP 400 with 'credit balance is too low'.
+        # Resolve a writable temp dir. Git Bash on Windows sets $TEMP; POSIX
+        # has $TMPDIR; fall back to /tmp. Task's shell does not auto-resolve
+        # /tmp on Windows, so always go through this lookup.
+        TMPDIR_RESOLVED="${TMPDIR:-${TEMP:-/tmp}}"
+        # Convert backslashes (TEMP on Windows can be C:\Users\...\Temp).
+        TMPDIR_RESOLVED=$(echo "$TMPDIR_RESOLVED" | tr '\\' '/')
+        CACHE="$TMPDIR_RESOLVED/strata-preflight-anthropic.txt"
+        BODY_FILE="$TMPDIR_RESOLVED/strata-preflight-anthropic.body"
+        if [ -n "{{.SKIP_ANTHROPIC_PROBE}}" ]; then
+          echo "[warn] anthropic-quota: skipped (SKIP_ANTHROPIC_PROBE set)"
+        elif [ -z "$ANTHROPIC_KEY" ]; then
+          echo "[warn] anthropic-quota: skipped (key check failed above)"
+        else
+          # Cache freshness: file mtime within last 3600s.
+          NOW=$(date +%s)
+          if [ -f "$CACHE" ]; then
+            MTIME=$(stat -c %Y "$CACHE" 2>/dev/null || stat -f %m "$CACHE" 2>/dev/null || echo 0)
+            AGE=$((NOW - MTIME))
+          else
+            AGE=999999
+          fi
+          if [ "$AGE" -lt 3600 ]; then
+            CACHED=$(cat "$CACHE" 2>/dev/null)
+            if [ "$CACHED" = "ok" ]; then
+              echo "[ok]   anthropic-quota: cached (age ${AGE}s)"
+            else
+              echo "[warn] anthropic-quota: cached low-balance (age ${AGE}s) — fund credits at console.anthropic.com or rerun with cache cleared"
+            fi
+          else
+            BODY='{"model":"claude-haiku-4-5","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}'
+            RESP=$(curl -sS -o "$BODY_FILE" -w '%{http_code}' \
+              -X POST https://api.anthropic.com/v1/messages \
+              -H "x-api-key: $ANTHROPIC_KEY" \
+              -H 'anthropic-version: 2023-06-01' \
+              -H 'content-type: application/json' \
+              --max-time 5 \
+              -d "$BODY" 2>/dev/null || echo "000")
+            if [ "$RESP" = "200" ]; then
+              echo "ok" > "$CACHE"
+              echo "[ok]   anthropic-quota: probe 200 OK"
+            elif [ "$RESP" = "400" ] && grep -q 'credit balance is too low' "$BODY_FILE" 2>/dev/null; then
+              echo "low" > "$CACHE"
+              echo "[warn] anthropic-quota: account has \$0 credits — apply will succeed but every chat turn will 500. Fund at console.anthropic.com/settings/billing"
+            else
+              # Don't cache transient/unknown failures.
+              echo "[warn] anthropic-quota: probe returned HTTP $RESP (transient or unknown — not cached)"
+            fi
+          fi
+        fi
+
+        # ---- 6. kytheros-auth GCP OAuth client (FUTURE) ----------------------
+        echo "[warn] gcp-oauth-client: check not implemented — verify kytheros-auth GCP project still has the OAuth client manually for now"
+
+        # ---- Summary ---------------------------------------------------------
+        echo ""
+        if [ "$FAILS" -gt 0 ]; then
+          echo "preflight: $FAILS hard-fail check(s) — fix above before 'task dev:up'" >&2
+          exit 1
+        fi
+        echo "preflight: all checks passed"
+
   # -------------------------------------------------------------------------
   # Bootstrap — apply ONCE per account. Stays up. ~$0/mo.
   # -------------------------------------------------------------------------
@@ -77,7 +241,7 @@ tasks:
   dev:plan:
     desc: 'Plan the full dev orchestrator (envs/dev/) — module composition w/ live wiring.'
     dir: envs/dev
-    deps: [preflight]
+    deps: [dev:preflight]
     cmds:
       - terraform init -upgrade
       - terraform plan -out plan.tfplan
@@ -85,18 +249,120 @@ tasks:
   dev:up:
     desc: 'Apply the full dev orchestrator. Brings up every Phase 1+2+3 module in dependency order. ~35 min. +$345/mo.'
     dir: envs/dev
-    deps: [preflight]
+    deps: [dev:preflight]
     cmds:
       - terraform init
       - terraform plan -out plan.tfplan
       - terraform apply plan.tfplan
 
   dev:down:
-    desc: 'Destroy the full dev orchestrator (reverse dependency order, single state). ~25 min. Frees the entire footprint to ~$0/mo.'
+    desc: 'Destroy the full dev orchestrator (reverse dependency order, single state). ~25 min. Then sweep orphan Secrets Manager + KMS aliases so next-day dev:up does not collide. Frees the entire footprint to ~$0/mo.'
     dir: envs/dev
     deps: [preflight]
     cmds:
-      - terraform destroy -auto-approve
+      - terraform destroy -auto-approve  # CONFIRM=dev
+      - task: cleanup:orphans
+
+  cleanup:orphans:
+    desc: 'Force-delete orphan Secrets Manager secrets (strata/dev/*) and orphan KMS aliases/keys (alias/strata-*-dev-*). Idempotent — safe to run when 0 orphans exist, and self-skips (exit 0) when envs/dev/ state still owns CMK/secret resources (live stack). Run standalone if dev:up fails on "secret already scheduled for deletion". Pass FORCE=1 to bypass the live-stack guard.'
+    dir: envs/dev
+    deps: [preflight]
+    cmds:
+      - |
+        set -euo pipefail
+        REGION="{{.AWS_REGION}}"
+        SECRET_COUNT=0
+        ALIAS_COUNT=0
+
+        # ---- 0) Live-stack guard ----
+        # If envs/dev/ Terraform state still owns aws_kms_key.* or aws_secretsmanager_secret.*
+        # then the stack is UP — the strata/dev/* secrets and alias/strata-*-dev-* aliases
+        # in the account are LIVE infra, not orphans. Skip gracefully (exit 0) so this task
+        # is safe to invoke from dev:down (where state IS empty post-destroy) AND safe to
+        # invoke standalone (where it self-skips on a live stack instead of nuking it).
+        # Set FORCE=1 to bypass — only when you have verified state is stale.
+        if [ -f terraform.tfstate ] || [ -d .terraform ]; then
+          LIVE_RESOURCES=$(terraform state list 2>/dev/null | grep -E '(aws_kms_key|aws_secretsmanager_secret)\b' || true)
+          if [ -n "${LIVE_RESOURCES:-}" ] && [ "${FORCE:-0}" != "1" ]; then
+            echo "Stack is up — Terraform state still owns these CMK/secret resources:"
+            echo "$LIVE_RESOURCES" | sed 's/^/  /'
+            echo ""
+            echo "Skipping cleanup. Run 'task dev:down' first (which invokes cleanup post-destroy),"
+            echo "or set FORCE=1 if you have verified state is stale."
+            echo ""
+            echo "Cleaned 0 orphan secrets, 0 orphan KMS aliases. Stack is at \$0/mo."
+            exit 0
+          fi
+        fi
+
+        # ---- 1) Force-delete pending Secrets Manager secrets under strata/dev/* ----
+        # Filter on DeletedDate!=null so we only pick up orphans, never live secrets.
+        ORPHAN_SECRETS=$(aws secretsmanager list-secrets \
+          --include-planned-deletion \
+          --region "$REGION" \
+          --query 'SecretList[?starts_with(Name, `strata/dev/`) && DeletedDate!=`null`].Name' \
+          --output text)
+        if [ -n "${ORPHAN_SECRETS:-}" ]; then
+          for s in $ORPHAN_SECRETS; do
+            echo "Force-deleting orphan secret: $s"
+            aws secretsmanager delete-secret \
+              --secret-id "$s" \
+              --force-delete-without-recovery \
+              --region "$REGION" \
+              --output text >/dev/null  # CONFIRM=dev
+            SECRET_COUNT=$((SECRET_COUNT + 1))
+          done
+        fi
+
+        # ---- 2) Schedule pending KMS keys for fast deletion + delete the alias ----
+        # Namespace guard: ONLY alias/strata-secret-dev-* or alias/strata-dev-*.
+        ALIAS_LINES=$(aws kms list-aliases --region "$REGION" \
+          --query 'Aliases[?starts_with(AliasName, `alias/strata-secret-dev-`) || starts_with(AliasName, `alias/strata-dev-`)].[AliasName,TargetKeyId]' \
+          --output text)
+        if [ -n "${ALIAS_LINES:-}" ]; then
+          while IFS=$'\t' read -r ALIAS_NAME KEY_ID; do
+            [ -z "$ALIAS_NAME" ] && continue
+            # Belt-and-suspenders namespace guard. If the JMESPath ever returns
+            # something outside the strata-*-dev-* namespace, skip it loudly.
+            case "$ALIAS_NAME" in
+              alias/strata-secret-dev-*|alias/strata-dev-*) ;;
+              *)
+                echo "WARN: alias '$ALIAS_NAME' is outside strata-*-dev-* namespace; skipping" >&2
+                continue
+                ;;
+            esac
+
+            if [ -n "$KEY_ID" ] && [ "$KEY_ID" != "None" ]; then
+              KEY_STATE=$(aws kms describe-key \
+                --key-id "$KEY_ID" \
+                --region "$REGION" \
+                --query 'KeyMetadata.KeyState' \
+                --output text 2>/dev/null || echo "UNKNOWN")
+              if [ "$KEY_STATE" = "Enabled" ]; then
+                echo "Scheduling orphan CMK for deletion ($ALIAS_NAME -> $KEY_ID, 7-day window)"
+                aws kms schedule-key-deletion \
+                  --key-id "$KEY_ID" \
+                  --pending-window-in-days 7 \
+                  --region "$REGION" \
+                  --output text >/dev/null  # CONFIRM=dev
+              elif [ "$KEY_STATE" = "PendingDeletion" ]; then
+                echo "CMK already PendingDeletion ($ALIAS_NAME -> $KEY_ID); leaving deletion schedule alone"
+              else
+                echo "CMK in state '$KEY_STATE' ($ALIAS_NAME -> $KEY_ID); skipping schedule, will still drop alias"
+              fi
+            fi
+
+            echo "Deleting orphan alias: $ALIAS_NAME"
+            aws kms delete-alias \
+              --alias-name "$ALIAS_NAME" \
+              --region "$REGION" \
+              --output text >/dev/null  # CONFIRM=dev
+            ALIAS_COUNT=$((ALIAS_COUNT + 1))
+          done <<< "$ALIAS_LINES"
+        fi
+
+        echo ""
+        echo "Cleaned $SECRET_COUNT orphan secrets, $ALIAS_COUNT orphan KMS aliases. Stack is at \$0/mo."
 
   dev:status:
     desc: 'Show resources currently managed by the dev orchestrator.'
