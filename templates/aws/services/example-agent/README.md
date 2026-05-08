@@ -198,17 +198,41 @@ singleton; reused across the Lambda / Fargate task lifetime.
 
 ### IAM task role (hardened)
 
-- **Managed:** `arn:aws:iam::aws:policy/ReadOnlyAccess`
-- **Inline `deny-iam-secrets-kms-reads`:** denies `iam:Get*/List*/Simulate*`,
-  `secretsmanager:Get*/List*/Describe*` (with `NotResource` carve-outs
-  for the runtime secrets the task definition resolves at start), and
-  `kms:Get*/List*/Describe*`.
+- **Managed (customer-owned):** `example-agent-{env}-task-read` — a
+  tightly-scoped read policy that grants exactly the SDK calls the 10
+  tools in `app/lib/tools/*.ts` make, scoped to `strata-{env}-*` resource
+  ARNs where the action supports resource-level IAM. Replaces the prior
+  AWS-managed `ReadOnlyAccess`, which granted ~700 actions across every
+  service in the account.
+- **Inline `deny-iam-secrets-kms-reads`:** defense-in-depth deny on
+  `iam:Get*/List*/Simulate*`, `secretsmanager:Get*/List*/Describe*`
+  (with `NotResource` carve-outs for the runtime secrets the task
+  definition resolves at start), and `kms:Get*/List*/Describe*`. The
+  scoped read policy doesn't grant these in the first place; the deny
+  is kept so any future managed-policy attachment can't widen the
+  surface.
 - **Inline `secret-cognito-client` / `secret-anthropic-api-key` /
   `secret-redis-auth`:** narrow Allow on the runtime-secret ARNs the
   task definition needs to start.
+- **Inline `cloudwatch-put-metric-data`:** narrow Allow scoped via the
+  `cloudwatch:namespace` condition key to `Concierge/Anthropic`.
 
 The runtime-secret ARNs appear in the deny's `NotResource` list so the
 Allow on those ARNs isn't shadowed.
+
+#### Residual broad-scope surface
+
+A handful of AWS APIs do not support resource-level IAM and therefore
+remain at `Resource: "*"` in the scoped policy:
+
+- `ce:GetCostAndUsage`, `ce:GetCostForecast` (Cost Explorer is
+  account-scoped)
+- `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `ec2:DescribeNatGateways`,
+  `ec2:DescribeVpcEndpoints` (no ARN-level scoping for these read calls)
+- `sts:GetCallerIdentity` (no resource ARN)
+- `s3:ListAllMyBuckets` (account-scoped — but the per-bucket
+  `s3:GetBucketEncryption` / `GetBucketLocation` / `GetBucketPolicy` /
+  `GetLifecycleConfiguration` calls are scoped to `arn:aws:s3:::strata-*`)
 
 ### Policy simulator gate
 
@@ -218,8 +242,19 @@ Allow on those ARNs isn't shadowed.
 - DENIED: `iam:ListUsers`, `iam:GetRole`, `iam:SimulatePrincipalPolicy`
 - DENIED: `secretsmanager:GetSecretValue` (arbitrary ARN), `secretsmanager:ListSecrets`
 - DENIED: `kms:DescribeKey`, `kms:GetKeyPolicy`, `kms:ListAliases`
-- ALLOWED: `ecs:ListServices`, `rds:DescribeDBClusters`, `ec2:DescribeVpcs`,
-  `cloudwatch:DescribeAlarms`
+- DENIED: `s3:GetBucketEncryption` against an unrelated bucket (was
+  ALLOWED under ReadOnlyAccess)
+- DENIED: `rds:DescribeDBClusters` against a non-strata cluster (was
+  ALLOWED under ReadOnlyAccess)
+- DENIED: `ecs:DescribeServices` against a non-strata cluster
+- DENIED: `logs:FilterLogEvents` against a non-strata log group
+- ALLOWED: `ecs:ListServices` on the `strata-{env}` cluster
+- ALLOWED: `rds:DescribeDBClusters` on a `strata-{env}*` cluster
+- ALLOWED: `ec2:DescribeVpcs` (irreducible broad surface)
+- ALLOWED: `cloudwatch:DescribeAlarms` on a `strata-{env}-*` alarm
+- ALLOWED: `s3:GetBucketEncryption` on a `strata-*` bucket
+- ALLOWED: `logs:FilterLogEvents` on `/ecs/strata-{env}*`
+- ALLOWED: `ce:GetCostAndUsage`, `sts:GetCallerIdentity`
 
 Run via `task example-agent:simulate-iam` once the role is applied.
 AWS-4.1 will wire this into the GitHub Actions PR workflow.

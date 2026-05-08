@@ -14,8 +14,13 @@ output "service_name" {
 }
 
 output "task_role_arn" {
-  description = "Task role ARN. AWS-3.3 attaches the SDK ReadOnlyAccess policy here."
+  description = "Task role ARN. The customer-managed `task_read_scoped` policy is attached here (replaces broad ReadOnlyAccess)."
   value       = module.ecs_service.task_role_arn
+}
+
+output "task_read_scoped_policy_arn" {
+  description = "ARN of the customer-managed `task_read_scoped` policy. Surfaced so the iam-policy-simulator gate can target it directly and a CI alarm can flag drift if a non-strata-* resource ever resolves ALLOW."
+  value       = aws_iam_policy.task_read_scoped.arn
 }
 
 output "task_role_name" {

@@ -458,21 +458,28 @@ module "anthropic_api_key" {
 # task_role policy with the ReadOnlyAccess + deny-IAM/Secrets/KMS pair.
 ###############################################################################
 
-# Task role policy graph (AWS-3.3):
+# Task role policy graph (AWS-3.3 hardened):
 #
-#   Managed:  ReadOnlyAccess  ── grants ~700 Get/List/Describe actions
-#                                  across most AWS services (ECS, RDS,
-#                                  EC2, S3, CloudWatch, etc.). This is
-#                                  the broad surface the SDK tool catalog
-#                                  needs for read-only introspection.
+#   Managed:  task_read_scoped  ── customer-owned policy that grants
+#                                  exactly the AWS SDK calls the 10 tools
+#                                  in app/lib/tools/*.ts make, scoped to
+#                                  strata-{env}-* resource ARNs where the
+#                                  action supports resource-level IAM.
+#                                  Replaces the previous AWS-managed
+#                                  ReadOnlyAccess (which granted ~700
+#                                  actions across every service in the
+#                                  account). See the policy document
+#                                  data.aws_iam_policy_document.task_read_scoped
+#                                  below for the tool-by-tool mapping.
 #
-#   Inline:   deny-iam-secrets-kms-reads ── strips three sensitive
-#                                  surfaces back out (~30 actions) per
-#                                  the design spec §"Example-agent IAM
-#                                  scope". An explicit Deny always wins
-#                                  over the managed Allow, so the net
-#                                  scope is "ReadOnly minus
-#                                  IAM/Secrets/KMS reads".
+#   Inline:   deny-iam-secrets-kms-reads ── defense-in-depth deny. The
+#                                  task_read_scoped policy doesn't grant
+#                                  iam:*, secretsmanager:*, or kms:* in
+#                                  the first place, so this deny is
+#                                  somewhat redundant — but kept as
+#                                  belt-and-suspenders so any future
+#                                  managed-policy attachment can't widen
+#                                  the surface without us noticing.
 #
 #   Inline:   ssm-allowlist-read  ── allowlist parameter still useful
 #                                  for tooling inside the agent.
@@ -512,6 +519,212 @@ data "aws_iam_policy_document" "task_role_stub" {
     actions   = ["kms:Decrypt"]
     resources = [aws_kms_key.allowlist.arn]
   }
+}
+
+# ---- AWS-3.3 hardening: tightly-scoped read policy --------------------------
+#
+# Replaces `arn:aws:iam::aws:policy/ReadOnlyAccess` (which granted ~700
+# Get/List/Describe actions across every AWS service in the account) with
+# the precise, tool-by-tool surface the example-agent's 10 SDK tools call.
+# Source-of-truth mapping lives in `app/app/lib/tools/*.ts`; this policy
+# must stay in sync with it.
+#
+# Authoring pattern: a map of named statements iterated via dynamic.
+# Easier to audit one tool at a time than a flat list of 14 statements.
+# Each entry is keyed by the tool name plus the SDK call(s) it wraps.
+#
+# Resource-scoping policy:
+#   - per-resource ARN where the action supports it (RDS, ELBv2, ECS,
+#     CloudWatch alarms, S3 Get*, Logs)
+#   - "*" with a tag-based condition where the action supports tags but
+#     not ARNs (none today — left as a TODO seam)
+#   - "*" unconditionally where the action is account-scoped with no
+#     resource ARN at all (Cost Explorer, sts:GetCallerIdentity,
+#     ec2:Describe* — see the residual-broad-scope note in
+#     services/example-agent/README.md "Task role IAM scope")
+#
+# Region/account literals are derived from data sources so the policy
+# travels across accounts without edits.
+locals {
+  # Naming pin: strata-{env_name} is the cluster/log-group/aurora prefix
+  # the agent's tools introspect by default (see ECS_CLUSTER_NAME +
+  # AURORA_CLUSTER_ID + LOG_GROUP_PREFIX env vars in the container env
+  # block above).
+  task_read_resource_prefix = "strata-${var.env_name}"
+
+  # us-east-1 is the partition home for billing data — Cost Explorer,
+  # the ELBv2 control plane, etc. The composition pins it via
+  # data.aws_region.current; we surface it as a local for readability.
+  task_read_region     = data.aws_region.current.name
+  task_read_account_id = data.aws_caller_identity.current.account_id
+  task_read_partition  = data.aws_partition.current.partition
+}
+
+data "aws_iam_policy_document" "task_read_scoped" {
+  # cost_last_7_days — Cost Explorer is account-scoped; no per-resource
+  # ARN supported. Each call costs $0.01 — caller-side rate limiting
+  # is the cost defense.
+  statement {
+    sid    = "CostExplorerRead"
+    effect = "Allow"
+    actions = [
+      "ce:GetCostAndUsage",
+      "ce:GetCostForecast",
+    ]
+    resources = ["*"]
+  }
+
+  # describe_aurora_cluster — RDS DescribeDBClusters supports ARN
+  # scoping. Pin to the strata-{env}* cluster naming convention.
+  statement {
+    sid    = "RdsDescribeStrataClusters"
+    effect = "Allow"
+    actions = [
+      "rds:DescribeDBClusters",
+      "rds:DescribeDBClusterParameters",
+    ]
+    resources = [
+      "arn:${local.task_read_partition}:rds:${local.task_read_region}:${local.task_read_account_id}:cluster:${local.task_read_resource_prefix}*",
+      "arn:${local.task_read_partition}:rds:${local.task_read_region}:${local.task_read_account_id}:cluster-pg:*",
+    ]
+  }
+
+  # describe_load_balancers — ELBv2 DescribeLoadBalancers /
+  # DescribeTargetGroups support resource-level ARN scoping. Naming pin
+  # is the strata-{env}-* prefix the env composition uses for ALBs/NLBs.
+  statement {
+    sid    = "ElbV2DescribeStrataResources"
+    effect = "Allow"
+    actions = [
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:DescribeTags",
+    ]
+    resources = [
+      "arn:${local.task_read_partition}:elasticloadbalancing:${local.task_read_region}:${local.task_read_account_id}:loadbalancer/*/${local.task_read_resource_prefix}-*/*",
+      "arn:${local.task_read_partition}:elasticloadbalancing:${local.task_read_region}:${local.task_read_account_id}:targetgroup/${local.task_read_resource_prefix}-*/*",
+      "arn:${local.task_read_partition}:elasticloadbalancing:${local.task_read_region}:${local.task_read_account_id}:listener/*/${local.task_read_resource_prefix}-*/*/*",
+    ]
+  }
+
+  # list_active_alarms — CloudWatch DescribeAlarms supports ARN scoping
+  # by alarm name pattern.
+  statement {
+    sid     = "CloudWatchDescribeStrataAlarms"
+    effect  = "Allow"
+    actions = ["cloudwatch:DescribeAlarms"]
+    resources = [
+      "arn:${local.task_read_partition}:cloudwatch:${local.task_read_region}:${local.task_read_account_id}:alarm:${local.task_read_resource_prefix}-*",
+    ]
+  }
+
+  # list_ecs_services — ECS ListServices + DescribeServices. ARN scope:
+  # the strata-{env} cluster, plus all services within it.
+  statement {
+    sid    = "EcsListServicesInStrataCluster"
+    effect = "Allow"
+    actions = [
+      "ecs:ListServices",
+    ]
+    resources = [
+      "arn:${local.task_read_partition}:ecs:${local.task_read_region}:${local.task_read_account_id}:cluster/${local.task_read_resource_prefix}",
+    ]
+  }
+
+  statement {
+    sid    = "EcsDescribeServicesInStrataCluster"
+    effect = "Allow"
+    actions = [
+      "ecs:DescribeServices",
+    ]
+    resources = [
+      "arn:${local.task_read_partition}:ecs:${local.task_read_region}:${local.task_read_account_id}:service/${local.task_read_resource_prefix}/*",
+    ]
+  }
+
+  # list_vpc_resources — EC2 Describe* APIs do NOT support resource-level
+  # IAM for the read calls we use (see AWS docs: actions/resources/condition
+  # keys for Amazon EC2 — DescribeVpcs/Subnets/NatGateways/VpcEndpoints
+  # are listed without resource ARN support). Action-scoped to just the
+  # four describe verbs the tool calls; this is the irreducible
+  # broad-scope surface from this tool. Project tag check noted as a
+  # TODO — not all returned objects carry the Project tag today, so
+  # adding `aws:ResourceTag/Project=strata` would silently filter.
+  statement {
+    sid    = "Ec2DescribeNetworkTopology"
+    effect = "Allow"
+    actions = [
+      "ec2:DescribeVpcs",
+      "ec2:DescribeSubnets",
+      "ec2:DescribeNatGateways",
+      "ec2:DescribeVpcEndpoints",
+    ]
+    resources = ["*"]
+  }
+
+  # s3_bucket_summary — split into two statements:
+  #   * ListAllMyBuckets is account-scoped, no per-resource ARN
+  #   * GetBucketLocation / GetBucketEncryption support per-bucket ARN —
+  #     scope to strata-* buckets only. Buckets outside that prefix
+  #     return AccessDenied.
+  statement {
+    sid       = "S3ListAllBuckets"
+    effect    = "Allow"
+    actions   = ["s3:ListAllMyBuckets"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "S3PerBucketReadStrata"
+    effect = "Allow"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:GetBucketEncryption",
+      "s3:GetBucketPolicy",
+      "s3:GetLifecycleConfiguration",
+    ]
+    resources = [
+      "arn:${local.task_read_partition}:s3:::strata-*",
+    ]
+  }
+
+  # tail_recent_logs — CloudWatch Logs FilterLogEvents + DescribeLogGroups
+  # support log-group ARN scoping. Pin to the two prefixes the agent's
+  # tools default to.
+  statement {
+    sid    = "CloudWatchLogsReadStrataGroups"
+    effect = "Allow"
+    actions = [
+      "logs:FilterLogEvents",
+      "logs:DescribeLogGroups",
+      "logs:DescribeLogStreams",
+    ]
+    resources = [
+      "arn:${local.task_read_partition}:logs:${local.task_read_region}:${local.task_read_account_id}:log-group:/ecs/${local.task_read_resource_prefix}*",
+      "arn:${local.task_read_partition}:logs:${local.task_read_region}:${local.task_read_account_id}:log-group:/ecs/${local.task_read_resource_prefix}*:*",
+      "arn:${local.task_read_partition}:logs:${local.task_read_region}:${local.task_read_account_id}:log-group:/aws/lambda/${local.task_read_resource_prefix}-*",
+      "arn:${local.task_read_partition}:logs:${local.task_read_region}:${local.task_read_account_id}:log-group:/aws/lambda/${local.task_read_resource_prefix}-*:*",
+    ]
+  }
+
+  # who_am_i — STS GetCallerIdentity does not support resource-level IAM
+  # (no resource ARN). The action is functionally read-only and reveals
+  # only the role's own ARN/account/UserId, which the role already knows.
+  statement {
+    sid       = "StsWhoAmI"
+    effect    = "Allow"
+    actions   = ["sts:GetCallerIdentity"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "task_read_scoped" {
+  name        = "example-agent-${var.env_name}-task-read"
+  description = "Tightly-scoped read access for the AWS Concierge — replaces broad ReadOnlyAccess. See modules/secrets/main.tf §'task_role' for context. Kept in sync with app/app/lib/tools/*.ts."
+  policy      = data.aws_iam_policy_document.task_read_scoped.json
+
+  tags = local.default_tags
 }
 
 # ---- AWS-3.4: Anthropic spend observability --------------------------------
@@ -795,10 +1008,17 @@ module "ecs_service" {
     ]
   } : null
 
-  # AWS-3.3: ReadOnlyAccess (managed) + deny-iam-secrets-kms-reads (inline)
-  # + the runtime-secret consumer policies. The consumer policies issue
-  # narrow Allow on specific ARNs; the deny policy uses NotResource
-  # carve-outs for those same ARNs so the deny doesn't shadow them.
+  # AWS-3.3 (hardened): customer-managed task_read_scoped (managed) +
+  # deny-iam-secrets-kms-reads (inline) + the runtime-secret consumer
+  # policies. The consumer policies issue narrow Allow on specific ARNs;
+  # the deny policy uses NotResource carve-outs for those same ARNs so
+  # the deny doesn't shadow them.
+  #
+  # The deny-iam-secrets-kms-reads policy is now somewhat redundant — the
+  # task_read_scoped policy doesn't grant iam:*, secretsmanager:*, or
+  # kms:Get*/List*/Describe* in the first place. We keep the deny as
+  # belt-and-suspenders defense-in-depth: if a future operator adds a
+  # managed policy that DOES grant those actions, the deny still wins.
   #
   # Static-labels-list pattern (Phase 5): the names list is what for_each
   # iterates; the map is looked up by name inside the resource body.
@@ -827,10 +1047,23 @@ module "ecs_service" {
     } : {},
   )
 
-  # ReadOnlyAccess provides the ~700 Get/List/Describe actions the SDK
-  # tool catalog needs. Deny statements above strip ~30 of them back out.
+  # AWS-3.3 (hardened): customer-managed `task_read_scoped` replaces the
+  # AWS-managed `ReadOnlyAccess`. ReadOnlyAccess granted ~700
+  # Get/List/Describe actions across every AWS service in the account;
+  # task_read_scoped grants exactly the calls the 10 SDK tools make,
+  # scoped to strata-{env}-* resource ARNs where the action supports it.
+  # See data.aws_iam_policy_document.task_read_scoped above for the
+  # tool-by-tool mapping.
+  #
+  # Residual broad-scope surface (irreducible — actions don't support
+  # resource-level IAM):
+  #   - ce:GetCostAndUsage / ce:GetCostForecast (Cost Explorer)
+  #   - ec2:DescribeVpcs / DescribeSubnets / DescribeNatGateways /
+  #     DescribeVpcEndpoints
+  #   - sts:GetCallerIdentity
+  #   - s3:ListAllMyBuckets
   task_role_managed_policy_arns = [
-    "arn:${data.aws_partition.current.partition}:iam::aws:policy/ReadOnlyAccess",
+    aws_iam_policy.task_read_scoped.arn,
   ]
 
   extra_tags = local.default_tags
