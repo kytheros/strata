@@ -1,0 +1,21 @@
+{
+  "name": "@strata/aws-templates-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end smoke suite for the Strata-on-AWS dev stack. Drives the live API GW + Cognito + Strata MCP path and asserts the cross-cutting wiring that unit tests cannot see (DNS, JWT authorizer, header injection, MCP handshake, SSE framing).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:smoke": "playwright test --grep @smoke"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.0",
+    "@types/node": "22.7.5",
+    "typescript": "5.6.3",
+    "@aws-sdk/client-cognito-identity-provider": "3.682.0",
+    "@aws-sdk/client-secrets-manager": "3.682.0"
+  }
+}

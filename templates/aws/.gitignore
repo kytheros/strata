@@ -1,0 +1,9 @@
+# Node / Playwright
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Local cookie / secret cache (test harness reads these — never commit)
+.work/
+*.session-cookie.txt

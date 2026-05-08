@@ -33,6 +33,11 @@ output "cognito_user_pool_id" {
   value       = module.example_agent.user_pool_id
 }
 
+output "cognito_test_user_client_id" {
+  description = "Test-user Cognito app client ID (ADMIN_USER_PASSWORD_AUTH only). Consumed by E2E smoke tests and the synthetic canary to mint access tokens via `cognito-idp:AdminInitiateAuth` against the test-user credentials secret. Null when canary_enabled = false."
+  value       = module.example_agent.test_user_client_id
+}
+
 output "strata_service_arn" {
   description = "ARN of the Strata Fargate service."
   value       = module.strata_service.service_arn
