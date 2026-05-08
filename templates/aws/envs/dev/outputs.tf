@@ -152,6 +152,34 @@ output "mcp_nlb_target_group_arn" {
 }
 
 ###############################################################################
+# Phase 1.11.1 — Custom domain outputs (null when toggle is off)
+#
+# When var.custom_domain_enabled = true, `cloudflare_dns_records` prints a
+# pretty multi-line summary the operator copy-pastes into Cloudflare. The
+# raw fields are also exposed (`custom_domain_*`) for downstream tooling.
+###############################################################################
+
+output "custom_domain_name" {
+  description = "Operator-owned FQDN attached to the API GW. null when var.custom_domain_enabled = false."
+  value       = var.custom_domain_enabled ? try(module.custom_domain[0].domain_name, null) : null
+}
+
+output "custom_domain_target" {
+  description = "Regional API GW DNS the final Cloudflare CNAME points to. Use this when manually editing Cloudflare records outside the orchestrator's printed summary. null when var.custom_domain_enabled = false."
+  value       = var.custom_domain_enabled ? try(module.custom_domain[0].target_domain_name, null) : null
+}
+
+output "custom_domain_validation_records" {
+  description = "List of {name, type, value} ACM validation CNAME records to paste into Cloudflare. null when var.custom_domain_enabled = false."
+  value       = var.custom_domain_enabled ? try(module.custom_domain[0].validation_records, null) : null
+}
+
+output "cloudflare_dns_records" {
+  description = "Operator-friendly multi-line summary of the two Cloudflare DNS records to paste (cert validation CNAME + final alias CNAME). Both MUST be set DNS-only / grey cloud — proxied / orange cloud breaks ACM validation and the API GW TLS handshake. Empty string when var.custom_domain_enabled = false."
+  value       = var.custom_domain_enabled ? try(module.custom_domain[0].cloudflare_dns_records, "") : ""
+}
+
+###############################################################################
 # AWS-5.1 -- Cost Anomaly Detection outputs
 ###############################################################################
 

@@ -223,9 +223,28 @@ module "example_agent" {
   # time (no network probe), so resolving from `module.ingress.endpoint_dns`
   # within the same apply works. This replaced the prior tfvars placeholder
   # pattern which forced a second apply to wire real URLs.
-  app_url       = "https://${module.ingress.endpoint_dns}"
-  callback_urls = ["https://${module.ingress.endpoint_dns}/api/auth/callback"]
-  logout_urls   = ["https://${module.ingress.endpoint_dns}"]
+  #
+  # Custom-domain cutover: when var.custom_domain_enabled = true we append
+  # the new FQDN to callback_urls / logout_urls IN ADDITION to the raw
+  # execute-api URL. Cognito accepts a list, so both work simultaneously
+  # while DNS propagates and the operator validates the new domain. After
+  # cutover is verified, a follow-up commit can drop the raw URL.
+  # `app_url` keeps pointing at the new FQDN when enabled (this is the
+  # browser-facing front door); the raw execute-api stays in the auth
+  # lists as a fallback only.
+  app_url = var.custom_domain_enabled ? "https://${var.custom_domain_name}" : "https://${module.ingress.endpoint_dns}"
+  callback_urls = var.custom_domain_enabled ? [
+    "https://${var.custom_domain_name}/api/auth/callback",
+    "https://${module.ingress.endpoint_dns}/api/auth/callback",
+    ] : [
+    "https://${module.ingress.endpoint_dns}/api/auth/callback",
+  ]
+  logout_urls = var.custom_domain_enabled ? [
+    "https://${var.custom_domain_name}",
+    "https://${module.ingress.endpoint_dns}",
+    ] : [
+    "https://${module.ingress.endpoint_dns}",
+  ]
 
   # ---- Container image ---------------------------------------------------
   container_image = var.example_agent_container_image
@@ -349,6 +368,46 @@ module "ingress" {
 
   enable_logging     = true
   log_retention_days = 30
+
+  extra_tags = local.default_tags
+}
+
+###############################################################################
+# Phase 1.11.1 — Custom domain (operator-owned FQDN on Cloudflare).
+#
+# Wraps the API GW HTTP API in a regional custom domain backed by an ACM
+# cert. Gated behind var.custom_domain_enabled because:
+#   1. Cert validation requires the operator to paste a CNAME into
+#      Cloudflare BEFORE the apply finishes — running the toggle on by
+#      default would hang every fresh apply for 30 min on the validation
+#      gate.
+#   2. The toggle lets us land the code in state with toggle=false (so the
+#      module is parsed and validated without resource creation), then
+#      flip to true in a deliberate apply once the operator is at the
+#      keyboard ready to paste the validation CNAME.
+#
+# WAF / DDoS protection deliberately NOT in this layer — that's the
+# CloudFront + WAF v2 path, owned by modules/cloudfront-dist and tracked
+# as a separate medium-priority follow-up. Direct API GW custom domain is
+# simpler, lower latency, and covers the immediate "no more
+# *.execute-api.amazonaws.com in URLs" goal.
+#
+# Operator runbook: modules/custom-domain/README.md §"Two-pass apply".
+###############################################################################
+
+module "custom_domain" {
+  source = "../../modules/custom-domain"
+  count  = var.custom_domain_enabled ? 1 : 0
+
+  env_name    = local.env_name
+  aws_region  = var.aws_region
+  domain_name = var.custom_domain_name
+
+  # Pin to the same API GW HTTP API the ingress module owns. The module
+  # mapping uses the default `$default` stage; the ingress module always
+  # provisions that stage for HTTP APIs.
+  apigw_api_id     = module.ingress.api_id
+  apigw_stage_name = module.ingress.stage_name
 
   extra_tags = local.default_tags
 }
@@ -664,6 +723,16 @@ module "observability" {
   # ---- Cognito auth-failure-rate alarm -----------------------------------
   cognito_user_pool_id   = module.example_agent.user_pool_id
   cognito_alarms_enabled = true
+
+  # ---- AWS-3.4: Anthropic spend observability ---------------------------
+  # The example-agent's chat backend pushes Concierge/Anthropic/TokensConsumed
+  # per messages.create() call. Two alarms cover the failure modes:
+  #   1. anthropic_high_token_burn — pre-warning before credits drain.
+  #   2. anthropic_chat_billing_errors — pages on the literal
+  #      "credit balance is too low" string in the cluster log group
+  #      (example-agent container logs land there).
+  anthropic_alarms_enabled               = true
+  anthropic_billing_error_log_group_name = module.ecs_cluster.log_group_name
 
   # ---- Phase 4 ops dashboard + JWT-error metric filter (AWS-4.1) ---------
   # API GW, NLB, and per-service ECS dimensions feed the strata-<env>-ops

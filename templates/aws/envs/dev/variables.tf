@@ -95,6 +95,23 @@ variable "canary_enabled" {
   default     = true
 }
 
+variable "custom_domain_enabled" {
+  description = "When true, provisions an ACM cert + API Gateway custom domain for var.custom_domain_name and adds the FQDN to the Cognito app client's callback/logout URL lists. The raw execute-api URL is retained in those lists during cutover so sign-in keeps working from the old domain. Default false — flip to true in tfvars when ready, then follow the two-pass DNS dance documented in modules/custom-domain/README.md."
+  type        = bool
+  default     = false
+}
+
+variable "custom_domain_name" {
+  description = "FQDN for the API Gateway custom domain (e.g. `aws.strata.kytheros.dev`). Ignored when var.custom_domain_enabled = false. Operator-owned in Cloudflare for the dev tier — see modules/custom-domain/README.md for the cert validation runbook."
+  type        = string
+  default     = "aws.strata.kytheros.dev"
+
+  validation {
+    condition     = can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$", var.custom_domain_name))
+    error_message = "custom_domain_name must be a valid lowercase FQDN with at least two labels."
+  }
+}
+
 variable "cost_alert_email" {
   description = "Email for Cost Anomaly Detection alerts. Default is the dev operator email."
   type        = string
