@@ -33,20 +33,22 @@ locals {
   service_name = "example-agent-${var.env_name}"
 
   # Derive STRATA_INTERNAL_URL for the container env. Caller may pass an
-  # explicit URL (var.strata_internal_url); failing that, build it from the
-  # Service Connect namespace + Strata's port. Both empty → the env var is
-  # not exported; the strata-client errors at request time if it's needed.
+  # explicit URL (var.strata_internal_url); failing that, build it from
+  # Service Connect's exposed client alias + Strata's port. Both empty →
+  # the env var is not exported; the strata-client errors at request
+  # time if it's needed.
   #
-  # Service Connect aliases under aws_service_discovery_http_namespace do
-  # NOT carry a .local suffix — the cluster-internal DNS form is
-  # `<dns_name>.<namespace_name>`. Older private_dns_namespace patterns
-  # used .local; we don't, since http_namespace is what's wired in
-  # AWS-1.6.1's MEDIUM-1 fix. Pre-1.6.1 deployments referencing a
-  # private_dns_namespace will need to override via var.strata_internal_url.
+  # IMPORTANT: when the cluster uses an HTTP namespace
+  # (aws_service_discovery_http_namespace), the Service Connect client
+  # alias is exposed as the bare `dnsName` from the consumer's hosts
+  # file — there is NO namespace suffix. The previous code built
+  # `strata.<namespace>` which only resolves under
+  # aws_service_discovery_private_dns_namespace.
+  # See https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-connect-concepts.html#service-connect-concepts-namespace
   strata_internal_url_effective = (
     var.strata_internal_url != "" ? var.strata_internal_url :
     var.cluster_service_connect_namespace != "" ?
-    "http://strata.${var.cluster_service_connect_namespace}:${var.strata_internal_port}" :
+    "http://strata:${var.strata_internal_port}" :
     ""
   )
 }

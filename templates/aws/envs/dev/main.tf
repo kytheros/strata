@@ -277,13 +277,17 @@ module "example_agent" {
 
   # ---- Strata-on-AWS internal endpoint -----------------------------------
   # The example-agent reaches Strata over Service Connect (not via the API
-  # GW). It does NOT need to set X-Strata-Verified because the example-agent
-  # itself is the trusted internal caller — its task SG is on Strata's SG
-  # ingress allow-list. External MCP clients hit /mcp through the API GW
-  # path that AWS-1.6.1's services/ingress-authorizer wires (centralized
-  # JWT authorizer + header injection).
-  cluster_service_connect_namespace = "strata-${local.env_name}"
-  strata_internal_port              = 3000
+  # GW). Even though it's the trusted internal caller (its task SG is on
+  # Strata's SG ingress allow-list), Strata's STRATA_REQUIRE_AUTH_PROXY=1
+  # gate is enforced per-request inside `handleMcpRequest` — not at the SG
+  # layer. So the example-agent must also send X-Strata-Verified, which
+  # the strata-client library reads from the STRATA_AUTH_PROXY_TOKEN env
+  # var. Pass the same secret ARN that ingress-authorizer mints; Strata's
+  # task and the example-agent's task end up holding the same token.
+  cluster_service_connect_namespace   = "strata-${local.env_name}"
+  strata_internal_port                = 3000
+  strata_auth_proxy_token_secret_arn  = module.ingress_authorizer.auth_proxy_secret_arn
+  strata_auth_proxy_token_kms_key_arn = module.ingress_authorizer.auth_proxy_secret_kms_key_arn
 
   # ---- Redis SDK cache (AWS-3.3) -----------------------------------------
   # `redis_enabled = true` is the static toggle the example-agent uses to
@@ -474,10 +478,17 @@ module "strata_service" {
   # looked up by label inside the resource body. The vpc-link entry
   # covers any direct-to-task fallback; mcp-nlb covers the external-MCP
   # path wired in AWS-1.6.6.
-  ingress_security_group_labels = ["vpc-link", "mcp-nlb"]
+  # `example-agent` entry closes the Service Connect path: the example-agent's
+  # task SG must be on Strata's ingress allow-list because Service Connect
+  # Envoy sidecars route through real VPC ENIs — same-namespace alias
+  # resolution does NOT bypass task-level SG rules. Without this, internal
+  # MCP calls hang ~10s and surface as ECONNRESET on the caller side, with
+  # zero entries in Strata's logs (packets dropped before the app layer).
+  ingress_security_group_labels = ["vpc-link", "mcp-nlb", "example-agent"]
   ingress_security_group_ids = {
-    vpc-link = module.ingress.security_group_id
-    mcp-nlb  = module.ingress_authorizer.strata_nlb_security_group_id
+    vpc-link      = module.ingress.security_group_id
+    mcp-nlb       = module.ingress_authorizer.strata_nlb_security_group_id
+    example-agent = module.example_agent.security_group_id
   }
 
   # ---- Internal NLB target group (AWS-1.6.6) -----------------------------

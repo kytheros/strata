@@ -4,6 +4,10 @@ dist/
 .DS_Store
 .env
 .claude/
+
+# Operator-staged session JWT for the dev-stack E2E smoke harness — secret.
+# Operators rewrite this when their cookie expires; never commit it.
+.work/session-cookie.txt
 *.db
 benchmarks/*
 !benchmarks/locomo/
