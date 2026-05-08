@@ -58,20 +58,83 @@ task cost
 task dev:down    # alias: task down
 ```
 
-### Two-pass apply on first deploy
+### Single-pass apply (AWS Concierge)
 
-`example_agent_app_url` is a chicken-and-egg input — Cognito needs it at
-create time, but it's the API Gateway endpoint that this apply produces.
-Plan accordingly:
+The user-facing app is **AWS Concierge** — a chat surface (rebranded from
+"Strata Example Agent") where allowlisted operators ask read-only
+questions about the very AWS account it's deployed in. It calls Claude
+Sonnet 4.6 with 10 AWS-SDK tools (cost, alarms, ECS, VPC, logs, etc.) and
+uses Strata for cross-session memory.
 
-1. First `task dev:up` with the placeholder URL in tfvars.
-2. `task dev:output` and copy `ingress_endpoint_dns`.
-3. Update `terraform.tfvars` → `example_agent_app_url = "https://<that>"`.
-4. Second `task dev:up` to wire Cognito callback / logout URLs.
+`envs/dev/main.tf` sources `app_url` directly from `module.ingress.endpoint_dns`,
+so the Cognito callback URLs resolve in a single apply. No second
+`task dev:up` is required.
 
-See `envs/dev/README.md` for the full operational setup checklist
-(7 steps including OAuth credentials, image push, post-apply secret
-seeding).
+After `task dev:up` completes, run the **seed script** to finish the
+post-apply wiring:
+
+```powershell
+E:\strata\strata\templates\aws\scripts\seed-dev-stack.ps1
+```
+
+What it does (idempotent — safe to re-run):
+1. Adds `canary@strata.test` to the SSM allowlist alongside any seed emails
+2. Creates the Cognito test user with a permanent password
+3. Seeds the canary credentials secret with that password
+4. Seeds the real Anthropic API key (read from `E:\strata\.env`)
+5. Force-redeploys the example-agent so it picks up the seeded key
+
+**Anthropic key prerequisite:** create `E:\strata\.env` with a line
+`ANTHROPIC_API_KEY=sk-ant-...`. The seed script reads from there; the file
+is gitignored.
+
+### Smoke tests
+
+After seeding, validate the full E2E path with the Playwright suite:
+
+```bash
+task dev:smoke
+```
+
+Six cases run against the live URL: `/health`, landing page, OAuth login
+redirect, JWT-rejection on `/mcp`, MCP `initialize`+`tools/list` handshake,
+and `POST /api/chat` with a real Claude response.
+
+Cases 5 + 6 need state setup:
+- **Case 5** (canary user) — auto-discovered from Secrets Manager + the
+  Cognito test-user app client. No manual step.
+- **Case 6** (chat) — needs an `eag_session` cookie from a real sign-in:
+  ```powershell
+  # In Chrome DevTools → Application → Cookies, copy the eag_session value, then:
+  Set-Content -Path E:\strata\strata\.work\session-cookie.txt -Value '<paste-cookie-value>'
+  ```
+  Cookie has a 1-hour TTL; refresh when it expires. The harness emits a
+  clear error message naming the file path when missing or expired.
+
+### Pre-flight check
+
+`task dev:up` runs `task dev:preflight` first. Hard-fails on:
+- missing/placeholder `ANTHROPIC_API_KEY` in `E:\strata\.env`
+- AWS auth not pointing at account `624990353897`
+- orphan Secrets Manager / KMS resources from a prior teardown
+  (run `task cleanup:orphans` to clear them)
+
+Soft-warns on missing Docker (only matters for image rebuilds) and an
+optional Anthropic credit-balance probe (cached 1 h; skip with
+`SKIP_ANTHROPIC_PROBE=1`).
+
+### Teardown hygiene
+
+`task dev:down` runs `terraform destroy -auto-approve`, then automatically
+calls `task cleanup:orphans` to:
+- force-delete pending Secrets Manager secrets matching `strata/dev/*`
+- schedule pending KMS keys for 7-day deletion + delete their aliases
+
+Without this, the next `task dev:up` collides on AWS's 30-day
+secret-recovery window. Standalone `task cleanup:orphans` is safe to
+run any time — it short-circuits if the stack is currently up.
+
+See `envs/dev/README.md` for the full operational setup checklist.
 
 ## Prerequisites
 
