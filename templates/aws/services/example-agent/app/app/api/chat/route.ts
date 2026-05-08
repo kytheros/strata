@@ -28,6 +28,7 @@ import { StrataClient } from '../../lib/strata-client';
 import { runAgentLoop, SYSTEM_PROMPT_TEMPLATE } from '../../lib/agent-loop';
 import { ToolCache } from '../../lib/cache';
 import { buildDefaultContext } from '../../lib/tools/context';
+import { redact, logRedactionCounts } from '../../lib/redact';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -177,8 +178,17 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Belt-and-braces redaction on the model's final text. Tool output is
+  // already scrubbed in agent-loop, but a token could land in context
+  // through a Strata recall hit, the system prompt, or a future code
+  // path; we scrub one more time at the wire boundary.
+  const { redacted: scrubbedMessage, counts: finalCounts } = redact(
+    result.finalText ?? '',
+  );
+  logRedactionCounts('model-final-text', finalCounts);
+
   return NextResponse.json({
-    message: result.finalText,
+    message: scrubbedMessage,
     toolCalls: result.toolCalls,
     iterations: result.iterations,
     stoppedReason: result.stoppedReason,

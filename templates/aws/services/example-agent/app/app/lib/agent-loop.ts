@@ -22,6 +22,7 @@ import type {
 import { TOOLS, executeTool } from './tools';
 import type { ToolContext } from './tools/context';
 import { publishTokenMetric } from './metrics';
+import { redact, logRedactionCounts } from './redact';
 
 const DEFAULT_MAX_ITERATIONS = 10;
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -124,13 +125,54 @@ export async function runAgentLoop(
       for (const block of response.content) {
         if (block.type !== 'tool_use') continue;
         const tu = block as ToolUseBlock;
-        const output = await executeTool(tu.name, tu.input, args.ctx);
+        const startedAt = Date.now();
+        let ok = true;
+        let output: unknown;
+        try {
+          output = await executeTool(tu.name, tu.input, args.ctx);
+        } catch (err) {
+          // executeTool already swallows tool errors and returns an
+          // {error, message} envelope; this catch only fires on a
+          // dispatcher-level bug. Surface it the same way so the
+          // model can recover.
+          ok = false;
+          const e = err as Error;
+          output = { error: e.name ?? 'Error', message: e.message ?? String(e) };
+        }
+
+        // Audit log — one structured line per tool call. Truncated input,
+        // no output (output goes through redaction below). The strata-dev
+        // log group already collects stdout, so no new infra is required.
+        const inputPreview = JSON.stringify(tu.input ?? {}).slice(0, 200);
+        const elapsedMs = Date.now() - startedAt;
+        // eslint-disable-next-line no-console
+        console.log(
+          `[tool-audit] tool=${tu.name} input=${inputPreview} elapsedMs=${elapsedMs} ok=${ok}`,
+        );
+
+        // Redact secrets BEFORE the tool output is shipped back into the
+        // model's context. The model never sees a verbatim Anthropic key,
+        // AWS access key, JWT, bearer token, or long hex secret that
+        // accidentally landed in a CloudWatch log line.
+        const stringified = JSON.stringify(output);
+        const { redacted, counts } = redact(stringified);
+        logRedactionCounts(`tool:${tu.name}`, counts);
+
         toolResults.push({
           type: 'tool_result',
           tool_use_id: tu.id,
-          content: JSON.stringify(output),
+          content: redacted,
         });
-        toolCalls.push({ name: tu.name, input: tu.input, output });
+        // The trace surfaced in the chat response (`toolCalls` UI panel)
+        // also gets the redacted form — the operator should never see a
+        // raw secret echoed even in the debug pane.
+        let traceOutput: unknown = output;
+        try {
+          traceOutput = JSON.parse(redacted);
+        } catch {
+          traceOutput = { redacted };
+        }
+        toolCalls.push({ name: tu.name, input: tu.input, output: traceOutput });
       }
 
       conversation.push({ role: 'user', content: toolResults as any });
