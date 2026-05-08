@@ -39,8 +39,22 @@ describe('describe_aurora_cluster', () => {
 
   it('reports not-found cleanly when the cluster does not exist', async () => {
     rds.on(DescribeDBClustersCommand).resolves({ DBClusters: [] });
-    const out = (await execute({ clusterId: 'missing' }, makeCtx())) as Record<string, any>;
+    const out = (await execute({ clusterId: 'strata-staging' }, makeCtx())) as Record<string, any>;
     expect(out.found).toBe(false);
-    expect(out.clusterId).toBe('missing');
+    expect(out.clusterId).toBe('strata-staging');
+  });
+
+  it('rejects cluster identifiers outside the strata-* namespace before any SDK call', async () => {
+    rds.on(DescribeDBClustersCommand).resolves({ DBClusters: [] });
+    const ctx = makeCtx();
+
+    await expect(
+      execute({ clusterId: 'production-billing-db' }, ctx),
+    ).rejects.toThrow(/outside the allowed strata-\* namespace/);
+    await expect(
+      execute({ clusterId: 'arn:aws:rds:us-east-1:111:cluster:other' }, ctx),
+    ).rejects.toThrow(/outside the allowed/);
+
+    expect(rds.commandCalls(DescribeDBClustersCommand)).toHaveLength(0);
   });
 });

@@ -13,6 +13,29 @@ import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
 
+// App-layer namespace boundary. The IAM role is being tightened in
+// parallel, but IAM cannot enforce namespace constraints on user-supplied
+// parameters with the precision a regex can. Any log group the model
+// requests must match one of these patterns or the tool refuses before
+// the SDK is touched. Enumerated explicitly so a future reviewer sees
+// exactly which surface is exposed to operator prompts.
+const ALLOWED_LOG_GROUP_PATTERNS: RegExp[] = [
+  /^\/ecs\/strata-[a-z]+$/,                       // /ecs/strata-dev
+  /^\/aws\/lambda\/strata-[a-z]+-mcp-canary$/,    // canary lambda
+  /^\/aws\/lambda\/strata-[a-z]+-pre-signup$/,    // cognito pre-signup trigger
+  /^\/aws\/lambda\/strata-[a-z]+-post-confirmation$/, // cognito post-confirmation trigger
+];
+
+function assertAllowedLogGroup(name: string): void {
+  if (!ALLOWED_LOG_GROUP_PATTERNS.some((re) => re.test(name))) {
+    throw new Error(
+      `Log group ${name} is outside the allowed strata-dev namespace. ` +
+        `Allowed prefixes: /ecs/strata-*, /aws/lambda/strata-*-mcp-canary, ` +
+        `/aws/lambda/strata-*-pre-signup, /aws/lambda/strata-*-post-confirmation.`,
+    );
+  }
+}
+
 export const TOOL_DEFINITION: Tool = {
   name: 'tail_recent_logs',
   description: `**Purpose:** Tail the most recent log events from a CloudWatch log group, optionally filtered by a CloudWatch Logs filter pattern (e.g. \`ERROR\`, \`?WARN ?error\`).
@@ -52,6 +75,10 @@ export async function execute(
   ctx: ToolContext,
 ): Promise<ToolResult> {
   const logGroupName = input.logGroupName ?? ctx.logGroupPrefix;
+  // Server-side allowlist check BEFORE cache or SDK. A prompt-injected
+  // request like "tail logs from /aws/lambda/billing-service" gets
+  // rejected here, not by IAM after a wasted round trip.
+  assertAllowedLogGroup(logGroupName);
   const lookbackMinutes = input.lookbackMinutes ?? 15;
   const filterPattern = input.filterPattern ?? '';
   const cacheKey = `tail_recent_logs:${shortHash({ logGroupName, lookbackMinutes, filterPattern })}`;

@@ -11,6 +11,21 @@ import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
 
+// App-layer namespace boundary. Aurora cluster identifiers in this
+// account always match `strata-<env>`. A prompt-injected `clusterId`
+// referencing some other cluster (e.g. a tenant DB elsewhere in the
+// account) is rejected before the RDS SDK call.
+const ALLOWED_CLUSTER_ID_PATTERN = /^strata-[a-z0-9-]+$/;
+
+function assertAllowedClusterId(id: string): void {
+  if (!ALLOWED_CLUSTER_ID_PATTERN.test(id)) {
+    throw new Error(
+      `Cluster ${id} is outside the allowed strata-* namespace. ` +
+        `Allowed pattern: strata-<env>.`,
+    );
+  }
+}
+
 export const TOOL_DEFINITION: Tool = {
   name: 'describe_aurora_cluster',
   description: `**Purpose:** Describe the deploy's Aurora Postgres Serverless v2 cluster — status, endpoints, engine version, current ACU capacity, backup retention, encryption.
@@ -38,6 +53,9 @@ export async function execute(
   ctx: ToolContext,
 ): Promise<ToolResult> {
   const clusterId = input.clusterId ?? ctx.auroraClusterId;
+  // Server-side allowlist check BEFORE cache or SDK. The model can ask
+  // for any cluster string; we only let through strata-* identifiers.
+  assertAllowedClusterId(clusterId);
   const cacheKey = `describe_aurora_cluster:${shortHash({ clusterId })}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);
   if (cached) return cached;

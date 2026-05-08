@@ -16,6 +16,20 @@ import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
 
+// App-layer namespace boundary. ECS cluster names in this account always
+// match `strata-<env>`. Reject any other cluster the model proposes
+// before the SDK is touched.
+const ALLOWED_CLUSTER_NAME_PATTERN = /^strata-[a-z0-9-]+$/;
+
+function assertAllowedClusterName(name: string): void {
+  if (!ALLOWED_CLUSTER_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Cluster ${name} is outside the allowed strata-* namespace. ` +
+        `Allowed pattern: strata-<env>.`,
+    );
+  }
+}
+
 export const TOOL_DEFINITION: Tool = {
   name: 'list_ecs_services',
   description: `**Purpose:** Lists ECS services in the deploy's primary cluster with running/desired task counts and deployment status.
@@ -44,6 +58,7 @@ export async function execute(
   ctx: ToolContext,
 ): Promise<ToolResult> {
   const cluster = input.cluster ?? ctx.clusterName;
+  assertAllowedClusterName(cluster);
   const cacheKey = `list_ecs_services:${shortHash({ cluster })}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);
   if (cached) return cached;
