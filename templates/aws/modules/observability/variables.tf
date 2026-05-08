@@ -295,6 +295,51 @@ variable "example_agent_service_name" {
 # Misc
 ###############################################################################
 
+###############################################################################
+# AWS-3.4 — Anthropic spend observability
+#
+# The example-agent's chat backend instruments every messages.create() call
+# with a CloudWatch PutMetricData (namespace: Concierge/Anthropic, metric:
+# TokensConsumed, dimensions: Env/Model/Direction). These two alarms catch
+# the two failure modes:
+#
+#   1. anthropic_high_token_burn — sustained spend (1h SUM > threshold).
+#      Pre-warning before the credit balance drains.
+#
+#   2. anthropic_chat_billing_errors — a log-metric-filter scanning the
+#      cluster log group for the literal "credit balance is too low"
+#      string Anthropic returns when the account hits $0. Pages on
+#      first occurrence so the operator hears about the outage from
+#      the alarm, not from a customer.
+#
+# Both alarms gated on `var.anthropic_alarms_enabled` so callers without
+# the AWS-3.4 instrumentation don't get phantom "no data" alarms.
+###############################################################################
+
+variable "anthropic_alarms_enabled" {
+  description = "When true, provision the two AWS-3.4 alarms: anthropic_high_token_burn (Concierge/Anthropic SUM > threshold over 1h) and anthropic_chat_billing_errors (log-metric-filter on the cluster log group for 'credit balance is too low' from the Anthropic SDK). Default false to keep the module backwards-compatible — the dev orchestrator flips this on once the example-agent image is shipping the AWS-3.4 instrumentation."
+  type        = bool
+  default     = false
+}
+
+variable "anthropic_metric_namespace" {
+  description = "CloudWatch metrics namespace the example-agent publishes Anthropic token-usage metrics to. Default Concierge/Anthropic matches the constant in app/lib/metrics.ts (ANTHROPIC_METRIC_NAMESPACE). Override only if the app code's namespace changes."
+  type        = string
+  default     = "Concierge/Anthropic"
+}
+
+variable "anthropic_high_token_burn_threshold" {
+  description = "Threshold (tokens) for the anthropic_high_token_burn alarm — fires when the SUM of TokensConsumed (input + output, all directions) over 1 hour exceeds this. Default 500000 is conservative for portfolio-demo cadence; tune up after a baseline week. A single Sonnet 4.6 turn at 4K max_tokens is at most ~4K output tokens, so 500K/hr ≈ 125 turns/hr — well above demo traffic."
+  type        = number
+  default     = 500000
+}
+
+variable "anthropic_billing_error_log_group_name" {
+  description = "CloudWatch Logs group name the example-agent's container writes to (typically the cluster log group, /ecs/strata-<env>). The anthropic_chat_billing_errors metric filter attaches here. Empty string disables the billing-error alarm even when anthropic_alarms_enabled = true."
+  type        = string
+  default     = ""
+}
+
 variable "runbook_base_url" {
   description = "Base URL prepended to alarm runbook references in alarm_description. Each alarm's description ends with `Runbook: <runbook_base_url>/<alarm-name>.md`. Default points at the in-repo runbooks/ directory; override to a hosted runbook URL when the team has one."
   type        = string

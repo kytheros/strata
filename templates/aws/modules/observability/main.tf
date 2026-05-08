@@ -723,6 +723,107 @@ resource "aws_cloudwatch_metric_alarm" "jwt_auth_error_rate" {
 }
 
 ###############################################################################
+# 4k. AWS-3.4 — Anthropic spend observability
+#
+# Two alarms, both gated on var.anthropic_alarms_enabled so the module is
+# backwards-compatible:
+#
+#   1. anthropic_high_token_burn — SUM of Concierge/Anthropic/TokensConsumed
+#      over 1 hour above threshold (default 500K). Fires before the credit
+#      balance drains. Cross-direction (no Direction dimension on the
+#      alarm side) so input + output are summed.
+#
+#   2. anthropic_chat_billing_errors — log-metric-filter on the cluster
+#      log group for "credit balance is too low" (the literal string the
+#      Anthropic SDK surfaces when the account hits $0). Pages on first
+#      occurrence so the operator hears it from the alarm, not from
+#      users.
+#
+# The metric filter's dimensionless metric is intentional — we want a
+# single tripwire, not per-env splits. Anthropic billing errors are an
+# operator-actionable failure regardless of which env hit them.
+###############################################################################
+
+locals {
+  anthropic_billing_error_filter_enabled = (
+    var.anthropic_alarms_enabled &&
+    var.anthropic_billing_error_log_group_name != ""
+  )
+}
+
+resource "aws_cloudwatch_metric_alarm" "anthropic_high_token_burn" {
+  count = var.anthropic_alarms_enabled ? 1 : 0
+
+  alarm_name          = "strata-${var.env_name}-anthropic-high-token-burn"
+  alarm_description   = "Concierge/Anthropic TokensConsumed (input+output, all directions) exceeded ${var.anthropic_high_token_burn_threshold} over a 1-hour window. Pre-warning before the Anthropic credit balance drains. Investigate via the SLO dashboard's Anthropic widget or CloudWatch Metrics console > Concierge/Anthropic > TokensConsumed grouped by Direction. Runbook: ${local.runbook_url}/anthropic_high_token_burn.md"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  threshold           = var.anthropic_high_token_burn_threshold
+  treat_missing_data  = "notBreaching"
+
+  metric_name = "TokensConsumed"
+  namespace   = var.anthropic_metric_namespace
+  period      = 3600
+  statistic   = "Sum"
+
+  # No dimensions filter — the alarm sums across Env/Model/Direction so a
+  # spike in either input or output trips it. Per-direction views live on
+  # the dashboard, not the alarm.
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  tags = merge(local.tags, {
+    Name = "strata-${var.env_name}-anthropic-high-token-burn"
+  })
+}
+
+# Log metric filter — counts "credit balance is too low" occurrences in
+# the cluster log group. The example-agent's container logs land here
+# (stream prefix example-agent-<env>); the literal phrase is specific
+# enough that cross-stream false positives are effectively zero.
+resource "aws_cloudwatch_log_metric_filter" "anthropic_billing_error" {
+  count = local.anthropic_billing_error_filter_enabled ? 1 : 0
+
+  name           = "strata-${var.env_name}-anthropic-billing-error"
+  log_group_name = var.anthropic_billing_error_log_group_name
+  pattern        = "\"credit balance is too low\""
+
+  metric_transformation {
+    name      = "AnthropicBillingErrorCount"
+    namespace = var.anthropic_metric_namespace
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "anthropic_chat_billing_errors" {
+  count = local.anthropic_billing_error_filter_enabled ? 1 : 0
+
+  alarm_name          = "strata-${var.env_name}-anthropic-chat-billing-errors"
+  alarm_description   = "The Anthropic SDK returned 'credit balance is too low' at least once in the example-agent log stream — chat is failing for all users. Operator action: top up Anthropic credits at console.anthropic.com/billing, then verify the chat surface. Runbook: ${local.runbook_url}/anthropic_chat_billing_errors.md"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  datapoints_to_alarm = 1
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+
+  metric_name = "AnthropicBillingErrorCount"
+  namespace   = var.anthropic_metric_namespace
+  period      = 300
+  statistic   = "Sum"
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+
+  tags = merge(local.tags, {
+    Name = "strata-${var.env_name}-anthropic-chat-billing-errors"
+  })
+
+  depends_on = [aws_cloudwatch_log_metric_filter.anthropic_billing_error]
+}
+
+###############################################################################
 # 5. SLO Dashboard
 #
 # Rendered from dashboards/strata-slo-dashboard.json with templatefile() so the
