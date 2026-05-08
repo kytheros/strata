@@ -57,7 +57,7 @@ Write-Host "`n==> [1/6] Append canary email to SSM allowlist"
 # argument, so `--value '["mkavalich@gmail.com",...]'` arrives at the AWS CLI
 # as `[mkavalich@gmail.com,...]` — invalid JSON. Workaround: write the JSON
 # payload to a temp file and use the AWS CLI `file://` URI prefix.
-$allowlistJson = '["mkavalich@gmail.com","canary@strata.test"]'
+$allowlistJson = '["mkavalich@gmail.com","canary@strata.test","stratatest549@gmail.com"]'
 $allowlistFile = New-TemporaryFile
 [System.IO.File]::WriteAllText($allowlistFile.FullName, $allowlistJson, [System.Text.Encoding]::ASCII)
 aws ssm put-parameter `
