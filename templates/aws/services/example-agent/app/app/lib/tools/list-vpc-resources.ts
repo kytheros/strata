@@ -15,24 +15,28 @@ import {
 import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
+import { listVpcResourcesZod, listVpcResourcesJsonSchema } from './schemas';
+import { withExamples } from './tool-examples';
+
+const NAME = 'list_vpc_resources';
 
 export const TOOL_DEFINITION: Tool = {
-  name: 'list_vpc_resources',
-  description: `**Purpose:** Summarize the VPC topology — VPCs, subnets (per-AZ + tier), NAT gateways, and VPC endpoints — in the agent's region.
+  name: NAME,
+  description: withExamples(
+    NAME,
+    `**Purpose:** Summarize the VPC topology — VPCs, subnets (per-AZ + tier), NAT gateways, and VPC endpoints — in the agent's region.
 **When to use:** When the user asks about network architecture, subnet layout, NAT cost posture, or which AWS services have private endpoints. Also a precondition for cost-related questions about NAT data-processing.
 **Prerequisites:** None.
 **Anti-pattern:** Don't use this for routing-table investigations — those need DescribeRouteTables (not yet shipped). For traffic flow questions, also call \`describe_load_balancers\`.`,
-  input_schema: {
-    type: 'object',
-    properties: {},
-    additionalProperties: false,
-  },
+  ),
+  input_schema: listVpcResourcesJsonSchema,
 };
 
 export async function execute(
-  _input: Record<string, never>,
+  input: unknown,
   ctx: ToolContext,
 ): Promise<ToolResult> {
+  listVpcResourcesZod.parse(input ?? {});
   const cacheKey = `list_vpc_resources:${shortHash({})}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);
   if (cached) return cached;

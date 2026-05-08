@@ -15,24 +15,31 @@ import {
 import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
+import {
+  s3BucketSummaryZod,
+  s3BucketSummaryJsonSchema,
+} from './schemas';
+import { withExamples } from './tool-examples';
+
+const NAME = 's3_bucket_summary';
 
 export const TOOL_DEFINITION: Tool = {
-  name: 's3_bucket_summary',
-  description: `**Purpose:** List S3 buckets in the account with their region and at-rest encryption posture.
+  name: NAME,
+  description: withExamples(
+    NAME,
+    `**Purpose:** List S3 buckets in the account with their region and at-rest encryption posture.
 **When to use:** When the user asks about S3 inventory, encryption coverage, or which buckets belong to the deploy. Pair with \`who_am_i\` if you need to confirm the account scope first.
 **Prerequisites:** None. Requires \`s3:ListAllMyBuckets\` (granted by \`ReadOnlyAccess\`) and per-bucket \`s3:GetEncryptionConfiguration\`.
 **Anti-pattern:** Don't use this for object listings or bucket sizes — those are different APIs (ListObjects, CloudWatch BucketSizeBytes). The summary intentionally omits object-count to stay token-efficient.`,
-  input_schema: {
-    type: 'object',
-    properties: {},
-    additionalProperties: false,
-  },
+  ),
+  input_schema: s3BucketSummaryJsonSchema,
 };
 
 export async function execute(
-  _input: Record<string, never>,
+  input: unknown,
   ctx: ToolContext,
 ): Promise<ToolResult> {
+  s3BucketSummaryZod.parse(input ?? {});
   const cacheKey = `s3_bucket_summary:${shortHash({})}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);
   if (cached) return cached;

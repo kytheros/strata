@@ -15,6 +15,10 @@ import {
 import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
+import { listEcsServicesZod, listEcsServicesJsonSchema } from './schemas';
+import { withExamples } from './tool-examples';
+
+const NAME = 'list_ecs_services';
 
 // App-layer namespace boundary. ECS cluster names in this account always
 // match `strata-<env>`. Reject any other cluster the model proposes
@@ -31,33 +35,23 @@ function assertAllowedClusterName(name: string): void {
 }
 
 export const TOOL_DEFINITION: Tool = {
-  name: 'list_ecs_services',
-  description: `**Purpose:** Lists ECS services in the deploy's primary cluster with running/desired task counts and deployment status.
+  name: NAME,
+  description: withExamples(
+    NAME,
+    `**Purpose:** Lists ECS services in the deploy's primary cluster with running/desired task counts and deployment status.
 **When to use:** When the user asks how many services are running, whether the strata service is healthy, or to confirm the example-agent itself is the only thing running. Also useful as a precondition check before tools that depend on a service being up (e.g. before calling \`describe_load_balancers\`).
 **Prerequisites:** None. Reads the cluster passed in via container env (\`ECS_CLUSTER_NAME\`, default \`strata-{env}\`).
 **Anti-pattern:** Don't use this for live request metrics — call \`describe_load_balancers\` for traffic data, or \`tail_recent_logs\` for application-level signal.`,
-  input_schema: {
-    type: 'object',
-    properties: {
-      cluster: {
-        type: 'string',
-        description:
-          'Override the cluster name. Defaults to the agent\'s own cluster.',
-      },
-    },
-    additionalProperties: false,
-  },
+  ),
+  input_schema: listEcsServicesJsonSchema,
 };
 
-interface Input {
-  cluster?: string;
-}
-
 export async function execute(
-  input: Input,
+  input: unknown,
   ctx: ToolContext,
 ): Promise<ToolResult> {
-  const cluster = input.cluster ?? ctx.clusterName;
+  const parsed = listEcsServicesZod.parse(input ?? {});
+  const cluster = parsed.cluster ?? ctx.clusterName;
   assertAllowedClusterName(cluster);
   const cacheKey = `list_ecs_services:${shortHash({ cluster })}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);

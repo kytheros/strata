@@ -14,24 +14,31 @@ import {
 import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
+import {
+  describeLoadBalancersZod,
+  describeLoadBalancersJsonSchema,
+} from './schemas';
+import { withExamples } from './tool-examples';
+
+const NAME = 'describe_load_balancers';
 
 export const TOOL_DEFINITION: Tool = {
-  name: 'describe_load_balancers',
-  description: `**Purpose:** List ELBv2 load balancers (ALB/NLB) with their DNS names, schemes, and the target groups attached to each.
+  name: NAME,
+  description: withExamples(
+    NAME,
+    `**Purpose:** List ELBv2 load balancers (ALB/NLB) with their DNS names, schemes, and the target groups attached to each.
 **When to use:** When the user asks about ingress, public hostnames, or which target groups exist. Pair with \`list_ecs_services\` when answering "what's reachable from the public internet?"
 **Prerequisites:** None.
 **Anti-pattern:** Don't use this for live traffic metrics (RPS, latency) — those are CloudWatch Metrics, not ELBv2 describe calls. Don't use it as a health probe; \`list_active_alarms\` is the canonical health-now check.`,
-  input_schema: {
-    type: 'object',
-    properties: {},
-    additionalProperties: false,
-  },
+  ),
+  input_schema: describeLoadBalancersJsonSchema,
 };
 
 export async function execute(
-  _input: Record<string, never>,
+  input: unknown,
   ctx: ToolContext,
 ): Promise<ToolResult> {
+  describeLoadBalancersZod.parse(input ?? {});
   const cacheKey = `describe_load_balancers:${shortHash({})}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);
   if (cached) return cached;

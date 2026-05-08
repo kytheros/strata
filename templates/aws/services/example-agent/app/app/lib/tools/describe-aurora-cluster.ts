@@ -10,6 +10,13 @@ import { RDSClient, DescribeDBClustersCommand } from '@aws-sdk/client-rds';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
+import {
+  describeAuroraClusterZod,
+  describeAuroraClusterJsonSchema,
+} from './schemas';
+import { withExamples } from './tool-examples';
+
+const NAME = 'describe_aurora_cluster';
 
 // App-layer namespace boundary. Aurora cluster identifiers in this
 // account always match `strata-<env>`. A prompt-injected `clusterId`
@@ -27,32 +34,23 @@ function assertAllowedClusterId(id: string): void {
 }
 
 export const TOOL_DEFINITION: Tool = {
-  name: 'describe_aurora_cluster',
-  description: `**Purpose:** Describe the deploy's Aurora Postgres Serverless v2 cluster — status, endpoints, engine version, current ACU capacity, backup retention, encryption.
+  name: NAME,
+  description: withExamples(
+    NAME,
+    `**Purpose:** Describe the deploy's Aurora Postgres Serverless v2 cluster — status, endpoints, engine version, current ACU capacity, backup retention, encryption.
 **When to use:** When the user asks how the database is doing, whether it's available, or about its scaling/backup posture. Also pair with \`list_active_alarms\` when investigating a database-related incident.
 **Prerequisites:** None. Defaults to the agent's own cluster ID (\`AURORA_CLUSTER_ID\` env, default \`strata-{env}\`).
 **Anti-pattern:** Don't use this for query-level metrics — those are not in DescribeDBClusters; query Performance Insights via the CloudWatch tools instead.`,
-  input_schema: {
-    type: 'object',
-    properties: {
-      clusterId: {
-        type: 'string',
-        description: 'Override the cluster identifier. Defaults to the agent\'s own.',
-      },
-    },
-    additionalProperties: false,
-  },
+  ),
+  input_schema: describeAuroraClusterJsonSchema,
 };
 
-interface Input {
-  clusterId?: string;
-}
-
 export async function execute(
-  input: Input,
+  input: unknown,
   ctx: ToolContext,
 ): Promise<ToolResult> {
-  const clusterId = input.clusterId ?? ctx.auroraClusterId;
+  const parsed = describeAuroraClusterZod.parse(input ?? {});
+  const clusterId = parsed.clusterId ?? ctx.auroraClusterId;
   // Server-side allowlist check BEFORE cache or SDK. The model can ask
   // for any cluster string; we only let through strata-* identifiers.
   assertAllowedClusterId(clusterId);

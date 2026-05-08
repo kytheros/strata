@@ -12,6 +12,10 @@ import {
 import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
+import { tailRecentLogsZod, tailRecentLogsJsonSchema } from './schemas';
+import { withExamples } from './tool-examples';
+
+const NAME = 'tail_recent_logs';
 
 // App-layer namespace boundary. The IAM role is being tightened in
 // parallel, but IAM cannot enforce namespace constraints on user-supplied
@@ -37,50 +41,29 @@ function assertAllowedLogGroup(name: string): void {
 }
 
 export const TOOL_DEFINITION: Tool = {
-  name: 'tail_recent_logs',
-  description: `**Purpose:** Tail the most recent log events from a CloudWatch log group, optionally filtered by a CloudWatch Logs filter pattern (e.g. \`ERROR\`, \`?WARN ?error\`).
-**When to use:** When investigating "what just happened" — a 500 a user reported, an alarm that just triggered, an unexpected restart. Pair with \`list_active_alarms\` (which alarm fired?) and \`list_ecs_services\` (is the service still running?).
+  name: NAME,
+  description: withExamples(
+    NAME,
+    `**Purpose:** Tail the most recent log events from a CloudWatch log group, optionally filtered by a CloudWatch Logs filter pattern (e.g. \`ERROR\`, \`?WARN ?error\`).
+**When to use:** When investigating "what just happened" — a 500 a user reported, an alarm that just triggered, an unexpected restart. Pair with \`list_active_alarms\` (which alarm fired?) and \`list_ecs_services\` (is the service still running?). Use \`list_log_groups\` first if you don't already know which group to tail.
 **Prerequisites:** None. Defaults to a curated log group prefix; pass \`logGroupName\` to override.
 **Anti-pattern:** Don't use this to count occurrences over a long window — call CloudWatch Logs Insights via a different tool (not yet shipped). Don't request more than 50 events; the wrapper caps at 50 to keep the tool result token-efficient.`,
-  input_schema: {
-    type: 'object',
-    properties: {
-      logGroupName: {
-        type: 'string',
-        description:
-          'Log group name (e.g. /ecs/strata-dev). Defaults to the agent\'s curated group.',
-      },
-      lookbackMinutes: {
-        type: 'number',
-        description: 'How far back in minutes to scan. Default 15.',
-      },
-      filterPattern: {
-        type: 'string',
-        description:
-          'CloudWatch Logs filter pattern (e.g. ERROR, ?WARN ?error). Empty matches everything.',
-      },
-    },
-    additionalProperties: false,
-  },
+  ),
+  input_schema: tailRecentLogsJsonSchema,
 };
 
-interface Input {
-  logGroupName?: string;
-  lookbackMinutes?: number;
-  filterPattern?: string;
-}
-
 export async function execute(
-  input: Input,
+  input: unknown,
   ctx: ToolContext,
 ): Promise<ToolResult> {
-  const logGroupName = input.logGroupName ?? ctx.logGroupPrefix;
+  const parsed = tailRecentLogsZod.parse(input ?? {});
+  const logGroupName = parsed.logGroupName ?? ctx.logGroupPrefix;
   // Server-side allowlist check BEFORE cache or SDK. A prompt-injected
   // request like "tail logs from /aws/lambda/billing-service" gets
   // rejected here, not by IAM after a wasted round trip.
   assertAllowedLogGroup(logGroupName);
-  const lookbackMinutes = input.lookbackMinutes ?? 15;
-  const filterPattern = input.filterPattern ?? '';
+  const lookbackMinutes = parsed.lookbackMinutes ?? 15;
+  const filterPattern = parsed.filterPattern ?? '';
   const cacheKey = `tail_recent_logs:${shortHash({ logGroupName, lookbackMinutes, filterPattern })}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);
   if (cached) return cached;

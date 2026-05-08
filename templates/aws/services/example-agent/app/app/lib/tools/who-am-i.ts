@@ -9,24 +9,28 @@ import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 import type { ToolContext, ToolResult } from './context';
 import { shortHash } from '../cache';
+import { whoAmIZod, whoAmIJsonSchema } from './schemas';
+import { withExamples } from './tool-examples';
+
+const NAME = 'who_am_i';
 
 export const TOOL_DEFINITION: Tool = {
-  name: 'who_am_i',
-  description: `**Purpose:** Resolve the AWS identity (account ID, IAM role ARN, region) the agent is running under.
+  name: NAME,
+  description: withExamples(
+    NAME,
+    `**Purpose:** Resolve the AWS identity (account ID, IAM role ARN, region) the agent is running under.
 **When to use:** When the user asks "what account / role / region are you in?", or as a sanity check before a multi-call investigation so subsequent answers can scope to the right account.
 **Prerequisites:** None — this is the canonical no-input call.
 **Anti-pattern:** Don't call this on every turn. The result is stable for the task's lifetime; use cached output instead of forcing a refetch.`,
-  input_schema: {
-    type: 'object',
-    properties: {},
-    additionalProperties: false,
-  },
+  ),
+  input_schema: whoAmIJsonSchema,
 };
 
 export async function execute(
-  _input: Record<string, never>,
+  input: unknown,
   ctx: ToolContext,
 ): Promise<ToolResult> {
+  whoAmIZod.parse(input ?? {});
   const cacheKey = `who_am_i:${shortHash({})}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);
   if (cached) return cached;

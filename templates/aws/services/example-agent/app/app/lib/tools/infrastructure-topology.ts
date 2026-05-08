@@ -14,24 +14,31 @@ import { execute as listVpcResources } from './list-vpc-resources';
 import { execute as listEcsServices } from './list-ecs-services';
 import { execute as describeAuroraCluster } from './describe-aurora-cluster';
 import { execute as describeLoadBalancers } from './describe-load-balancers';
+import {
+  infrastructureTopologyZod,
+  infrastructureTopologyJsonSchema,
+} from './schemas';
+import { withExamples } from './tool-examples';
+
+const NAME = 'infrastructure_topology';
 
 export const TOOL_DEFINITION: Tool = {
-  name: 'infrastructure_topology',
-  description: `**Purpose:** One-call snapshot of the deploy's infrastructure: VPC + subnets, running ECS services, Aurora cluster status, and load balancers. Composes four other tools into a single summary.
+  name: NAME,
+  description: withExamples(
+    NAME,
+    `**Purpose:** One-call snapshot of the deploy's infrastructure: VPC + subnets, running ECS services, Aurora cluster status, and load balancers. Composes four other tools into a single summary.
 **When to use:** When the user asks an open-ended "describe the deployment" or "what's running?" question. Strongly prefer this over making four separate calls — same cost (each underlying call is independently cached) but cleaner conversation.
 **Prerequisites:** None. Inherits caches and TTLs from the underlying tools.
 **Anti-pattern:** Don't use this when the user wants a specific drill-down (e.g. just the alarms, just the cost) — those have dedicated tools and are cheaper. This is the "give me everything" tool.`,
-  input_schema: {
-    type: 'object',
-    properties: {},
-    additionalProperties: false,
-  },
+  ),
+  input_schema: infrastructureTopologyJsonSchema,
 };
 
 export async function execute(
-  _input: Record<string, never>,
+  input: unknown,
   ctx: ToolContext,
 ): Promise<ToolResult> {
+  infrastructureTopologyZod.parse(input ?? {});
   const cacheKey = `infrastructure_topology:${shortHash({ region: ctx.region, cluster: ctx.clusterName })}`;
   const cached = await ctx.cache.get<ToolResult>(cacheKey);
   if (cached) return cached;
