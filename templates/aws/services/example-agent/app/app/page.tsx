@@ -54,7 +54,7 @@ export default function Page({
           </span>
           <h1>Strata Example Agent</h1>
           <p className="hero-lede">
-            An authenticated chat surface for the Strata-on-AWS deploy. Ask
+            An authenticated chat surface for the Strata-on-AWS deployment. Ask
             Claude about cost, alarms, ECS, VPC, or logs &mdash; it answers by
             calling read-only AWS APIs in this account.
           </p>

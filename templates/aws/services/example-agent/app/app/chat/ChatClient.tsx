@@ -202,7 +202,7 @@ export default function ChatClient() {
       <form onSubmit={send} className="chat-form">
         <div className="chat-form-row">
           <label htmlFor="chat-input" className="sr-only">
-            Ask about your AWS deploy
+            Ask about your AWS deployment
           </label>
           <input
             id="chat-input"
@@ -211,7 +211,7 @@ export default function ChatClient() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about your AWS deploy…"
+            placeholder="Ask about your AWS deployment…"
             disabled={busy}
             autoComplete="off"
             spellCheck="false"
