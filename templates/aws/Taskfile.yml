@@ -377,6 +377,25 @@ tasks:
       - terraform output
 
   # -------------------------------------------------------------------------
+  # E2E smoke suite — Playwright request-fixture suite that hits the live
+  # dev stack from outside the VPC. Catches the cross-cutting wiring bugs
+  # that no unit test reaches (DNS, SG ingress, env-var injection, JWT
+  # authorizer, MCP handshake, SSE framing, /api/chat tool loop).
+  #
+  # Prerequisites (one-time): templates/aws/test/e2e/README.md
+  #   - npm install (from templates/aws/)
+  #   - test-user credentials seeded in Secrets Manager
+  #   - <repo>/.work/session-cookie.txt populated for /api/chat case
+  #
+  # Idempotent — safe to run repeatedly. ~$0.001 per run (one Anthropic call).
+  # -------------------------------------------------------------------------
+
+  dev:smoke:
+    desc: 'Run the E2E smoke suite against the live dev stack. Exits non-zero on any failure. ~60–90s.'
+    cmds:
+      - npx playwright test --grep @smoke
+
+  # -------------------------------------------------------------------------
   # Per-module validation harnesses (DEPRECATED as apply targets).
   #
   # The `*:up` / `*:down` tasks below remain for INDIVIDUAL MODULE testing
