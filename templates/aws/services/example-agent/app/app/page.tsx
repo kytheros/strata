@@ -52,7 +52,7 @@ export default function Page({
           <span className="hero-eyebrow">
             <span aria-hidden="true">●</span> AWS Introspection
           </span>
-          <h1>Strata Example Agent</h1>
+          <h1>AWS Concierge</h1>
           <p className="hero-lede">
             An authenticated chat surface for the Strata-on-AWS deployment. Ask
             Claude about cost, alarms, ECS, VPC, or logs &mdash; it answers by

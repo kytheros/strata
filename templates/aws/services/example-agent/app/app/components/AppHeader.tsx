@@ -22,11 +22,11 @@ export function AppHeader({ signedIn = false, identity }: AppHeaderProps) {
 
   return (
     <header className="app-header">
-      <Link href="/" className="app-header-brand" aria-label="Strata Example Agent home">
+      <Link href="/" className="app-header-brand" aria-label="AWS Concierge home">
         <span className="brand-mark" aria-hidden="true">
-          S
+          C
         </span>
-        <span>Strata Example Agent</span>
+        <span>AWS Concierge</span>
       </Link>
       <div className="app-header-meta">
         <span className="account-badge" title="AWS account & region this agent is querying">

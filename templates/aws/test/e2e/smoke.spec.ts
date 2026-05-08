@@ -34,11 +34,11 @@ test("@smoke GET /health returns 200 with status:ok", async ({ request }) => {
 // Catches: container not starting (missing env var), ingress wired to wrong
 // target group, ECS service unhealthy.
 // ---------------------------------------------------------------------------
-test("@smoke GET / (anonymous) renders the example-agent landing page", async ({ request }) => {
+test("@smoke GET / (anonymous) renders the AWS Concierge landing page", async ({ request }) => {
   const res = await request.get("/", { timeout: 15_000 });
   expect(res.status()).toBe(200);
   const html = await res.text();
-  expect(html).toContain("Strata Example Agent");
+  expect(html).toContain("AWS Concierge");
 });
 
 // ---------------------------------------------------------------------------

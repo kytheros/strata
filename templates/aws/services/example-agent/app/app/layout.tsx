@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Strata Example Agent',
+  title: 'AWS Concierge',
   description:
     'AWS-introspection chat surface backed by Strata-on-AWS. Cognito-federated, allowlist-gated.',
 };
