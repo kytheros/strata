@@ -514,6 +514,34 @@ data "aws_iam_policy_document" "task_role_stub" {
   }
 }
 
+# ---- AWS-3.4: Anthropic spend observability --------------------------------
+#
+# The agent-loop instruments every messages.create() call with a
+# CloudWatch PutMetricData (Concierge/Anthropic/TokensConsumed). Without
+# this policy the call fails silently (caught by the fire-and-forget
+# wrapper in app/lib/metrics.ts) and the alarm never sees data.
+#
+# Resource scoping: cloudwatch:PutMetricData does NOT support
+# resource-level IAM scoping (per AWS docs — the API has no resource
+# ARN). Tightening uses the `cloudwatch:namespace` condition key so
+# this role can only push under the Concierge/Anthropic namespace.
+# Anything else (e.g. AWS/* impostor metrics) is denied at the IAM
+# layer regardless of the agent code.
+data "aws_iam_policy_document" "cloudwatch_put_metric_data" {
+  statement {
+    sid       = "AllowPutMetricDataForAnthropicSpend"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["Concierge/Anthropic"]
+    }
+  }
+}
+
 # ---- AWS-3.3: deny IAM/Secrets/KMS reads (with carve-outs) -----------------
 #
 # `iam:Get*/List*/Simulate*` — flat deny. The agent never needs to enumerate
@@ -782,6 +810,7 @@ module "ecs_service" {
       "deny-iam-secrets-kms-reads",
       "secret-cognito-client",
       "secret-anthropic-api-key",
+      "cloudwatch-put-metric-data",
     ],
     var.redis_enabled ? ["secret-redis-auth"] : [],
   )
@@ -791,6 +820,7 @@ module "ecs_service" {
       deny-iam-secrets-kms-reads = data.aws_iam_policy_document.deny_iam_secrets_kms_reads.json
       secret-cognito-client      = module.cognito_client_secret.consumer_iam_policy_json
       secret-anthropic-api-key   = module.anthropic_api_key.consumer_iam_policy_json
+      cloudwatch-put-metric-data = data.aws_iam_policy_document.cloudwatch_put_metric_data.json
     },
     var.redis_auth_secret_consumer_iam_policy_json != "" ? {
       secret-redis-auth = var.redis_auth_secret_consumer_iam_policy_json
