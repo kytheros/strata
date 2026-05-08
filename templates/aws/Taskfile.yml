@@ -48,6 +48,11 @@ tasks:
     vars:
       ENV_FILE: '{{.ENV_FILE | default "E:/strata/.env"}}'
       SKIP_ANTHROPIC_PROBE: '{{.SKIP_ANTHROPIC_PROBE | default ""}}'
+      # Soft-warn instead of hard-fail when KMS keys / Secrets are still in
+      # the post-teardown deletion window. They block re-creation only when
+      # the next apply tries to claim the same alias name; for applies that
+      # don't touch KMS aliases (e.g. adding a custom domain), they're noise.
+      SKIP_ORPHAN_CHECK: '{{.SKIP_ORPHAN_CHECK | default ""}}'
     cmds:
       - |
         # Each check echoes a tagged status line and tracks fail count.
@@ -153,8 +158,12 @@ tasks:
         rm -f "$ORPHAN_KMS_FILE" 2>/dev/null
         TOTAL_ORPHANS=$((ORPHAN_KMS + ORPHAN_SECRETS))
         if [ "$TOTAL_ORPHANS" -gt 0 ]; then
-          echo "[fail] orphan-resources: $ORPHAN_KMS KMS key(s) + $ORPHAN_SECRETS secret(s) pending deletion from prior teardown — Run 'task cleanup:orphans' first or wait out the recovery window"
-          FAILS=$((FAILS+1))
+          if [ -n "{{.SKIP_ORPHAN_CHECK}}" ]; then
+            echo "[warn] orphan-resources: $ORPHAN_KMS KMS key(s) + $ORPHAN_SECRETS secret(s) pending deletion (SKIP_ORPHAN_CHECK set — proceeding)"
+          else
+            echo "[fail] orphan-resources: $ORPHAN_KMS KMS key(s) + $ORPHAN_SECRETS secret(s) pending deletion from prior teardown — Run 'task cleanup:orphans' first, wait out the 7-day window, or re-run with SKIP_ORPHAN_CHECK=1 if this apply does not create new KMS aliases"
+            FAILS=$((FAILS+1))
+          fi
         else
           echo "[ok]   orphan-resources: none pending deletion"
         fi
