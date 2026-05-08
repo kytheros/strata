@@ -46,12 +46,18 @@ tasks:
     silent: true
     deps: [preflight]
     vars:
-      ENV_FILE: 'E:/strata/.env'
+      ENV_FILE: '{{.ENV_FILE | default "E:/strata/.env"}}'
       SKIP_ANTHROPIC_PROBE: '{{.SKIP_ANTHROPIC_PROBE | default ""}}'
     cmds:
       - |
         # Each check echoes a tagged status line and tracks fail count.
         FAILS=0
+
+        # Resolve a writable temp dir (used by checks 4 + 5). Git Bash on
+        # Windows sets $TEMP; POSIX has $TMPDIR; fall back to /tmp. Task's
+        # shell does not auto-resolve /tmp on Windows.
+        TMPDIR_RESOLVED="${TMPDIR:-${TEMP:-/tmp}}"
+        TMPDIR_RESOLVED=$(echo "$TMPDIR_RESOLVED" | tr '\\' '/')
 
         # ---- 1. Anthropic key file present (HARD FAIL) -----------------------
         # Order matters: the optional probe (check 5) reuses this key, so this
@@ -85,18 +91,10 @@ tasks:
         fi
 
         # ---- 2. AWS credentials current + correct account (HARD FAIL) --------
-        # The `preflight` dep already validated this, but we re-emit a tagged
-        # line so dev:preflight has a complete green-line audit on its own.
-        ACCT=$(aws sts get-caller-identity --profile {{.AWS_PROFILE}} --query Account --output text 2>/dev/null | tr -d '[:space:]')
-        if [ -z "$ACCT" ]; then
-          echo "[fail] aws-auth: aws sts get-caller-identity failed — credentials missing or expired"
-          FAILS=$((FAILS+1))
-        elif [ "$ACCT" != "{{.EXPECTED_ACCOUNT}}" ]; then
-          echo "[fail] aws-auth: account '$ACCT' != expected {{.EXPECTED_ACCOUNT}}"
-          FAILS=$((FAILS+1))
-        else
-          echo "[ok]   aws-auth: account $ACCT"
-        fi
+        # The `preflight` dep already validated this and printed an OK line;
+        # we re-emit a [ok] tag so dev:preflight has a complete tagged audit
+        # on its own without spending another sts get-caller-identity call.
+        echo "[ok]   aws-auth: account {{.EXPECTED_ACCOUNT}} (validated by 'preflight' dep)"
 
         # ---- 3. Docker reachable (SOFT WARN) ---------------------------------
         # Only matters if operator plans to rebuild service images. dev:up
@@ -108,32 +106,54 @@ tasks:
         fi
 
         # ---- 4. No orphan KMS/Secrets from prior teardown (HARD FAIL) --------
-        # Phase 3 introduces 'task cleanup:orphans' to clear these. Until then,
-        # the preflight surfaces the dependency and tells operators what to do.
-        # Query: KMS keys + Secrets in PendingDeletion that match strata-dev tags.
-        ORPHAN_KMS=$(aws kms list-keys --query 'Keys[].KeyId' --output text 2>/dev/null \
-          | tr '\t' '\n' \
-          | while read -r kid; do
-              [ -z "$kid" ] && continue
-              STATE=$(aws kms describe-key --key-id "$kid" --query 'KeyMetadata.KeyState' --output text 2>/dev/null)
-              if [ "$STATE" = "PendingDeletion" ]; then
-                # Filter to strata-dev tags to avoid noise from other workloads.
-                TAGS=$(aws kms list-resource-tags --key-id "$kid" --query 'Tags[?TagKey==`Project`].TagValue' --output text 2>/dev/null)
-                if [ "$TAGS" = "strata" ] || [ "$TAGS" = "strata-dev" ]; then
-                  echo "$kid"
-                fi
-              fi
-            done | wc -l | tr -d '[:space:]')
-        ORPHAN_SECRETS=$(aws secretsmanager list-secrets \
+        # Run 'task cleanup:orphans' to clear these. The preflight surfaces
+        # them so the operator notices BEFORE terraform plan blows up on a
+        # "secret already scheduled for deletion" / "alias already exists".
+        # Strategy:
+        #   - Secrets: single list-secrets call with tag + DeletedDate filter.
+        #   - KMS: tagging API for strata-tagged keys (cuts 33→~7), then
+        #     parallel describe-key to filter PendingDeletion. Sequential
+        #     describe-key would be ~7s; backgrounding cuts to ~1s.
+        # Parallelize the two preliminary AWS calls (~1.3s each on Windows
+        # cold-start). list-secrets returns the count directly; tagging-api
+        # returns ARNs we then describe in parallel.
+        SECRETS_OUT="$TMPDIR_RESOLVED/strata-preflight-secrets-$$.txt"
+        KMS_ARNS_OUT="$TMPDIR_RESOLVED/strata-preflight-kms-arns-$$.txt"
+        aws secretsmanager list-secrets \
           --include-planned-deletion \
           --filters 'Key=tag-key,Values=Project' 'Key=tag-value,Values=strata,strata-dev' \
-          --query 'SecretList[?DeletedDate!=null].Name' \
-          --output text 2>/dev/null \
-          | tr '\t' '\n' | grep -c . || true)
+          --query 'SecretList[?DeletedDate!=null] | length(@)' \
+          --output text 2>/dev/null > "$SECRETS_OUT" &
+        aws resourcegroupstaggingapi get-resources \
+          --tag-filters 'Key=Project,Values=strata,strata-dev' \
+          --resource-type-filters kms \
+          --query 'ResourceTagMappingList[].ResourceARN' \
+          --output text 2>/dev/null > "$KMS_ARNS_OUT" &
+        wait
+        ORPHAN_SECRETS=$(tr -d '[:space:]\r' < "$SECRETS_OUT" 2>/dev/null)
         ORPHAN_SECRETS=${ORPHAN_SECRETS:-0}
+        STRATA_KMS_ARNS=$(tr '\t\r' '\n ' < "$KMS_ARNS_OUT" 2>/dev/null | tr -d ' ')
+        rm -f "$SECRETS_OUT" "$KMS_ARNS_OUT" 2>/dev/null
+        # Parallel describe-key: each background job appends a line to a tally
+        # file on PendingDeletion match, then count lines. Avoids Task's
+        # coreutils shim (no `find -maxdepth`, no `ls -1`).
+        ORPHAN_KMS_FILE="$TMPDIR_RESOLVED/strata-preflight-kms-orphans-$$.txt"
+        : > "$ORPHAN_KMS_FILE"
+        for arn in $STRATA_KMS_ARNS; do
+          [ -z "$arn" ] && continue
+          KID="${arn##*/}"
+          (
+            STATE=$(aws kms describe-key --key-id "$KID" --query 'KeyMetadata.KeyState' --output text 2>/dev/null | tr -d '\r')
+            [ "$STATE" = "PendingDeletion" ] && echo "$KID" >> "$ORPHAN_KMS_FILE"
+          ) &
+        done
+        wait
+        ORPHAN_KMS=$(wc -l < "$ORPHAN_KMS_FILE" 2>/dev/null | tr -d '[:space:]')
+        ORPHAN_KMS=${ORPHAN_KMS:-0}
+        rm -f "$ORPHAN_KMS_FILE" 2>/dev/null
         TOTAL_ORPHANS=$((ORPHAN_KMS + ORPHAN_SECRETS))
         if [ "$TOTAL_ORPHANS" -gt 0 ]; then
-          echo "[fail] orphan-resources: $ORPHAN_KMS KMS key(s) + $ORPHAN_SECRETS secret(s) pending deletion from prior teardown — Run 'task cleanup:orphans' first (Phase 3) or wait out the recovery window"
+          echo "[fail] orphan-resources: $ORPHAN_KMS KMS key(s) + $ORPHAN_SECRETS secret(s) pending deletion from prior teardown — Run 'task cleanup:orphans' first or wait out the recovery window"
           FAILS=$((FAILS+1))
         else
           echo "[ok]   orphan-resources: none pending deletion"
@@ -141,15 +161,9 @@ tasks:
 
         # ---- 5. Anthropic API quota probe (SOFT WARN, optional, cached) ------
         # Skipped if SKIP_ANTHROPIC_PROBE=1 or if the key check above failed.
-        # Cached for 1h in $ANTHROPIC_PROBE_CACHE so repeated preflights don't
-        # spend tokens. Probe makes a 1-token request; we only care whether the
-        # response is HTTP 400 with 'credit balance is too low'.
-        # Resolve a writable temp dir. Git Bash on Windows sets $TEMP; POSIX
-        # has $TMPDIR; fall back to /tmp. Task's shell does not auto-resolve
-        # /tmp on Windows, so always go through this lookup.
-        TMPDIR_RESOLVED="${TMPDIR:-${TEMP:-/tmp}}"
-        # Convert backslashes (TEMP on Windows can be C:\Users\...\Temp).
-        TMPDIR_RESOLVED=$(echo "$TMPDIR_RESOLVED" | tr '\\' '/')
+        # Cached for 1h in CACHE so repeated preflights don't spend tokens.
+        # Probe makes a 1-token request; we only care whether the response is
+        # HTTP 400 with 'credit balance is too low'.
         CACHE="$TMPDIR_RESOLVED/strata-preflight-anthropic.txt"
         BODY_FILE="$TMPDIR_RESOLVED/strata-preflight-anthropic.body"
         if [ -n "{{.SKIP_ANTHROPIC_PROBE}}" ]; then
