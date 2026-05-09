@@ -184,7 +184,11 @@ describe("FileWatcher multi-directory", () => {
     ];
 
     const calls: Array<{ filePath: string; parserId: string }> = [];
-    const watcher = new FileWatcher(100, targets);
+    // Use a 500ms debounce window so the three writes (each ~30-50ms apart on
+    // CI runners) reliably fall within one window. The previous 100ms window
+    // was too tight for slow runners — writes 1 and 2 would land outside it
+    // and produce 3 callbacks instead of 1, flaking the test.
+    const watcher = new FileWatcher(500, targets);
     watcher.start((filePath, parserId) => {
       calls.push({ filePath, parserId });
     });
@@ -197,8 +201,8 @@ describe("FileWatcher multi-directory", () => {
     await new Promise((r) => setTimeout(r, 20));
     writeFileSync(file, '{"line": 1}\n{"line": 2}\n{"line": 3}\n');
 
-    // Wait for debounce to fire
-    await new Promise((r) => setTimeout(r, 300));
+    // Wait for debounce to fire (500ms window + slack)
+    await new Promise((r) => setTimeout(r, 800));
 
     watcher.stop();
 

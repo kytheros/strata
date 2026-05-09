@@ -8,12 +8,6 @@ variable "env_name" {
   }
 }
 
-variable "aws_region" {
-  description = "AWS region for the state bucket. Lock table and OIDC provider are global/regional-agnostic but the bucket is regional."
-  type        = string
-  default     = "us-east-1"
-}
-
 variable "repo_slug" {
   description = "GitHub repo in {owner}/{name} form, e.g. mkavalich/strata. Used to scope the OIDC trust policy."
   type        = string

@@ -79,9 +79,6 @@ module "credentials_secret" {
 #   - basic Lambda exec (logs:CreateLogStream + PutLogEvents on the log group)
 ###############################################################################
 
-data "aws_caller_identity" "current" {}
-data "aws_partition" "current" {}
-
 data "aws_iam_policy_document" "lambda_assume" {
   count = local.enabled ? 1 : 0
 

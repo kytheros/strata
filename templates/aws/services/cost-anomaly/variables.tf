@@ -18,12 +18,6 @@ variable "env_name" {
   }
 }
 
-variable "aws_region" {
-  description = "AWS region. Passed through for tagging consistency; CE resources are global."
-  type        = string
-  default     = "us-east-1"
-}
-
 variable "cost_alert_email" {
   description = "Email that receives Cost Anomaly Detection alerts. SNS sends a confirmation the recipient must accept before alerts are delivered."
   type        = string

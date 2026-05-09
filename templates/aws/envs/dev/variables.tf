@@ -33,6 +33,8 @@ variable "vpc_cidr" {
   }
 }
 
+# Referenced by outputs.tf:app_url; tflint doesn't trace output references as usage.
+# tflint-ignore: terraform_unused_declarations
 variable "example_agent_app_url" {
   description = "Public URL where the example-agent UI is served. Used as the Cognito callback / logout URL base. Format: `https://<host>` with no trailing slash. After the first apply lands the ingress, update this to `https://<module.ingress.endpoint_dns>` and re-apply — see README §\"Two-pass apply pattern\"."
   type        = string
