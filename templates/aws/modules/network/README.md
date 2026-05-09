@@ -68,7 +68,7 @@ The maps are keyed by short service name (`s3`, `dynamodb`, `ecr.api`, `ecr.dkr`
 ## How to run (dev account, today)
 
 ```bash
-# 1. Confirm identity (must be mike-cli @ 624990353897)
+# 1. Confirm identity (must be <your-cli-user> @ <ACCOUNT_ID>)
 aws sts get-caller-identity
 
 # 2. From modules/network/examples/basic/

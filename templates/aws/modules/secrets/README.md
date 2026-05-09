@@ -81,7 +81,7 @@ resource "aws_iam_role_policy" "task_read_db_secret" {
 
 ```bash
 # 1. Confirm identity
-aws sts get-caller-identity   # → 624990353897 / mike-cli
+aws sts get-caller-identity   # → <ACCOUNT_ID> / <your-cli-user>
 
 # 2. Basic example (no rotation)
 cd modules/secrets/examples/basic

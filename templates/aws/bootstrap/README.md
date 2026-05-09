@@ -37,7 +37,7 @@ Useful optionals:
 ```bash
 # 1. Confirm identity
 aws sts get-caller-identity
-# Expect: {"Account": "624990353897", "Arn": "arn:aws:iam::624990353897:user/mike-cli"}
+# Expect: {"Account": "<ACCOUNT_ID>", "Arn": "arn:aws:iam::<ACCOUNT_ID>:user/<your-cli-user>"}
 
 # 2. Plan + apply
 cd strata/templates/aws/bootstrap/examples/dev
@@ -96,10 +96,10 @@ The role currently has `AdministratorAccess` so the rest of Phase 1 (network, EC
 After a successful apply, sanity check:
 
 ```bash
-aws s3api get-bucket-versioning --bucket terraform-state-624990353897-dev
+aws s3api get-bucket-versioning --bucket terraform-state-<ACCOUNT_ID>-dev
 # → "Status": "Enabled"
 
-aws s3api get-bucket-encryption --bucket terraform-state-624990353897-dev
+aws s3api get-bucket-encryption --bucket terraform-state-<ACCOUNT_ID>-dev
 # → "SSEAlgorithm": "AES256"
 
 aws dynamodb describe-table --table-name terraform-state-locks --query 'Table.TableStatus'

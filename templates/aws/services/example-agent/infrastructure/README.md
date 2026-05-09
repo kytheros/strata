@@ -101,7 +101,7 @@ See `variables.tf` for the full set with descriptions.
 | `aws_region` | no | `us-east-1` | Cognito + SSM region. |
 | `google_client_id` | no | `""` | Google OAuth app — empty skips Google federation. |
 | `google_client_secret_arn` | no | `""` | Secrets Manager ARN. |
-| `initial_allowlist` | no | `["mkavalich@gmail.com"]` | Seeded into the SSM parameter. Mutate in-place after apply. |
+| `initial_allowlist` | no | `["you@example.com"]` | Seeded into the SSM parameter. Mutate in-place after apply. |
 | `app_url` | no | `https://localhost:3000` | Public URL — used as Cognito callback base + APP_URL container env. |
 | `container_image` | no | sentinel | Real applies pass an ECR-pushed image tag. |
 | `cluster_arn` | yes | — | From the `ecs-cluster` module. |
@@ -130,7 +130,7 @@ See `variables.tf` for the full set with descriptions.
 ```powershell
 cd E:\strata\strata\templates\aws\services\example-agent\infrastructure
 
-# 1. Confirm identity (must be mike-cli @ 624990353897)
+# 1. Confirm identity (must be <your-cli-user> @ <ACCOUNT_ID>)
 aws sts get-caller-identity
 
 # 2. Validate

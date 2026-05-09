@@ -1,5 +1,5 @@
 ###############################################################################
-# Example: deploy the cloudfront-dist module to the dev account (624990353897).
+# Example: deploy the cloudfront-dist module to the dev account (<ACCOUNT_ID>).
 #
 # What this demonstrates:
 #   - Single S3+OAC origin (a placeholder bucket created via the s3-bucket
@@ -29,7 +29,7 @@
 #            policy SourceArn to this distribution.
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
+#   aws sts get-caller-identity   # confirm you are <your-cli-user> @ <ACCOUNT_ID>
 #   terraform init
 #   terraform validate            # passes with placeholder cert
 #   # terraform plan              # fails on placeholder cert — expected
@@ -39,7 +39,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/cloudfront-dist-basic/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -59,7 +59,7 @@ provider "aws" {
 
   # Sanity guard: this example is hard-coded for the dev account.
   # CloudFront-scope WAF + ACM cert constraint forces us-east-1.
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 ###############################################################################
@@ -103,7 +103,7 @@ module "cloudfront_dist" {
 
   # REPLACE-ME placeholder. Validate passes; plan fails (intentional).
   # Issue a real cert in us-east-1 for dev.test.kytheros.dev and substitute.
-  acm_certificate_arn = "arn:aws:acm:us-east-1:624990353897:certificate/00000000-0000-0000-0000-000000000000"
+  acm_certificate_arn = "arn:aws:acm:us-east-1:<ACCOUNT_ID>:certificate/00000000-0000-0000-0000-000000000000"
 
   origins = [
     {

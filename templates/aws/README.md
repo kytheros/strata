@@ -16,6 +16,19 @@ templates/aws/
 └── README.md               # This file
 ```
 
+## Local-config setup (operator-only files)
+
+A fresh clone cannot apply. Four operator-specific files / config surfaces are required because they hold per-operator values (account ID, emails, secrets) that must never land in the public repo. Skipping any of them produces a clean, early failure with a setup pointer.
+
+| File / surface | Purpose | Seed from |
+|---|---|---|
+| `templates/aws/.env` | Holds `EXPECTED_ACCOUNT_ID`. Loaded by the Taskfile's `dotenv:` directive — every `task dev:*` reads it. **Gitignored.** | `templates/aws/.env.example` |
+| `templates/aws/envs/dev/backend.dev.hcl` | Partial S3 backend config (`bucket`, `dynamodb_table`). Consumed via `terraform init -backend-config=backend.dev.hcl`. **Gitignored.** | `templates/aws/envs/dev/backend.dev.hcl.example` |
+| `templates/aws/envs/dev/terraform.tfvars` | Holds `aws_account_id`, `allowlist_emails`, `cost_alert_email`, `example_agent_container_image`, etc. **Gitignored.** | `templates/aws/envs/dev/terraform.tfvars.example` |
+| GitHub repo `vars.AWS_ACCOUNT_ID` | Read by `.github/workflows/aws-template-{ci,apply}.yml` to build the OIDC role ARN. | Set at `https://github.com/<owner>/<repo>/settings/variables/actions` |
+
+Step-by-step setup is in `envs/dev/README.md` §"Local-config setup". The summary is: copy each `.example` to its real name, fill in your values, run `terraform init -reconfigure -backend-config=backend.dev.hcl` once, then `task dev:up`.
+
 ## Operating cadence — apply only when working
 
 The dev architecture matches the prod spec (3-AZ, 2× NAT, 11 VPC endpoints, ALB, internal NLB, etc.) for portfolio fidelity. **It costs ~$361/mo idle when fully deployed** (NLB added in AWS-1.6.6), dominated by NAT Gateways (~$66) and interface VPC endpoints (~$197 across 3 AZs); the internal NLB adds ~$16/mo idle.
@@ -36,13 +49,16 @@ To keep monthly spend under ~$50, **destroy the stack when you aren't actively w
 # One-time install (Windows): winget install Task.Task
 # One-time install (any OS):   https://taskfile.dev/installation/
 
+# One-time setup — operator-only files (see "Local-config setup" above).
+cp .env.example                    .env                                     && $EDITOR .env
+cp envs/dev/backend.dev.hcl.example envs/dev/backend.dev.hcl                && $EDITOR envs/dev/backend.dev.hcl
+cp envs/dev/terraform.tfvars.example envs/dev/terraform.tfvars              && $EDITOR envs/dev/terraform.tfvars
+
 # One-time per account: apply bootstrap (state bucket + OIDC). Stays up forever.
 task bootstrap:up
 
-# One-time setup before first dev:up: copy + edit tfvars, push container
-# images. See envs/dev/README.md §"Operational setup before first apply".
-cp envs/dev/terraform.tfvars.example envs/dev/terraform.tfvars
-$EDITOR envs/dev/terraform.tfvars
+# One-time per account after bootstrap: lock in the operator-specific backend.
+terraform -chdir=envs/dev init -reconfigure -backend-config=backend.dev.hcl
 
 # Start a work session — apply the full dev stack via the orchestrator.
 task dev:up      # alias: task up
@@ -115,7 +131,7 @@ Cases 5 + 6 need state setup:
 
 `task dev:up` runs `task dev:preflight` first. Hard-fails on:
 - missing/placeholder `ANTHROPIC_API_KEY` in `E:\strata\.env`
-- AWS auth not pointing at account `624990353897`
+- AWS auth not pointing at account `<ACCOUNT_ID>`
 - orphan Secrets Manager / KMS resources from a prior teardown
   (run `task cleanup:orphans` to clear them)
 
@@ -138,7 +154,7 @@ See `envs/dev/README.md` for the full operational setup checklist.
 
 ## Prerequisites
 
-- AWS CLI v2 with profile `default` configured for account `624990353897`
+- AWS CLI v2 with profile `default` configured for account `<ACCOUNT_ID>`
 - Terraform `~> 1.7`
 - `tflint`, `checkov` (optional but the modules document `# checkov:skip` annotations that expect checkov)
 - `task` (https://taskfile.dev) — wraps the destroy/recreate cadence

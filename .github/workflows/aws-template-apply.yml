@@ -6,10 +6,13 @@
 # outputs as a workflow artifact for downstream inspection.
 #
 # OIDC trust:
-#   Assumes arn:aws:iam::624990353897:role/strata-cicd-deploy-role
-#   (sub: repo:mkavalich/strata:environment:dev,
-#         repo:mkavalich/strata:ref:refs/heads/main).
+#   Assumes arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/strata-cicd-deploy-role
+#   (sub: repo:<owner>/<repo>:environment:dev,
+#         repo:<owner>/<repo>:ref:refs/heads/main).
 #   The `dev` GitHub environment gates this workflow with required reviewers.
+#
+# Set vars.AWS_ACCOUNT_ID at https://github.com/<owner>/<repo>/settings/variables/actions
+# before this workflow can resolve.
 #
 # Cost discipline (matches the operating cadence in templates/aws/README.md):
 #   apply brings the dev stack up at ~$361/mo idle. Pair every apply with a
@@ -45,7 +48,7 @@ env:
   TF_VERSION: '1.7.5'
   AWS_REGION: 'us-east-1'
   TEMPLATE_DIR: 'templates/aws'
-  AWS_ACCOUNT_ID: '624990353897'
+  AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
   DEPLOY_ROLE_NAME: 'strata-cicd-deploy-role'
 
 jobs:

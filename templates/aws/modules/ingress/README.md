@@ -132,13 +132,13 @@ A portfolio dev environment that idles 22h/day at zero traffic costs **$0/mo** o
 
 The module is account-agnostic. Per-env tfvars set:
 
-- `dev` (account `624990353897`): `backend = "apigw"`, `internal = false`, `deletion_protection = false`.
+- `dev` (account `<ACCOUNT_ID>`): `backend = "apigw"`, `internal = false`, `deletion_protection = false`.
 - `staging`: `backend = "alb"`, `internal = false`, `deletion_protection = true`, `access_logs_bucket = "strata-logs-{account}"`.
 - `prod`: `backend = "alb"`, `internal = false`, `deletion_protection = true`, `restrict_to_cloudfront_prefix_list = true`, `access_logs_bucket = "strata-logs-{account}"`, `cognito_protected_paths = ["/admin/*"]`.
 
 ## Examples
 
-- `examples/apigw/` — dev backend (`apigw`), no Cognito, applies cleanly into account `624990353897` against the existing `network` module's private subnets.
+- `examples/apigw/` — dev backend (`apigw`), no Cognito, applies cleanly into account `<ACCOUNT_ID>` against the existing `network` module's private subnets.
 - `examples/alb/` — production-shape backend (`alb`) with a sentinel ACM cert ARN. `terraform validate` passes; `terraform plan` requires the sentinel be replaced with a real cert.
 
 ## Verification

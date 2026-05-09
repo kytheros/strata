@@ -1,0 +1,13 @@
+# Operator-supplied backend config for envs/dev.
+#
+# Copy to backend.dev.hcl (gitignored) and fill in your values, then run:
+#
+#   terraform -chdir=templates/aws/envs/dev \
+#     init -reconfigure -backend-config=backend.dev.hcl
+#
+# The bucket + lock-table are created by templates/aws/bootstrap/examples/dev/.
+# After applying that, `aws s3 ls` shows the bucket name; the lock table is
+# the constant "terraform-state-locks" unless the bootstrap was customized.
+
+bucket         = "terraform-state-<ACCOUNT_ID>-dev"
+dynamodb_table = "terraform-state-locks"

@@ -35,7 +35,7 @@
 set -euo pipefail
 
 ROLE_NAME="${ROLE_NAME:-example-agent-dev-task}"
-ACCOUNT_ID="${ACCOUNT_ID:-624990353897}"
+ACCOUNT_ID="${ACCOUNT_ID:-123456789012}"
 ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
 REGION="${AWS_REGION:-us-east-1}"
 

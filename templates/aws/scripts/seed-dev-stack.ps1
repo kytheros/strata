@@ -11,6 +11,10 @@
 #      the seeded Anthropic key
 #
 # Reads ANTHROPIC_API_KEY from E:\strata\.env (monorepo-root .env, gitignored).
+# Reads OPERATOR_EMAIL + TEST_USER_EMAIL from the same .env (or the env)
+# so personal emails never live in this script. Falls back to placeholders
+# when unset; `aws ssm put-parameter` succeeds either way but the canary
+# sign-in flow needs real values to work end-to-end.
 # No keys live in this script.
 
 $ErrorActionPreference = 'Stop'
@@ -23,12 +27,20 @@ if (-not (Test-Path $envFile)) {
 }
 
 $ANTHROPIC_API_KEY = $null
+$OPERATOR_EMAIL = $null
+$TEST_USER_EMAIL = $null
 Get-Content $envFile | ForEach-Object {
     $line = $_.Trim()
     if ($line -match '^ANTHROPIC_API_KEY\s*=\s*(.+?)\s*$') {
         # Strip surrounding single or double quotes if present
         $val = $matches[1] -replace '^["'']', '' -replace '["'']$', ''
         $script:ANTHROPIC_API_KEY = $val
+    } elseif ($line -match '^OPERATOR_EMAIL\s*=\s*(.+?)\s*$') {
+        $val = $matches[1] -replace '^["'']', '' -replace '["'']$', ''
+        $script:OPERATOR_EMAIL = $val
+    } elseif ($line -match '^TEST_USER_EMAIL\s*=\s*(.+?)\s*$') {
+        $val = $matches[1] -replace '^["'']', '' -replace '["'']$', ''
+        $script:TEST_USER_EMAIL = $val
     }
 }
 
@@ -36,6 +48,9 @@ if (-not $ANTHROPIC_API_KEY -or $ANTHROPIC_API_KEY -like '*paste-your*' -or $ANT
     Write-Error "ANTHROPIC_API_KEY missing or too short in $envFile. Expected sk-ant-... value."
     exit 1
 }
+
+if (-not $OPERATOR_EMAIL) { $OPERATOR_EMAIL = 'you@example.com' }
+if (-not $TEST_USER_EMAIL) { $TEST_USER_EMAIL = 'test-user@example.com' }
 
 $env:AWS_DEFAULT_REGION = 'us-east-1'
 
@@ -54,10 +69,11 @@ Write-Host "    ingress dns:      $ingressDns"
 
 Write-Host "`n==> [1/6] Append canary email to SSM allowlist"
 # PowerShell→native-exe arg passing strips inner double quotes from a string
-# argument, so `--value '["mkavalich@gmail.com",...]'` arrives at the AWS CLI
-# as `[mkavalich@gmail.com,...]` — invalid JSON. Workaround: write the JSON
-# payload to a temp file and use the AWS CLI `file://` URI prefix.
-$allowlistJson = '["mkavalich@gmail.com","canary@strata.test","stratatest549@gmail.com"]'
+# argument, so `--value '["a@b.com",...]'` arrives at the AWS CLI as
+# `[a@b.com,...]` — invalid JSON. Workaround: write the JSON payload to a
+# temp file and use the AWS CLI `file://` URI prefix.
+$allowlistEntries = @($OPERATOR_EMAIL, 'canary@strata.test', $TEST_USER_EMAIL) | ForEach-Object { '"' + $_ + '"' }
+$allowlistJson = '[' + ($allowlistEntries -join ',') + ']'
 $allowlistFile = New-TemporaryFile
 [System.IO.File]::WriteAllText($allowlistFile.FullName, $allowlistJson, [System.Text.Encoding]::ASCII)
 aws ssm put-parameter `
@@ -117,5 +133,5 @@ aws ecs update-service --cluster strata-dev --service example-agent-dev `
 
 Write-Host "`nDONE."
 Write-Host "    URL:        https://$ingressDns"
-Write-Host "    Sign in as: mkavalich@gmail.com (Google federation)"
+Write-Host "    Sign in as: $OPERATOR_EMAIL (Google federation)"
 Write-Host "`nWait ~3 min for the example-agent rollout, then visit the URL."

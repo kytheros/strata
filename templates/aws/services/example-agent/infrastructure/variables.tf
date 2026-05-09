@@ -52,9 +52,8 @@ variable "google_client_secret_arn" {
 ###############################################################################
 
 variable "initial_allowlist" {
-  description = "Initial list of email addresses allowed to sign up. Stored as a JSON-encoded array in SSM Parameter Store at /example-agent/{env}/allowed-emails (KMS-encrypted SecureString). Operators edit the parameter directly post-apply — no redeploy needed for allowlist changes. Default seeds the dev account with mkavalich@gmail.com per the design spec."
+  description = "Initial list of email addresses allowed to sign up. Stored as a JSON-encoded array in SSM Parameter Store at /example-agent/{env}/allowed-emails (KMS-encrypted SecureString). Operators edit the parameter directly post-apply — no redeploy needed for allowlist changes. No default — operator must seed via the orchestrator's terraform.tfvars (gitignored) so operator emails never land in the repo."
   type        = list(string)
-  default     = ["mkavalich@gmail.com"]
 
   validation {
     condition     = length(var.initial_allowlist) >= 1

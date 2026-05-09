@@ -32,7 +32,7 @@
 ###############################################################################
 
 ###############################################################################
-# Example: Strata-on-AWS service against the dev account (624990353897).
+# Example: Strata-on-AWS service against the dev account (<ACCOUNT_ID>).
 #
 # Validation flow:
 #   terraform init -backend=false
@@ -47,7 +47,7 @@
 #   data "terraform_remote_state" "network" {
 #     backend = "s3"
 #     config = {
-#       bucket = "terraform-state-624990353897-dev"
+#       bucket = "terraform-state-<ACCOUNT_ID>-dev"
 #       key    = "examples/network-basic/terraform.tfstate"
 #       region = "us-east-1"
 #     }
@@ -74,7 +74,7 @@ terraform {
 
 provider "aws" {
   region              = "us-east-1"
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 ###############################################################################

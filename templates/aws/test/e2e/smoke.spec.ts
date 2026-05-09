@@ -59,9 +59,14 @@ test("@smoke GET /api/auth/login redirects to Cognito Hosted UI with required OA
   expect(res.status()).toBe(307);
   const location = res.headers()["location"];
   expect(location, "Location header missing on /api/auth/login").toBeTruthy();
-  expect(location).toMatch(
-    /^https:\/\/strata-dev-624990353897\.auth\.us-east-1\.amazoncognito\.com\/oauth2\/authorize\?/,
+  // Cognito Hosted UI domain is `strata-dev-<aws-account-id>.auth.<region>.amazoncognito.com`.
+  // Pin to the operator's account ID when AWS_ACCOUNT_ID is set; otherwise
+  // accept any 12-digit account ID so the test runs cleanly on a fresh clone.
+  const accountId = process.env.AWS_ACCOUNT_ID ?? "[0-9]{12}";
+  const cognitoHostPattern = new RegExp(
+    `^https:\\/\\/strata-dev-${accountId}\\.auth\\.us-east-1\\.amazoncognito\\.com\\/oauth2\\/authorize\\?`,
   );
+  expect(location).toMatch(cognitoHostPattern);
   // OAuth state is non-deterministic; we only check it's present + non-empty.
   const url = new URL(location);
   const params = url.searchParams;

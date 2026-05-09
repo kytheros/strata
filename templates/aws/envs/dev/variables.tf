@@ -6,6 +6,16 @@
 # env level. Seed via `cp terraform.tfvars.example terraform.tfvars`.
 ###############################################################################
 
+variable "aws_account_id" {
+  description = "12-digit AWS account ID. Used to pin the provider via allowed_account_ids and to confirm the operator is targeting the right account. Set in terraform.tfvars (gitignored)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.aws_account_id))
+    error_message = "aws_account_id must be a 12-digit numeric string."
+  }
+}
+
 variable "aws_region" {
   description = "AWS region for the dev deployment. The bootstrap S3 backend lives in this region too — see backend.tf. Default us-east-1 matches the design spec's single-region v1 footprint."
   type        = string
@@ -46,9 +56,8 @@ variable "google_client_secret_arn" {
 }
 
 variable "allowlist_emails" {
-  description = "Initial seed for the example-agent SSM allowlist. Federated users not in this list are rejected at PreSignUp with `Not authorized`. Operators add/remove emails post-apply via `aws ssm put-parameter --name <path> --value '[...]' --overwrite` — Terraform's lifecycle.ignore_changes keeps subsequent applies from churning it."
+  description = "Required. Initial seed for the example-agent SSM allowlist. Federated users not in this list are rejected at PreSignUp with `Not authorized`. Operators add/remove emails post-apply via `aws ssm put-parameter --name <path> --value '[...]' --overwrite` — Terraform's lifecycle.ignore_changes keeps subsequent applies from churning it. No default — must be set in terraform.tfvars (gitignored) so operator emails never land in the repo."
   type        = list(string)
-  default     = ["mkavalich@gmail.com"]
 
   validation {
     condition     = length(var.allowlist_emails) >= 1
@@ -113,9 +122,8 @@ variable "custom_domain_name" {
 }
 
 variable "cost_alert_email" {
-  description = "Email for Cost Anomaly Detection alerts. Default is the dev operator email."
+  description = "Required. Email for Cost Anomaly Detection alerts. No default — must be set in terraform.tfvars (gitignored) so operator email never lands in the repo."
   type        = string
-  default     = "mkavalich@gmail.com"
 
   validation {
     condition     = can(regex("^[^@]+@[^@]+[.][^@]+", var.cost_alert_email))

@@ -22,7 +22,7 @@ These are the bugs we hit 9 times in the last 2 days. This suite catches them.
 ## Prerequisites
 
 1. **Node 22+** and `npm`.
-2. **AWS CLI configured** for account `624990353897` (the dev account).
+2. **AWS CLI configured** for account `<ACCOUNT_ID>` (the dev account).
 3. **Terraform initialized** in `templates/aws/envs/dev/` — the test harness reads `cognito_user_pool_id`, `cognito_test_user_client_id`, and `canary_credentials_secret_arn` via `terraform output -raw`.
 4. **Test-user credentials seeded** in Secrets Manager. The orchestrator provisions the secret empty; one-time:
    ```bash

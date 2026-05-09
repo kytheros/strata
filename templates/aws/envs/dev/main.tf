@@ -797,7 +797,7 @@ module "canary" {
 # Threshold: absolute $5. Frequency: weekly digest (var.anomaly_frequency).
 #
 # The operator-managed AWS Budget "strata-dev-cap" ($30/mo, 50%/80%/100%
-# forecast alerts to mkavalich@gmail.com) is NOT managed here. It predates
+# forecast alerts to you@example.com) is NOT managed here. It predates
 # Terraform ownership of this account and must not be imported.
 #
 # On first apply: AWS Cost Explorer sends a confirmation email to

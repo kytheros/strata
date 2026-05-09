@@ -11,11 +11,18 @@ version: '3'
 # Install task (any OS):             https://taskfile.dev/installation/
 #
 # Run `task` (no args) for the full task list.
+#
+# Operator config: copy `.env.example` to `.env` (gitignored) and set
+# EXPECTED_ACCOUNT_ID. The `dotenv:` directive below loads it automatically.
+
+dotenv: ['.env', '.env.local']
 
 vars:
   AWS_PROFILE: '{{.AWS_PROFILE | default "default"}}'
   AWS_REGION: '{{.AWS_REGION | default "us-east-1"}}'
-  EXPECTED_ACCOUNT: '624990353897'
+  # Sourced from .env (or the operator's environment). No default — the
+  # `preflight` task hard-fails with a setup pointer if it's unset.
+  EXPECTED_ACCOUNT: '{{.EXPECTED_ACCOUNT_ID | default ""}}'
 
 tasks:
   default:
@@ -34,6 +41,12 @@ tasks:
     silent: true
     cmds:
       - |
+        if [ -z "{{.EXPECTED_ACCOUNT}}" ]; then
+          echo "ERROR: EXPECTED_ACCOUNT_ID is not set." >&2
+          echo "       Create templates/aws/.env from .env.example and set EXPECTED_ACCOUNT_ID=<your-12-digit-account>." >&2
+          echo "       (Or export EXPECTED_ACCOUNT_ID in your shell.)" >&2
+          exit 1
+        fi
         ACCT=$(aws sts get-caller-identity --profile {{.AWS_PROFILE}} --query Account --output text | tr -d '[:space:]')
         if [ "$ACCT" != "{{.EXPECTED_ACCOUNT}}" ]; then
           echo "ERROR: expected account {{.EXPECTED_ACCOUNT}}, got '$ACCT'" >&2

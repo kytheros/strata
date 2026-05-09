@@ -59,7 +59,7 @@ See `variables.tf` for the full list with validations.
 
 ## Examples
 
-- `examples/basic/` — `purpose = "artifacts"` in dev. Default config (versioning on, module-created CMK, no OAC). Targets the dev account `624990353897`.
+- `examples/basic/` — `purpose = "artifacts"` in dev. Default config (versioning on, module-created CMK, no OAC). Targets the dev account `<ACCOUNT_ID>`.
 - `examples/with-oac/` — `purpose = "user-data"` in dev plus a stub `aws_cloudfront_distribution` consuming the OAC. Demonstrates end-to-end wiring; not a production-quality CDN config.
 
 ## Caller patterns
@@ -117,7 +117,7 @@ module "logs_bucket" {
 
 ```bash
 # 1. Confirm identity
-aws sts get-caller-identity   # mike-cli @ 624990353897
+aws sts get-caller-identity   # <your-cli-user> @ <ACCOUNT_ID>
 
 # 2. From modules/s3-bucket/examples/basic/
 terraform init
@@ -146,18 +146,18 @@ Add S3 storage + request fees per actual usage. The CMK is the only mandatory fl
 
 ```bash
 # Bucket exists, encryption + versioning visible
-aws s3api get-bucket-encryption --bucket strata-artifacts-624990353897-dev
-aws s3api get-bucket-versioning --bucket strata-artifacts-624990353897-dev
-aws s3api get-public-access-block --bucket strata-artifacts-624990353897-dev
+aws s3api get-bucket-encryption --bucket strata-artifacts-<ACCOUNT_ID>-dev
+aws s3api get-bucket-versioning --bucket strata-artifacts-<ACCOUNT_ID>-dev
+aws s3api get-public-access-block --bucket strata-artifacts-<ACCOUNT_ID>-dev
 
 # Bucket policy denies non-TLS
-aws s3api get-bucket-policy --bucket strata-artifacts-624990353897-dev --query 'Policy' --output text | jq .
+aws s3api get-bucket-policy --bucket strata-artifacts-<ACCOUNT_ID>-dev --query 'Policy' --output text | jq .
 
 # CMK alias resolves
 aws kms describe-key --key-id alias/strata-artifacts-dev
 
 # (with OAC) OAC exists
-aws cloudfront list-origin-access-controls --query 'OriginAccessControlList.Items[?Name==`strata-user-data-624990353897-dev-oac`]'
+aws cloudfront list-origin-access-controls --query 'OriginAccessControlList.Items[?Name==`strata-user-data-<ACCOUNT_ID>-dev-oac`]'
 ```
 
 ## Related tickets

@@ -131,7 +131,7 @@ aws ssm put-parameter `
   --name /example-agent/dev/allowed-emails `
   --type SecureString `
   --overwrite `
-  --value '["mkavalich@gmail.com","new.person@example.com"]'
+  --value '["you@example.com","new.person@example.com"]'
 
 # Pre-signup Lambda picks up the new value within 60s (in-memory TTL).
 # To force-refresh, briefly drop the Lambda's reserved concurrency to 0

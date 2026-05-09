@@ -15,7 +15,7 @@
 #   3. terraform init && terraform plan
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
+#   aws sts get-caller-identity   # confirm you are <your-cli-user> @ <ACCOUNT_ID>
 #   terraform init
 #   terraform validate            # this example only — plan needs a real cert
 ###############################################################################
@@ -24,7 +24,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/ingress-alb/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -43,7 +43,7 @@ provider "aws" {
   region = "us-east-1"
 
   # Sanity guard: this example is hard-coded for the dev account.
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 ###############################################################################
@@ -63,7 +63,7 @@ locals {
   # SENTINEL — replace with a real ACM cert ARN before running `terraform plan`.
   # The format is intentionally well-formed so the module's check{} block
   # passes at validate time.
-  placeholder_acm_arn = "arn:aws:acm:us-east-1:624990353897:certificate/00000000-0000-0000-0000-000000000000"
+  placeholder_acm_arn = "arn:aws:acm:us-east-1:<ACCOUNT_ID>:certificate/00000000-0000-0000-0000-000000000000"
 }
 
 module "ingress" {
@@ -91,7 +91,7 @@ module "ingress" {
 
   # No access logging in this example — wire access_logs_bucket once the
   # s3-bucket module's strata-logs-{account} bucket is provisioned.
-  # access_logs_bucket = "strata-logs-624990353897"
+  # access_logs_bucket = "strata-logs-<ACCOUNT_ID>"
   # access_logs_prefix = "alb/dev"
 
   # Cognito wiring shape — leave empty in this example. Consumer module

@@ -7,3 +7,9 @@ playwright/.cache/
 # Local cookie / secret cache (test harness reads these — never commit)
 .work/
 *.session-cookie.txt
+
+# Operator-only env file consumed by the Taskfile's `dotenv:` directive.
+# Holds EXPECTED_ACCOUNT_ID and any other operator-specific values. The
+# repo-root .gitignore also covers .env, but pin it here for clarity.
+.env
+.env.local

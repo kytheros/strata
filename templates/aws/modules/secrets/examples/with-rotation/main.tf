@@ -1,5 +1,5 @@
 ###############################################################################
-# Example: secret + stub rotation Lambda in the dev account (624990353897).
+# Example: secret + stub rotation Lambda in the dev account (<ACCOUNT_ID>).
 #
 # Demonstrates the rotation wiring contract end-to-end:
 #   1. A Python 3.12 Lambda is provisioned (the stub returns success without
@@ -13,7 +13,7 @@
 #      Lambda is created inside the module.
 #
 # Run from this directory:
-#   aws sts get-caller-identity    # confirm 624990353897
+#   aws sts get-caller-identity    # confirm <ACCOUNT_ID>
 #   terraform init
 #   terraform validate
 #
@@ -30,7 +30,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/secrets-with-rotation/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -51,7 +51,7 @@ terraform {
 
 provider "aws" {
   region              = "us-east-1"
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 ###############################################################################

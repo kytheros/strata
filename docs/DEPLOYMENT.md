@@ -244,6 +244,8 @@ Deploy Strata as a multi-tenant MCP server on AWS using ECS Fargate, Aurora Post
 
 Full design rationale: `specs/2026-04-25-strata-deploy-aws-design.md`.
 
+> **Local-config setup is required after cloning** — four operator-only files (`templates/aws/.env`, `templates/aws/envs/dev/backend.dev.hcl`, `templates/aws/envs/dev/terraform.tfvars`) plus the GitHub repo `vars.AWS_ACCOUNT_ID` need to be filled in before `task dev:up` can resolve. Each has a committed `.example` seed. Full checklist in `templates/aws/README.md` §"Local-config setup" and `templates/aws/envs/dev/README.md`.
+
 ### Architecture
 
 ```
@@ -300,12 +302,16 @@ winget install Task.Task
 ### Quick start
 
 ```bash
+# One time after cloning: copy + edit the operator-only files (see callout above).
+cp .env.example                     .env                                    && $EDITOR .env
+cp envs/dev/backend.dev.hcl.example envs/dev/backend.dev.hcl                && $EDITOR envs/dev/backend.dev.hcl
+cp envs/dev/terraform.tfvars.example envs/dev/terraform.tfvars              && $EDITOR envs/dev/terraform.tfvars
+
 # One time per account: provision state bucket + OIDC roles. Never destroy.
 task bootstrap:up
 
-# One time before first dev:up: copy and edit tfvars.
-cp envs/dev/terraform.tfvars.example envs/dev/terraform.tfvars
-# Edit: google_client_id, google_client_secret_arn, container image refs.
+# One time per account after bootstrap: lock in the operator-supplied backend.
+terraform -chdir=envs/dev init -reconfigure -backend-config=backend.dev.hcl
 
 # Start a work session.
 task dev:up

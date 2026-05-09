@@ -143,7 +143,7 @@ The `security_group_id` and `task_role_arn` outputs are the primary integration 
 ## How to run (dev account, today)
 
 ```bash
-# 1. Confirm identity (must be mike-cli @ 624990353897)
+# 1. Confirm identity (must be <your-cli-user> @ <ACCOUNT_ID>)
 aws sts get-caller-identity
 
 # 2. From modules/ecs-service/examples/basic/

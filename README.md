@@ -457,6 +457,8 @@ Full-stack enterprise deploy: ECS Fargate, Aurora PostgreSQL Serverless v2, Elas
 
 See [docs/DEPLOYMENT.md#aws](docs/DEPLOYMENT.md#aws) for setup instructions and the design spec at `specs/2026-04-25-strata-deploy-aws-design.md` for the full architecture.
 
+> **Local-config setup is required after cloning** — this template intentionally keeps the operator's AWS account ID, S3 backend bucket, and email allowlist out of the repo. Copy each `.example` file to its real name and fill in your values before `task dev:up`. Full checklist in [`templates/aws/README.md`](templates/aws/README.md#local-config-setup-operator-only-files).
+
 | Operating state | Monthly cost |
 |---|---|
 | Bootstrap only (persistent) | ~$0 |

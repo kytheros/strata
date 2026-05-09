@@ -2,7 +2,7 @@
 # Example: minimal nginx:alpine ECS service against the dev cluster.
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
+#   aws sts get-caller-identity   # confirm you are <your-cli-user> @ <ACCOUNT_ID>
 #   terraform init
 #   terraform plan -out plan.tfplan
 #   # DO NOT apply during AWS-1.3 verification — the goal is plan-only validation.
@@ -21,7 +21,7 @@
 # IAM + SG wiring before moving to the realistic strata-service example.
 #
 # Live dev account references (from AWS-1.1 / AWS-1.2 applies):
-#   account     : 624990353897
+#   account     : <ACCOUNT_ID>
 #   vpc         : vpc-0da4fadaa6e653c5b
 #   private SGs : subnet-0d73b510d4f133e39, subnet-026485c08d8165cb1, subnet-0f4d29d6534a7b9d0
 #   cluster     : strata-dev (looked up via data source below)
@@ -32,7 +32,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/ecs-service-basic/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -49,7 +49,7 @@ terraform {
 
 provider "aws" {
   region              = "us-east-1"
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 ###############################################################################
@@ -68,7 +68,7 @@ provider "aws" {
 ###############################################################################
 
 locals {
-  cluster_arn       = "arn:aws:ecs:us-east-1:624990353897:cluster/strata-dev"
+  cluster_arn       = "arn:aws:ecs:us-east-1:<ACCOUNT_ID>:cluster/strata-dev"
   cluster_log_group = "/ecs/strata-dev"
 }
 

@@ -33,7 +33,7 @@
 #      federation" for the rationale and the path-(b) compromise.
 #
 # Single-account scaffold variant: this module deploys cleanly into the dev
-# account today (624990353897). Federation is opt-in via variables, so a
+# account today (<ACCOUNT_ID>). Federation is opt-in via variables, so a
 # greenfield apply succeeds without a Google/GitHub OAuth client.
 ###############################################################################
 

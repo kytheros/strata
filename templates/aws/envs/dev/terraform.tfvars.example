@@ -9,6 +9,10 @@
 #   task dev:plan
 ###############################################################################
 
+# 12-digit AWS account ID. Pins the AWS provider's allowed_account_ids and
+# ensures wrong-account applies abort early. Required.
+aws_account_id = "<ACCOUNT_ID>"
+
 aws_region = "us-east-1"
 vpc_cidr   = "10.40.0.0/16"
 
@@ -38,12 +42,13 @@ example_agent_app_url = "https://placeholder.execute-api.us-east-1.amazonaws.com
 #   3. Populate the ID + ARN below.
 # ---------------------------------------------------------------------------
 # google_client_id         = "1234567890-abcdefg.apps.googleusercontent.com"
-# google_client_secret_arn = "arn:aws:secretsmanager:us-east-1:624990353897:secret:google-oauth-client-secret-XXXXXX"
+# google_client_secret_arn = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:google-oauth-client-secret-XXXXXX"
 
 # ---------------------------------------------------------------------------
 # Initial allowlist seed for example-agent dev access. Federated users not
-# in this list are rejected at PreSignUp. Operators add/remove post-apply
-# via:
+# in this list are rejected at PreSignUp. Required (no default in
+# variables.tf so operator emails never land in the repo). Operators
+# add/remove post-apply via:
 #
 #   aws ssm put-parameter \
 #     --name <allowlist_ssm_path> \
@@ -52,15 +57,20 @@ example_agent_app_url = "https://placeholder.execute-api.us-east-1.amazonaws.com
 #     --overwrite
 # ---------------------------------------------------------------------------
 allowlist_emails = [
-  "mkavalich@gmail.com",
+  "you@example.com",
 ]
+
+# ---------------------------------------------------------------------------
+# Email for Cost Anomaly Detection alerts. Required.
+# ---------------------------------------------------------------------------
+cost_alert_email = "you@example.com"
 
 # ---------------------------------------------------------------------------
 # Alarm subscribers — empty by default. Confirm SES/SNS the email before
 # expecting alerts.
 # ---------------------------------------------------------------------------
 # alarm_subscribers = [
-#   { protocol = "email", endpoint = "mkavalich@gmail.com" },
+#   { protocol = "email", endpoint = "you@example.com" },
 # ]
 
 # ---------------------------------------------------------------------------
@@ -71,10 +81,10 @@ allowlist_emails = [
 #
 #   cd templates/aws/services/example-agent/app
 #   aws ecr get-login-password --region us-east-1 | \
-#     docker login --username AWS --password-stdin 624990353897.dkr.ecr.us-east-1.amazonaws.com
+#     docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
 #   docker build -t example-agent:dev .
-#   docker tag example-agent:dev 624990353897.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev
-#   docker push 624990353897.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev
+#   docker tag example-agent:dev <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev
+#   docker push <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev
 # ---------------------------------------------------------------------------
 strata_container_image        = "ghcr.io/kytheros/strata-mcp:latest"
-example_agent_container_image = "624990353897.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev"
+example_agent_container_image = "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/example-agent:dev"

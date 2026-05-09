@@ -17,10 +17,13 @@
 #                                   surface.
 #
 # OIDC trust:
-#   - PR jobs assume       arn:aws:iam::624990353897:role/strata-cicd-readonly-role
-#     (sub: repo:mkavalich/strata:pull_request, ReadOnlyAccess)
+#   - PR jobs assume       arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/strata-cicd-readonly-role
+#     (sub: repo:<owner>/<repo>:pull_request, ReadOnlyAccess)
 #   - This workflow does NOT assume the deploy role. Apply lives in
 #     aws-template-apply.yml (workflow_dispatch only).
+#
+# Set vars.AWS_ACCOUNT_ID at https://github.com/<owner>/<repo>/settings/variables/actions
+# before this workflow can resolve.
 #
 # No long-lived AWS keys. No third-party action that requires a token. All
 # external actions are pinned to a commit SHA.
@@ -227,7 +230,7 @@ jobs:
       pull-requests: write
       id-token: write  # OIDC federation
     env:
-      AWS_ACCOUNT_ID: '624990353897'
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
       READONLY_ROLE_NAME: 'strata-cicd-readonly-role'
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.1
@@ -273,6 +276,8 @@ jobs:
 
       - name: comment plan on PR
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        env:
+          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
         with:
           script: |
             const plan = `${{ steps.plan.outputs.plan }}`;
@@ -281,7 +286,7 @@ jobs:
               marker,
               '## terraform plan (templates/aws/envs/dev)',
               '',
-              'Read-only role: `strata-cicd-readonly-role` (account 624990353897).',
+              `Read-only role: \`strata-cicd-readonly-role\` (account ${process.env.AWS_ACCOUNT_ID}).`,
               '',
               '<details><summary>Plan output (truncated to 60k chars)</summary>',
               '',

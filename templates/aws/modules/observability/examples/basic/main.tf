@@ -1,5 +1,5 @@
 ###############################################################################
-# Example: minimum-viable observability for the dev account (624990353897).
+# Example: minimum-viable observability for the dev account (<ACCOUNT_ID>).
 #
 # This wires the observability module against the *currently-applied* state of
 # the dev account: only the network module is up. NAT gateway IDs come from the
@@ -10,7 +10,7 @@
 # Result: SNS topic + CMK + dashboard + 2 NAT bytes-out anomaly alarms.
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
+#   aws sts get-caller-identity   # confirm you are <your-cli-user> @ <ACCOUNT_ID>
 #   terraform init
 #   terraform plan -out plan.tfplan
 #   # DO NOT apply unless you actually want the alarms attached to live NAT GWs.
@@ -20,7 +20,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/observability-basic/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -39,7 +39,7 @@ provider "aws" {
   region = "us-east-1"
 
   # Sanity guard: this example is hard-coded for the dev account.
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 variable "nat_gateway_ids" {

@@ -37,7 +37,7 @@ To open a session against a running task:
 aws ecs list-tasks --cluster strata-dev --query 'taskArns[0]' --output text
 
 # 2. Open a shell (requires the operator's principal to be allowed to assume
-#    arn:aws:iam::624990353897:role/strata-dev-ecs-exec-operator)
+#    arn:aws:iam::<ACCOUNT_ID>:role/strata-dev-ecs-exec-operator)
 aws ecs execute-command --cluster strata-dev \
   --task <task-arn> \
   --container <container-name> \
@@ -69,7 +69,7 @@ The `cluster_name` and `cluster_arn` outputs are the primary consumers of this m
 ## How to run (dev account, today)
 
 ```bash
-# 1. Confirm identity (must be mike-cli @ 624990353897)
+# 1. Confirm identity (must be <your-cli-user> @ <ACCOUNT_ID>)
 aws sts get-caller-identity
 
 # 2. From modules/ecs-cluster/examples/basic/

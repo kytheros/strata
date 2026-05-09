@@ -1,5 +1,5 @@
 ###############################################################################
-# Example: deploy the elasticache-redis module to the dev account (624990353897).
+# Example: deploy the elasticache-redis module to the dev account (<ACCOUNT_ID>).
 #
 # Prerequisite: the network module has already been applied via
 # `task network:up` (or `terraform apply` in modules/network/examples/basic/).
@@ -16,11 +16,11 @@
 #   terraform output vpc_cidr
 #   terraform output isolated_subnet_ids
 #
-# The values pinned below match the dev account (624990353897) at the time
+# The values pinned below match the dev account (<ACCOUNT_ID>) at the time
 # this example was authored. Update them if the network module is recreated.
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm 624990353897 / mike-cli
+#   aws sts get-caller-identity   # confirm <ACCOUNT_ID> / <your-cli-user>
 #   terraform init
 #   terraform plan -out plan.tfplan
 #   # Review carefully — check that AUTH-token Secrets Manager secret is
@@ -32,7 +32,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/elasticache-redis-basic/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -55,7 +55,7 @@ provider "aws" {
   region = "us-east-1"
 
   # Sanity guard: this example is hard-coded for the dev account.
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 ###############################################################################

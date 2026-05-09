@@ -1,8 +1,8 @@
 ###############################################################################
-# Example: bootstrap the dev account (624990353897).
+# Example: bootstrap the dev account (<ACCOUNT_ID>).
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
+#   aws sts get-caller-identity   # confirm you are <your-cli-user> @ <ACCOUNT_ID>
 #   terraform init
 #   terraform plan -out=plan.tfplan
 #   terraform apply plan.tfplan
@@ -25,9 +25,11 @@ terraform {
 provider "aws" {
   region = "us-east-1"
 
-  # Sanity guard: this example is hard-coded for the dev account. Remove or
-  # change when you re-run the module against staging/prod.
-  allowed_account_ids = ["624990353897"]
+  # Sanity guard: this example is hard-coded for the dev account. Replace
+  # <ACCOUNT_ID> with your 12-digit AWS account ID, or refactor to a variable
+  # (see envs/dev/ for the variable-driven pattern). Remove or change when
+  # you re-run the module against staging/prod.
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 module "bootstrap" {

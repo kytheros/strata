@@ -32,11 +32,11 @@ terraform {
 
 provider "aws" {
   region              = "us-east-1"
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 locals {
-  account_id = "624990353897"
+  account_id = "<ACCOUNT_ID>"
   region     = "us-east-1"
   env        = "dev"
 

@@ -156,7 +156,7 @@ module "cloudfront_dist" {
 
 ```bash
 # 1. Confirm identity
-aws sts get-caller-identity   # mike-cli @ 624990353897
+aws sts get-caller-identity   # <your-cli-user> @ <ACCOUNT_ID>
 
 # 2. From modules/cloudfront-dist/examples/basic/
 terraform init

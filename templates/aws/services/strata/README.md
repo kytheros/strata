@@ -156,7 +156,7 @@ aws ecs run-task \
       "command": ["node", "dist/cli/migrate.js", "up"]
     }]
   }' \
-  --started-by mike-cli/migrate
+  --started-by <your-cli-user>/migrate
 
 # 4. Verify schema landed.
 #    Open a one-shot psql via session-manager or a temporary debug task; or

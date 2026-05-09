@@ -10,7 +10,7 @@
 ###############################################################################
 
 ###############################################################################
-# Example: deploy the aurora-postgres module to the dev account (624990353897).
+# Example: deploy the aurora-postgres module to the dev account (<ACCOUNT_ID>).
 #
 # Prerequisite: the network module has already been applied via
 # `task network:up` (or `terraform apply` in modules/network/examples/basic/).
@@ -32,7 +32,7 @@
 #   data "terraform_remote_state" "network" {
 #     backend = "s3"
 #     config = {
-#       bucket = "terraform-state-624990353897-dev"
+#       bucket = "terraform-state-<ACCOUNT_ID>-dev"
 #       key    = "examples/network-basic/terraform.tfstate"
 #       region = "us-east-1"
 #     }
@@ -40,7 +40,7 @@
 #   # Then reference: data.terraform_remote_state.network.outputs.vpc_id, etc.
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm 624990353897 / mike-cli
+#   aws sts get-caller-identity   # confirm <ACCOUNT_ID> / <your-cli-user>
 #   terraform init
 #   terraform plan -out plan.tfplan
 #   # Review carefully — Aurora cluster + proxy + KMS key + parameter group.
@@ -52,7 +52,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/aurora-postgres-basic/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -71,7 +71,7 @@ provider "aws" {
   region = "us-east-1"
 
   # Sanity guard: this example is hard-coded for the dev account.
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 ###############################################################################

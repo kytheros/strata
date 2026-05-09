@@ -5,6 +5,28 @@ Top-level Terraform composition for the dev environment. This is the canonical
 Phase 2 + Phase 3 service is instantiated here with module outputs flowing
 directly between them.
 
+## Local-config setup (operator-only files)
+
+The repo is public. Four operator-specific values (AWS account ID, S3 state
+bucket, allowlist emails, cost-alert email) are deliberately **not** committed
+and must be supplied locally before the first apply. Each has a committed
+`.example` seed.
+
+| Step | File / surface | What it sets | Seed |
+|---|---|---|---|
+| 1 | `templates/aws/.env` | `EXPECTED_ACCOUNT_ID` for the Taskfile's account-pin guard | `templates/aws/.env.example` |
+| 2 | `templates/aws/envs/dev/backend.dev.hcl` | `bucket` + `dynamodb_table` for the partial S3 backend | `backend.dev.hcl.example` (this dir) |
+| 3 | `templates/aws/envs/dev/terraform.tfvars` | `aws_account_id`, `allowlist_emails`, `cost_alert_email`, container image, etc. | `terraform.tfvars.example` (this dir) |
+| 4 | GitHub repo `vars.AWS_ACCOUNT_ID` | Resolves the OIDC role ARN in `.github/workflows/aws-template-{ci,apply}.yml` | Set at `https://github.com/<owner>/<repo>/settings/variables/actions` |
+| 5 | `terraform init -reconfigure -backend-config=backend.dev.hcl` | Locks in the partial backend on first checkout (run once after bootstrap) | n/a |
+
+After steps 1–3, `task dev:preflight` will tell you if anything is still
+missing. After step 5, `task dev:up` is the canonical apply path.
+
+The Taskfile loads `.env` automatically via `dotenv:` — there is no need
+to `export EXPECTED_ACCOUNT_ID=...` per shell session. Set the value once
+in `.env` and it's picked up for every `task dev:*`.
+
 ## Why this exists (AWS-1.5.1)
 
 Before this directory's `main.tf` existed, the per-module `examples/basic/`
@@ -34,13 +56,15 @@ modules underneath are the real engineering.
 
 ```
 envs/dev/
-├── backend.tf              # S3 + DynamoDB backend (provisioned by AWS-0.1)
-├── main.tf                 # Module composition — the orchestrator itself
-├── variables.tf            # Top-level inputs (12 variables)
-├── outputs.tf              # Surface for ops + CI/CD smoke tests
-├── terraform.tfvars        # Operator-supplied; gitignored
-├── terraform.tfvars.example# Seed for above
-└── README.md               # This file
+├── backend.tf                 # Partial S3 + DynamoDB backend (bucket/lock-table from backend.dev.hcl)
+├── backend.dev.hcl            # Operator-supplied; gitignored
+├── backend.dev.hcl.example    # Seed for above
+├── main.tf                    # Module composition — the orchestrator itself
+├── variables.tf               # Top-level inputs (incl. aws_account_id)
+├── outputs.tf                 # Surface for ops + CI/CD smoke tests
+├── terraform.tfvars           # Operator-supplied; gitignored
+├── terraform.tfvars.example   # Seed for above
+└── README.md                  # This file
 ```
 
 ## Operating cadence
@@ -64,7 +88,7 @@ These are one-time, out-of-band, manual steps. The orchestrator depends on
 all of them being done before `task dev:up` succeeds.
 
 1. **AWS profile pinned to dev account.** `aws sts get-caller-identity`
-   must return account `624990353897`. The orchestrator's provider block
+   must return account `<ACCOUNT_ID>`. The orchestrator's provider block
    has `allowed_account_ids` pinned to this value — wrong-account applies
    abort early.
 

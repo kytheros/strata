@@ -31,7 +31,7 @@ terraform {
 
 provider "aws" {
   region              = "us-east-1"
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 
   # Skip credential and region checks so `terraform validate` works without
   # AWS creds — the example exists to prove the module's wiring shape, not to
@@ -58,14 +58,14 @@ data "aws_iam_policy_document" "stub_aurora" {
     effect  = "Allow"
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
-      "arn:aws:secretsmanager:us-east-1:624990353897:secret:rds!cluster-STUBSTUBSTUBSTUB-XXXXXX",
+      "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:rds!cluster-STUBSTUBSTUBSTUB-XXXXXX",
     ]
   }
   statement {
     sid       = "AuroraKmsDecrypt"
     effect    = "Allow"
     actions   = ["kms:Decrypt"]
-    resources = ["arn:aws:kms:us-east-1:624990353897:key/STUB-aurora-cmk"]
+    resources = ["arn:aws:kms:us-east-1:<ACCOUNT_ID>:key/STUB-aurora-cmk"]
     condition {
       test     = "StringEquals"
       variable = "kms:ViaService"
@@ -80,7 +80,7 @@ data "aws_iam_policy_document" "stub_redis" {
     effect  = "Allow"
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
-      "arn:aws:secretsmanager:us-east-1:624990353897:secret:strata-dev-redis-auth-XXXXXX",
+      "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:strata-dev-redis-auth-XXXXXX",
     ]
   }
 }
@@ -91,8 +91,8 @@ data "aws_iam_policy_document" "stub_app_secrets" {
     effect  = "Allow"
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
-      "arn:aws:secretsmanager:us-east-1:624990353897:secret:strata-dev/jwt-signing-key-XXXXXX",
-      "arn:aws:secretsmanager:us-east-1:624990353897:secret:strata-dev/oauth-client-secret-XXXXXX",
+      "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:strata-dev/jwt-signing-key-XXXXXX",
+      "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:strata-dev/oauth-client-secret-XXXXXX",
     ]
   }
 }
@@ -108,8 +108,8 @@ module "strata_service" {
   service_name = "strata"
 
   # Stubs — in envs/dev these come from module outputs.
-  cluster_arn        = "arn:aws:ecs:us-east-1:624990353897:cluster/strata-dev"
-  execution_role_arn = "arn:aws:iam::624990353897:role/strata-dev-task-exec"
+  cluster_arn        = "arn:aws:ecs:us-east-1:<ACCOUNT_ID>:cluster/strata-dev"
+  execution_role_arn = "arn:aws:iam::<ACCOUNT_ID>:role/strata-dev-task-exec"
   log_group_name     = "/ecs/strata-dev"
 
   vpc_id   = "vpc-0da4fadaa6e653c5b"
@@ -128,7 +128,7 @@ module "strata_service" {
   containers = [
     {
       name      = "strata-mcp"
-      image     = "624990353897.dkr.ecr.us-east-1.amazonaws.com/strata-mcp:latest"
+      image     = "<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/strata-mcp:latest"
       essential = true
       port_mappings = [
         {
@@ -158,19 +158,19 @@ module "strata_service" {
       secrets = [
         {
           name       = "DATABASE_CREDENTIALS"
-          value_from = "arn:aws:secretsmanager:us-east-1:624990353897:secret:rds!cluster-STUBSTUBSTUBSTUB-XXXXXX"
+          value_from = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:rds!cluster-STUBSTUBSTUBSTUB-XXXXXX"
         },
         {
           name       = "REDIS_AUTH_TOKEN"
-          value_from = "arn:aws:secretsmanager:us-east-1:624990353897:secret:strata-dev-redis-auth-XXXXXX:authToken::"
+          value_from = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:strata-dev-redis-auth-XXXXXX:authToken::"
         },
         {
           name       = "STRATA_TOKEN_SECRET"
-          value_from = "arn:aws:secretsmanager:us-east-1:624990353897:secret:strata-dev/jwt-signing-key-XXXXXX"
+          value_from = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:strata-dev/jwt-signing-key-XXXXXX"
         },
         {
           name       = "STRATA_AUTH_PROXY_TOKEN"
-          value_from = "arn:aws:secretsmanager:us-east-1:624990353897:secret:strata-dev/oauth-client-secret-XXXXXX"
+          value_from = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:strata-dev/oauth-client-secret-XXXXXX"
         },
       ]
 

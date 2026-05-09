@@ -1,11 +1,11 @@
 ###############################################################################
-# Example: stub secret in the dev account (624990353897), no rotation.
+# Example: stub secret in the dev account (<ACCOUNT_ID>), no rotation.
 #
 # Demonstrates the simplest case: a static secret bootstrapped with an initial
 # value, encrypted with a module-created per-secret CMK.
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
+#   aws sts get-caller-identity   # confirm you are <your-cli-user> @ <ACCOUNT_ID>
 #   terraform init
 #   terraform plan -out plan.tfplan
 #   terraform apply plan.tfplan
@@ -15,7 +15,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/secrets-basic/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -32,7 +32,7 @@ terraform {
 
 provider "aws" {
   region              = "us-east-1"
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 module "static_secret" {

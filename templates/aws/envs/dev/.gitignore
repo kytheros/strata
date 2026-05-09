@@ -2,6 +2,11 @@
 # layout, and we use lifecycle.ignore_changes for sensitive values).
 terraform.tfvars
 
+# Operator-supplied partial-backend config — contains the operator's S3
+# state-bucket name (which embeds the AWS account ID). Use the committed
+# backend.dev.hcl.example as the seed.
+backend.dev.hcl
+
 # Plan output — generated artifact. The PR comment captures plan summary;
 # binary plan files are large and flagged by GitHub for >10 MB diffs.
 plan.tfplan

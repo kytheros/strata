@@ -51,7 +51,7 @@ To wire Google federation:
 ```bash
 # 1. Create the OAuth Client in GCP console (Web application).
 #    Authorized redirect URI:
-#      https://strata-dev-624990353897.auth.us-east-1.amazoncognito.com/oauth2/idpresponse
+#      https://strata-dev-<ACCOUNT_ID>.auth.us-east-1.amazoncognito.com/oauth2/idpresponse
 
 # 2. Store the client secret in Secrets Manager.
 aws secretsmanager create-secret \
@@ -61,7 +61,7 @@ aws secretsmanager create-secret \
 
 # 3. Pass the ARN + client ID into the module.
 #    google_client_id         = "1234.apps.googleusercontent.com"
-#    google_client_secret_arn = "arn:aws:secretsmanager:us-east-1:624990353897:secret:strata/dev/google-oauth-client-secret-XXXXXX"
+#    google_client_secret_arn = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:strata/dev/google-oauth-client-secret-XXXXXX"
 
 # 4. terraform apply.
 ```
@@ -88,14 +88,14 @@ Until then, the example-agent's "Sign in with GitHub" button is hidden by the fr
 
 ## Hosted UI domain — global namespace handling
 
-Cognito Hosted UI domain prefixes share a single global namespace per region. `strata-dev` is almost certainly taken; `strata-dev-624990353897` is not (account IDs are unique, and the AWS-recommended pattern per the iac-architect's "Globally-namespaced resources" convention is to suffix global names with the account ID).
+Cognito Hosted UI domain prefixes share a single global namespace per region. `strata-dev` is almost certainly taken; `strata-dev-<ACCOUNT_ID>` is not (account IDs are unique, and the AWS-recommended pattern per the iac-architect's "Globally-namespaced resources" convention is to suffix global names with the account ID).
 
 The default domain prefix is `strata-{env_name}-{account_id}`, computed via `data.aws_caller_identity.current.account_id`. To use a custom domain (ACM cert flow), override `var.domain_prefix_override` and wire `aws_cognito_user_pool_domain.custom_domain` separately at the service-module layer.
 
 The Hosted UI login URL surfaces in the `hosted_ui_login_url` output:
 
 ```
-https://strata-dev-624990353897.auth.us-east-1.amazoncognito.com/login
+https://strata-dev-<ACCOUNT_ID>.auth.us-east-1.amazoncognito.com/login
 ```
 
 Append OAuth params (`response_type`, `client_id`, `redirect_uri`, `scope`, `state`) at the consumer.
@@ -132,7 +132,7 @@ See `variables.tf` for the full list with validations.
 ## How to run (dev account, today)
 
 ```bash
-# 1. Confirm identity (must be mike-cli @ 624990353897)
+# 1. Confirm identity (must be <your-cli-user> @ <ACCOUNT_ID>)
 aws sts get-caller-identity
 
 # 2. From modules/cognito-user-pool/examples/basic/
@@ -200,7 +200,7 @@ aws cognito-idp describe-user-pool --user-pool-id <pool_id> \
   --query 'UserPool.{Name:Name,SchemaAttributes:SchemaAttributes[].Name,LambdaConfig:LambdaConfig}'
 
 # Hosted UI domain is registered
-aws cognito-idp describe-user-pool-domain --domain strata-dev-624990353897
+aws cognito-idp describe-user-pool-domain --domain strata-dev-<ACCOUNT_ID>
 
 # 5 groups exist
 aws cognito-idp list-groups --user-pool-id <pool_id> --query 'Groups[].GroupName'

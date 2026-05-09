@@ -18,7 +18,7 @@
 # apply time because the sentinel ARNs aren't real resources.
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
+#   aws sts get-caller-identity   # confirm you are <your-cli-user> @ <ACCOUNT_ID>
 #   terraform init
 #   terraform validate            # validation stops here
 ###############################################################################
@@ -27,7 +27,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/example-agent-dev/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -48,7 +48,7 @@ terraform {
 
 provider "aws" {
   region              = "us-east-1"
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 ###############################################################################
@@ -56,7 +56,7 @@ provider "aws" {
 ###############################################################################
 
 locals {
-  cluster_arn    = "arn:aws:ecs:us-east-1:624990353897:cluster/strata-dev"
+  cluster_arn    = "arn:aws:ecs:us-east-1:<ACCOUNT_ID>:cluster/strata-dev"
   log_group_name = "/ecs/strata-dev"
   vpc_id         = "vpc-0da4fadaa6e653c5b"
   vpc_cidr       = "10.40.0.0/16"
@@ -122,7 +122,7 @@ module "example_agent" {
   # needed. The composition packages them from services/example-agent/lambdas/
   # and threads the ARNs into the cognito-user-pool module.
 
-  initial_allowlist = ["mkavalich@gmail.com"]
+  initial_allowlist = ["you@example.com"]
 
   # Localhost until the real public hostname lands in a tfvars override.
   app_url       = "https://localhost:3000"

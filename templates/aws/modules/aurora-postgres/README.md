@@ -116,7 +116,7 @@ The load-bearing outputs for downstream service modules:
 
 ```bash
 # 1. Confirm identity
-aws sts get-caller-identity   # → 624990353897 / mike-cli
+aws sts get-caller-identity   # → <ACCOUNT_ID> / <your-cli-user>
 
 # 2. Make sure the network module is up first
 cd ../../../network/examples/basic

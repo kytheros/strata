@@ -1,5 +1,5 @@
 ###############################################################################
-# Example: deploy the cognito-user-pool module to the dev account (624990353897).
+# Example: deploy the cognito-user-pool module to the dev account (<ACCOUNT_ID>).
 #
 # Demonstrates the user-pool-only path: no Google/GitHub federation wired,
 # both consumer-supplied Lambda triggers left empty (the module's inert stubs
@@ -17,14 +17,14 @@
 #          --description "Google OAuth client secret for Strata example-agent dev"
 #   3. Add the Google client ID + the secret ARN to the module call below:
 #        google_client_id         = "1234.apps.googleusercontent.com"
-#        google_client_secret_arn = "arn:aws:secretsmanager:us-east-1:624990353897:secret:strata/dev/google-oauth-client-secret-XXXXXX"
+#        google_client_secret_arn = "arn:aws:secretsmanager:us-east-1:<ACCOUNT_ID>:secret:strata/dev/google-oauth-client-secret-XXXXXX"
 #   4. terraform apply.
 #
 # GitHub federation is more involved — see README §"GitHub federation". For
 # v1 dev, leaving GitHub vars empty is the right call.
 #
 # Run from this directory:
-#   aws sts get-caller-identity   # confirm you are mike-cli @ 624990353897
+#   aws sts get-caller-identity   # confirm you are <your-cli-user> @ <ACCOUNT_ID>
 #   terraform init
 #   terraform plan -out plan.tfplan
 #   terraform apply plan.tfplan
@@ -34,7 +34,7 @@ terraform {
   required_version = "~> 1.7"
 
   backend "s3" {
-    bucket         = "terraform-state-624990353897-dev"
+    bucket         = "terraform-state-<ACCOUNT_ID>-dev"
     key            = "examples/cognito-user-pool-basic/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "terraform-state-locks"
@@ -53,7 +53,7 @@ provider "aws" {
   region = "us-east-1"
 
   # Sanity guard: this example is hard-coded for the dev account.
-  allowed_account_ids = ["624990353897"]
+  allowed_account_ids = ["<ACCOUNT_ID>"]
 }
 
 module "cognito_user_pool" {
