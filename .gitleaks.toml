@@ -53,6 +53,17 @@ title = "Gitleaks config for strata-mcp"
     '''your[_-]?api[_-]?key''',
     '''your[_-]?secret''',
     '''insert[_-]?your[_-]?''',
+    # Historical operator-PII values — already in pre-2026-05-09 commits on
+    # the public repo. Per session 2026-05-09, we declined a history rewrite
+    # (0 forks, 0 stars, account ID is semi-public in any ARN, author email
+    # is in every prior commit's metadata so blob-only rewrite is half-
+    # measure). The custom rules below still catch ANY OTHER 12-digit ID,
+    # email, or IAM username — so adding a NEW operator value to this
+    # allowlist is the wrong move. Real values go in gitignored files.
+    '''624990353897''',
+    '''mkavalich@gmail\.com''',
+    '''stratatest549@gmail\.com''',
+    '''mike-cli''',
   ]
 
 ###############################################################################
@@ -106,7 +117,9 @@ regexes = ['''123456789012''']
 [[rules]]
 id          = "operator-personal-email"
 description = "Hardcoded operator personal email. Use you@example.com placeholder."
-regex       = '''(mkavalich|stratatest549)@gmail\.com'''
+# Non-capturing group so the full email is the "secret" — lets the global
+# allowlist regexes (which list the historical-public values) match.
+regex       = '''(?:mkavalich|stratatest549)@gmail\.com'''
 
 [[rules]]
 id          = "operator-iam-username"

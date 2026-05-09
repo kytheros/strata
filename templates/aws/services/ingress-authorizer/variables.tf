@@ -172,6 +172,7 @@ variable "nlb_deletion_protection" {
   default     = false
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "strata_integration_uri" {
   description = "DEPRECATED in v1.6.6 (kept as input for backwards-compat with examples). Service Connect URL for the Strata service (e.g. http://strata.strata-dev:3000). The actual integration_uri used by the API GW route is now the NLB listener ARN this composition creates. The variable is retained so example invocations don't break, but the value is unused for routing."
   type        = string

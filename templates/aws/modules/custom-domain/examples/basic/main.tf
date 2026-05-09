@@ -40,6 +40,7 @@ resource "aws_apigatewayv2_api" "sentinel" {
 }
 
 resource "aws_apigatewayv2_stage" "default" {
+  # checkov:skip=CKV_AWS_76:Sentinel example for cert validation; not a production stage. The custom-domain module under test does not require access logging on the consumer's stage, and adding it here would balloon the example with a CloudWatch log group + IAM role just for a "does the cert validate" smoke check.
   api_id      = aws_apigatewayv2_api.sentinel.id
   name        = "$default"
   auto_deploy = true

@@ -518,6 +518,7 @@ resource "aws_apigatewayv2_route" "strata_mcp_delete" {
 # tracked as AWS-1.6.7-core; this Terraform workaround removes the token
 # from the /health request surface immediately.
 resource "aws_apigatewayv2_route" "strata_health" {
+  # checkov:skip=CKV_AWS_309:Anonymous /health is intentional. Per AWS-1.6.7-core, /health returns only {status:"ok"} with no internals — gating it behind the JWT authorizer would break liveness probes from EventBridge (synthetic canary), the Cognito healthcheck, and any external monitoring without giving an attacker anything they couldn't already learn from a TCP probe.
   api_id    = var.apigw_api_id
   route_key = "GET /health"
   target    = "integrations/${aws_apigatewayv2_integration.strata_no_header.id}"
@@ -555,6 +556,7 @@ resource "aws_apigatewayv2_integration" "example_agent" {
 }
 
 resource "aws_apigatewayv2_route" "example_agent_default" {
+  # checkov:skip=CKV_AWS_309:$default catch-all to example-agent intentionally has no API GW authorizer. Auth is enforced inside the Next.js middleware (every API route checks cognito:groups for `approved`) — gating at API GW would break the OAuth callback (/api/auth/callback lands without a bearer token), the login page, and static assets. The "missing authorization" is correct: auth happens one layer down.
   count = local.wire_example_agent_default ? 1 : 0
 
   api_id    = var.apigw_api_id

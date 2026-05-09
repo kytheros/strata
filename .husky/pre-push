@@ -1,0 +1,35 @@
+#!/usr/bin/env sh
+# Pre-push gate — runs the deterministic CI checks locally so a long red
+# push (like 2026-05-09's 105-commit catastrophe) can't ship again.
+#
+# What this catches:
+#   - Test failures (build-and-test job)
+#   - Operator PII / secrets in any commit (Gitleaks job)
+#   - HIGH-severity npm vulnerabilities (npm audit job)
+#
+# What CI still owns (deliberately not duplicated here):
+#   - Semgrep (needs Docker or Python install with Windows-codepage quirks)
+#   - tflint  (local tflint version often drifts from CI's pin, surfacing
+#              extra warnings that don't fail CI but would fail the hook)
+#   - checkov (same version-drift problem; runs in a Python venv on CI)
+#   These are stable enough on Ubuntu CI runners; the rare CI-only failure
+#   is acceptable since it never blocks a workstation.
+#
+# Why pre-push and not pre-commit:
+#   Tests take ~60s on Windows. That's too slow per commit but acceptable
+#   per push. Pre-commit (gitleaks protect --staged) stays fast.
+#
+# Skip with `git push --no-verify` if you must (e.g., debug branch). Don't
+# disable in CLAUDE.md or scripts.
+set -e
+
+echo "→ npm test"
+npm test
+
+echo "→ gitleaks (full history)"
+gitleaks detect --source . --config .gitleaks.toml --no-banner
+
+echo "→ npm audit (HIGH+)"
+npm audit --audit-level=high
+
+echo "→ all pre-push gates passed"

@@ -343,6 +343,7 @@ resource "aws_security_group" "vpc_link" {
   count = local.vpc_link_use_module_sg ? 1 : 0
 
   # checkov:skip=CKV_AWS_23:Per-rule descriptions are inlined on the rule resources below.
+  # checkov:skip=CKV2_AWS_5:Attached via aws_apigatewayv2_vpc_link.this.security_group_ids in the same module (line ~280). Checkov's graph traversal misses ENI/VPC Link binding because it expects direct attachment to an EC2/ENI/Lambda resource.
   name        = "strata-${var.env_name}-apigw-vpclink-sg"
   description = "Strata ${var.env_name} apigw VPC-Link ENIs - VPC-CIDR ingress only."
   vpc_id      = var.vpc_id

@@ -231,12 +231,13 @@ describe.skipIf(process.platform === "win32")(
       const res = await fetch(`${baseUrl}/health`);
       expect(res.status).toBe(200);
 
+      // Per AWS-1.6.7-core (commit 98cf2e2), /health is intentionally minimal —
+      // no pool internals, no mode, no anything that helps an unauthenticated
+      // attacker fingerprint the deployment. Pool stats live behind
+      // /admin/pool + STRATA_ADMIN_TOKEN; admin-route auth is exercised in
+      // multi-tenant-admin-auth.test.ts.
       const body = await res.json();
-      expect(body.status).toBe("ok");
-      expect(body.mode).toBe("multi-tenant");
-      expect(body.pool).toBeDefined();
-      expect(body.pool.open).toBe(0);
-      expect(body.pool.maxOpen).toBe(10);
+      expect(body).toEqual({ status: "ok" });
     });
 
     it("should return admin pool details when authenticated", async () => {
@@ -370,14 +371,11 @@ describe.skipIf(process.platform === "win32")(
       const sessionId = await initializeSession(baseUrl, UUID_A);
       expect(sessionId).toBeTruthy();
 
-      // Verify DB file was created
+      // Verify DB file was created — proves the session opened a per-user
+      // connection. Pool internals are intentionally not exposed on /health
+      // post AWS-1.6.7-core; admin-only inspection lives at /admin/pool.
       const dbPath = join(baseDir, UUID_A, "strata.db");
       expect(existsSync(dbPath)).toBe(true);
-
-      // Health should show 1 open connection
-      const healthRes = await fetch(`${baseUrl}/health`);
-      const health = await healthRes.json();
-      expect(health.pool.open).toBe(1);
     });
 
     it("should isolate data between users", async () => {
@@ -440,19 +438,13 @@ describe.skipIf(process.platform === "win32")(
       expect(searchTextB).not.toContain("hunter2");
 
       // ── Verify separate DB files ──────────────────────────────────
+      // Two DB files on disk = two distinct user pools opened. Pool count
+      // is intentionally not exposed on /health (AWS-1.6.7-core); the
+      // assertions above already prove per-user data isolation, which is
+      // the load-bearing behavior under test. Admin-route auth (which DOES
+      // expose pool state) is covered in multi-tenant-admin-auth.test.ts.
       expect(existsSync(join(baseDir, UUID_A, "strata.db"))).toBe(true);
       expect(existsSync(join(baseDir, UUID_B, "strata.db"))).toBe(true);
-
-      // ── Health shows both users ──────────────────────────────────
-      const healthRes = await fetch(`${baseUrl}/health`);
-      const health = await healthRes.json();
-      expect(health.pool.open).toBe(2);
-
-      // ── Admin route requires STRATA_ADMIN_TOKEN; disabled in this test env ──────
-      // The /admin/pool endpoint is gated in production (returns 404 when
-      // STRATA_ADMIN_TOKEN is unset). Per-user data isolation is already
-      // verified by the search assertions above; admin-route auth is covered
-      // separately in admin-auth tests.
     }, 30000);
 
     it("should handle graceful shutdown", async () => {

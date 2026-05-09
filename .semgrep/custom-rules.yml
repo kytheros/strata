@@ -199,6 +199,10 @@ rules:
         - "**/search/evidence-gaps.ts"
         - "**/extensions/quantization/migration.ts"
         - "**/transports/world-schema.ts"
+        # cache.ts uses Redis client.get() and Map.get() with template-literal
+        # keys (e.g. `awstool:${key}`) — not SQL. Rule misfires on the .get()
+        # method name; safe to exclude this specific file.
+        - "**/example-agent/app/app/lib/cache.ts"
     message: >
       SQL query uses template literal string interpolation, which may allow SQL injection.
       Use parameterized queries instead:
