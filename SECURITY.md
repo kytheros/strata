@@ -73,12 +73,16 @@ This repository ships infrastructure templates that operators apply against thei
 
 ### How the gate works
 
-Two layers, both deterministic:
+Three layers, all deterministic:
 
-- **Pre-commit hook** (`.husky/pre-commit`) runs `gitleaks protect --staged`. Custom rules in `.gitleaks.toml` reject commits introducing AWS account IDs, the operator's personal/test emails, or hardcoded IAM usernames.
-- **CI** (`.github/workflows/security.yml`) runs the same `.gitleaks.toml` rules on every PR. PRs introducing PII fail the security check before merge.
+- **Pre-commit hook** (`.husky/pre-commit`) runs `gitleaks protect --staged`. Custom rules in `.gitleaks.toml` reject commits introducing AWS account IDs, the operator's personal/test emails, or hardcoded IAM usernames. Fast (<1s).
+- **Pre-push hook — light gate** (`.husky/pre-push`) runs on every push: `npm test`, full-history Gitleaks, and `npm audit --audit-level=high`. ~75s on Windows.
+- **Pre-push hook — heavy gate** (`scripts/preflight-docker.sh`) auto-runs when the push contains more than 5 commits. It executes the same Semgrep, TFLint, and Checkov scans CI runs, via pinned Docker images so workstation behavior matches CI exactly. ~100s with warm Docker caches. Bypass for one push: `git push --no-verify`.
+- **CI** (`.github/workflows/security.yml` + `aws-template-ci.yml`) runs the same scans server-side. The local hooks exist to fail fast; CI is the source of truth.
 
 The Gitleaks rules added for this purpose are: `aws-account-id-in-arn`, `aws-account-id-in-ecr-host`, `aws-account-id-in-cognito-host`, `aws-account-id-quoted`, `aws-account-id-state-bucket`, `operator-personal-email`, `operator-iam-username`. Each has an allowlist that exempts `123456789012` (the AWS-recommended fake) so test fixtures don't trip the gate.
+
+The heavy gate's pinned Docker images are listed at the top of `scripts/preflight-docker.sh`. When CI bumps a version (`TFLINT_VERSION` / `CHECKOV_VERSION` in `.github/workflows/aws-template-ci.yml`, or the Semgrep base image), update the matching tag here so workstation parity with CI is preserved. Run `task ci:check` from `templates/aws/` to invoke the heavy gate on demand without pushing.
 
 ### Adding a new operator alias, account, or test email
 

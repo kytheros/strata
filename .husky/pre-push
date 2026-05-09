@@ -2,25 +2,25 @@
 # Pre-push gate — runs the deterministic CI checks locally so a long red
 # push (like 2026-05-09's 105-commit catastrophe) can't ship again.
 #
-# What this catches:
-#   - Test failures (build-and-test job)
-#   - Operator PII / secrets in any commit (Gitleaks job)
-#   - HIGH-severity npm vulnerabilities (npm audit job)
+# Two-layer model:
+#   1. Lightweight gate (always runs):
+#        npm test, gitleaks (full history), npm audit --audit-level=high.
+#      Catches test regressions, secret leaks, and HIGH-severity vulns.
+#      ~75s on Windows.
 #
-# What CI still owns (deliberately not duplicated here):
-#   - Semgrep (needs Docker or Python install with Windows-codepage quirks)
-#   - tflint  (local tflint version often drifts from CI's pin, surfacing
-#              extra warnings that don't fail CI but would fail the hook)
-#   - checkov (same version-drift problem; runs in a Python venv on CI)
-#   These are stable enough on Ubuntu CI runners; the rare CI-only failure
-#   is acceptable since it never blocks a workstation.
+#   2. Heavy gate (runs when about-to-push commit count > 5):
+#        Semgrep + TFLint + Checkov via pinned Docker images that match CI.
+#      Catches the slow-drift class of failure (false-positive regressions
+#      in custom Semgrep rules, TFLint warnings on new modules, Checkov
+#      policy violations). +~100s with warm Docker caches.
 #
-# Why pre-push and not pre-commit:
-#   Tests take ~60s on Windows. That's too slow per commit but acceptable
-#   per push. Pre-commit (gitleaks protect --staged) stays fast.
+# The threshold is a pragmatic compromise: small day-to-day pushes stay
+# fast, and the rare batched-up push pays the heavy cost it deserves.
 #
-# Skip with `git push --no-verify` if you must (e.g., debug branch). Don't
-# disable in CLAUDE.md or scripts.
+# Run the heavy gate manually any time: `task pre-flight` from
+# templates/aws/, or `./scripts/preflight-docker.sh` from repo root.
+#
+# Bypass everything: `git push --no-verify` (use sparingly).
 set -e
 
 echo "→ npm test"
@@ -31,5 +31,22 @@ gitleaks detect --source . --config .gitleaks.toml --no-banner
 
 echo "→ npm audit (HIGH+)"
 npm audit --audit-level=high
+
+# Heavy gate: count commits being pushed; over the threshold runs Docker
+# tools. `@{upstream}..HEAD` is the about-to-push range; if no upstream
+# is set, count defaults to 0 and the gate is skipped (treat as a brand-
+# new branch — push it and let CI gate it).
+COUNT=$(git rev-list "@{upstream}..HEAD" --count 2>/dev/null || echo 0)
+if [ "$COUNT" -gt 5 ]; then
+  if [ -x "scripts/preflight-docker.sh" ]; then
+    echo "→ heavy push ($COUNT commits) — running Docker-pinned gates"
+    ./scripts/preflight-docker.sh
+  else
+    echo "→ scripts/preflight-docker.sh missing or not executable; skipping heavy gates" >&2
+    echo "  (CI will catch any Semgrep/TFLint/Checkov drift on push)" >&2
+  fi
+else
+  echo "→ light push ($COUNT commits ≤ 5) — skipping heavy Docker gate"
+fi
 
 echo "→ all pre-push gates passed"

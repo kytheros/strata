@@ -36,6 +36,13 @@ tasks:
     cmds:
       - aws sts get-caller-identity --profile {{.AWS_PROFILE}}
 
+  ci:check:
+    desc: 'Run the heavy CI gates locally (Semgrep + TFLint + Checkov via pinned Docker images)'
+    dir: ../..
+    silent: false
+    cmds:
+      - ./scripts/preflight-docker.sh
+
   preflight:
     desc: 'Verify AWS account is the expected dev account before mutating'
     silent: true
