@@ -39,8 +39,8 @@ To keep monthly spend under ~$50, **destroy the stack when you aren't actively w
 |---|---|---|
 | bootstrap-only | ~$0 | between work sessions, default |
 | bootstrap + Phase 1 fully applied | ~$361 | active demo / interview / development session |
-| Cost if you spin up 4 hr/wk | **~$2** | (stack up 4hr × 4wk = 16hr/mo at $0.49/hr) |
-| Cost if you spin up 8 hr/wk | **~$4** | (32hr/mo at $0.49/hr) |
+| Cost if you spin up 4 hr/wk | **~$8** | (stack up 4hr × 4wk = 16hr/mo at $0.49/hr) |
+| Cost if you spin up 8 hr/wk | **~$16** | (32hr/mo at $0.49/hr) |
 | Cost if you leave it up 24/7 | $361 | not the plan |
 
 ## Quick start

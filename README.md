@@ -453,7 +453,9 @@ The REST transport (`strata serve --rest`) has a separate token model: it signs 
 
 ## Deploy on AWS (Fargate + Aurora + Cognito)
 
-Full-stack enterprise deploy: ECS Fargate, Aurora PostgreSQL Serverless v2, ElastiCache Redis, API Gateway with Cognito JWT auth, CloudWatch dashboards, cost guardrails, and a self-aware AWS-introspection example agent. Designed for portfolio demos, enterprise self-hosting, and AI coding assistant teams that need per-tenant memory isolation on AWS.
+Full-stack enterprise deploy: ECS Fargate, Aurora PostgreSQL Serverless v2, ElastiCache Redis, API Gateway with Cognito JWT auth, CloudWatch dashboards, and cost guardrails. Designed for portfolio demos, enterprise self-hosting, and AI coding assistant teams that need per-tenant memory isolation on AWS.
+
+The deploy ships with a working demo app — **AWS Concierge** — that uses Strata for cross-session memory and Claude Sonnet 4.6 with read-only AWS SDK tools to answer operator questions about the live deployment ("what's running?", "any alarms firing?", "what did this cost last week?"). Useful as both a self-aware introspection agent and a reference for wiring Strata into a Next.js + Cognito app.
 
 See [docs/DEPLOYMENT.md#aws](docs/DEPLOYMENT.md#aws) for setup instructions and the design spec at `specs/2026-04-25-strata-deploy-aws-design.md` for the full architecture.
 
@@ -463,7 +465,7 @@ See [docs/DEPLOYMENT.md#aws](docs/DEPLOYMENT.md#aws) for setup instructions and 
 |---|---|
 | Bootstrap only (persistent) | ~$0 |
 | Fully deployed, idle | ~$361 |
-| 8 hr/wk active cadence | ~$4-5 |
+| 8 hr/wk active cadence | ~$16 |
 
 ```bash
 task bootstrap:up   # once per account
@@ -472,6 +474,8 @@ task dev:down       # end a work session -- destroys stack, keeps bootstrap
 ```
 
 The template lives in `templates/aws/`. See `templates/aws/README.md` for prerequisites and the full operating cadence.
+
+> **Want a guided walkthrough?** [Request a demo](https://kytheros.dev/demo) — we run live tours of Strata on AWS, with GCP and Cloudflare demos coming.
 
 ---
 
