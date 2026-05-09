@@ -18,6 +18,21 @@ title = "Gitleaks config for strata-mcp"
     '''\.env\.example''',
     '''\.env\.sample''',
     '''\.env\.template''',
+    # Local Terraform state, plugin cache, lock files (gitignored, but
+    # gitleaks --no-git mode still walks the filesystem)
+    '''\.terraform/''',
+    '''\.terraform\.lock\.hcl''',
+    '''terraform\.tfstate(\.backup)?$''',
+    '''terraform\.tfvars$''',
+    # Python virtualenvs (benchmarks/, examples/, etc.)
+    '''\.venv/''',
+    # PEM bundles ship ASN.1 datetimes that shape-collide with 12-digit IDs
+    '''cacert\.pem''',
+    # Benchmark fixture/cache data (recorded LLM responses, SQLite WAL files,
+    # third-party datasets like LongMemEval that contain unrelated AWS strings)
+    '''benchmarks/.*/cache/''',
+    '''benchmarks/.*/data/''',
+    '''strata\.db-(wal|shm|journal)''',
   ]
 
   # Regex patterns that should never be flagged
@@ -39,3 +54,61 @@ title = "Gitleaks config for strata-mcp"
     '''your[_-]?secret''',
     '''insert[_-]?your[_-]?''',
   ]
+
+###############################################################################
+# Custom rules — operator PII (added 2026-05-09).
+#
+# These complement Gitleaks' default secret detectors with project-specific
+# patterns that have leaked in the past. Rule allowlists carve out the
+# AWS-recommended fake account ID 123456789012 so test fixtures and
+# documentation examples don't trip the gate.
+#
+# When you onboard a new operator alias, account, or test email, extend the
+# relevant rule's `regex` field below — keeping rules tight is what keeps
+# false positives low. See SECURITY.md §"Operator-PII hygiene".
+###############################################################################
+
+[[rules]]
+id          = "aws-account-id-in-arn"
+description = "12-digit AWS account ID embedded in an ARN. Use <ACCOUNT_ID> placeholder, or 123456789012 in test fixtures."
+regex       = '''arn:aws:[^:]*:[^:]*:(\d{12}):'''
+[[rules.allowlists]]
+regexes = ['''123456789012''']
+
+[[rules]]
+id          = "aws-account-id-in-ecr-host"
+description = "12-digit AWS account ID in an ECR registry hostname. Use <ACCOUNT_ID> placeholder."
+regex       = '''(\d{12})\.dkr\.ecr\.'''
+[[rules.allowlists]]
+regexes = ['''123456789012''']
+
+[[rules]]
+id          = "aws-account-id-in-cognito-host"
+description = "12-digit AWS account ID in a Cognito Hosted UI subdomain. Use <ACCOUNT_ID> placeholder."
+regex       = '''-(\d{12})\.auth\.'''
+[[rules.allowlists]]
+regexes = ['''123456789012''']
+
+[[rules]]
+id          = "aws-account-id-quoted"
+description = "12-digit AWS account ID in single or double quotes — typical in YAML/HCL/JSON configs. Use <ACCOUNT_ID> placeholder, or 123456789012 in test fixtures."
+regex       = '''["'](\d{12})["']'''
+[[rules.allowlists]]
+regexes = ['''123456789012''']
+
+[[rules]]
+id          = "aws-account-id-state-bucket"
+description = "12-digit AWS account ID in a Terraform state bucket name (terraform-state-<id>-<env>)."
+regex       = '''terraform-state-(\d{12})'''
+[[rules.allowlists]]
+regexes = ['''123456789012''']
+
+[[rules]]
+id          = "operator-personal-email"
+description = "Hardcoded operator personal email. Use you@example.com placeholder."
+regex       = '''(mkavalich|stratatest549)@gmail\.com'''
+
+[[rules]]
+id          = "operator-iam-username"
+description = "Hardcoded personal IAM username. Use <your-cli-user> placeholder."
+regex       = '''\bmike-cli\b'''

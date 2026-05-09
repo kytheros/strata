@@ -58,6 +58,32 @@ After a fix lands, we publish:
 
 If you reported the issue and asked for credit, we name you in the advisory. We do not currently run a paid bug-bounty program.
 
+## Operator-PII Hygiene
+
+This repository ships infrastructure templates that operators apply against their own AWS accounts. Operator-specific values — account IDs, personal emails, IAM usernames — must never land in committed code.
+
+### Conventions
+
+- **Operator-only files are gitignored.** Real values live in `templates/aws/.env`, `templates/aws/envs/dev/backend.dev.hcl`, and `templates/aws/envs/dev/terraform.tfvars`. Each has a committed `.example` seed showing the expected shape.
+- **Placeholders in committed code:**
+  - `<ACCOUNT_ID>` for 12-digit AWS account IDs
+  - `<your-cli-user>` for IAM usernames
+  - `you@example.com` for operator emails
+- **Test fixtures use the AWS-recommended fake account ID `123456789012`.** This is allowlisted in Gitleaks; using any other 12-digit literal will trip the pre-commit gate.
+
+### How the gate works
+
+Two layers, both deterministic:
+
+- **Pre-commit hook** (`.husky/pre-commit`) runs `gitleaks protect --staged`. Custom rules in `.gitleaks.toml` reject commits introducing AWS account IDs, the operator's personal/test emails, or hardcoded IAM usernames.
+- **CI** (`.github/workflows/security.yml`) runs the same `.gitleaks.toml` rules on every PR. PRs introducing PII fail the security check before merge.
+
+The Gitleaks rules added for this purpose are: `aws-account-id-in-arn`, `aws-account-id-in-ecr-host`, `aws-account-id-in-cognito-host`, `aws-account-id-quoted`, `aws-account-id-state-bucket`, `operator-personal-email`, `operator-iam-username`. Each has an allowlist that exempts `123456789012` (the AWS-recommended fake) so test fixtures don't trip the gate.
+
+### Adding a new operator alias, account, or test email
+
+Extend the relevant rule's `regex` field in `.gitleaks.toml`. Tighten allowlists rather than loosening rules — keeping the rule list specific is what keeps the false-positive rate near zero.
+
 ## Existing Security Posture
 
 For context on the project's threat model and existing controls, see:
