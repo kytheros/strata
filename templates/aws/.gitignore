@@ -13,3 +13,11 @@ playwright/.cache/
 # repo-root .gitignore also covers .env, but pin it here for clarity.
 .env
 .env.local
+
+# Terraform working dirs and local scratch
+**/.terraform/
+**/.terraform-build/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+tmp/
