@@ -20,8 +20,8 @@ export class PgTrainingStore implements ITrainingStore {
   async saveTrainingPair(pair: TrainingPair): Promise<void> {
     await this.pool.query(
       `INSERT INTO training_data
-        (task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        (task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at, reasoning_trace)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         pair.taskType,
         pair.inputText,
@@ -30,6 +30,7 @@ export class PgTrainingStore implements ITrainingStore {
         pair.qualityScore,
         pair.heuristicDiverged ? 1 : 0,
         Date.now(),
+        pair.reasoningTrace ?? null,
       ]
     );
   }
@@ -46,6 +47,7 @@ export class PgTrainingStore implements ITrainingStore {
       extraction: Number(rows.find((r) => r.task_type === "extraction")?.count ?? 0),
       summarization: Number(rows.find((r) => r.task_type === "summarization")?.count ?? 0),
       dialogue: Number(rows.find((r) => r.task_type === "dialogue")?.count ?? 0),
+      conflict: Number(rows.find((r) => r.task_type === "conflict")?.count ?? 0),
     };
   }
 
@@ -70,6 +72,7 @@ export class PgTrainingStore implements ITrainingStore {
     const extractionRow = rows.find((r) => r.task_type === "extraction");
     const summarizationRow = rows.find((r) => r.task_type === "summarization");
     const dialogueRow = rows.find((r) => r.task_type === "dialogue");
+    const conflictRow = rows.find((r) => r.task_type === "conflict");
 
     const { rows: lastRows } = await this.pool.query<{ last_at: string | null }>(
       "SELECT MAX(created_at) as last_at FROM training_data"
@@ -94,12 +97,18 @@ export class PgTrainingStore implements ITrainingStore {
         mediumQuality: Number(dialogueRow?.medium_quality ?? 0),
         heuristicDiverged: Number(dialogueRow?.heuristic_diverged ?? 0),
       },
+      conflict: {
+        total: Number(conflictRow?.total ?? 0),
+        highQuality: Number(conflictRow?.high_quality ?? 0),
+        mediumQuality: Number(conflictRow?.medium_quality ?? 0),
+        heuristicDiverged: Number(conflictRow?.heuristic_diverged ?? 0),
+      },
       lastCapturedAt: lastRows[0]?.last_at ? Number(lastRows[0].last_at) : null,
     };
   }
 
   async getTrainingData(
-    taskType: "extraction" | "summarization" | "dialogue",
+    taskType: "extraction" | "summarization" | "dialogue" | "conflict",
     minQuality: number = 0.7,
     limit: number = 1000,
     offset: number = 0
@@ -113,8 +122,9 @@ export class PgTrainingStore implements ITrainingStore {
       quality_score: number;
       heuristic_diverged: number;
       created_at: string;
+      reasoning_trace: string | null;
     }>(
-      `SELECT id, task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at
+      `SELECT id, task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at, reasoning_trace
        FROM training_data
        WHERE task_type = $1 AND quality_score >= $2
        ORDER BY created_at ASC
@@ -131,6 +141,7 @@ export class PgTrainingStore implements ITrainingStore {
       qualityScore: row.quality_score,
       heuristicDiverged: row.heuristic_diverged === 1,
       createdAt: Number(row.created_at),
+      reasoningTrace: row.reasoning_trace,
     }));
   }
 }
