@@ -26,6 +26,7 @@ export interface TrainingDataCounts {
   extraction: number;
   summarization: number;
   dialogue: number;
+  conflict: number;
 }
 
 /**
@@ -64,6 +65,7 @@ export function getTrainingDataCount(db: Database.Database): TrainingDataCounts 
     extraction: rows.find((r) => r.task_type === "extraction")?.count ?? 0,
     summarization: rows.find((r) => r.task_type === "summarization")?.count ?? 0,
     dialogue: rows.find((r) => r.task_type === "dialogue")?.count ?? 0,
+    conflict: rows.find((r) => r.task_type === "conflict")?.count ?? 0,
   };
 }
 
@@ -80,6 +82,7 @@ export interface TrainingDataStats {
   extraction: TaskStats;
   summarization: TaskStats;
   dialogue: TaskStats;
+  conflict: TaskStats;
   lastCapturedAt: number | null;  // Unix timestamp (ms) of most recent pair
 }
 
@@ -109,6 +112,7 @@ export function getTrainingDataStats(db: Database.Database): TrainingDataStats {
   const extractionRow = rows.find((r) => r.task_type === "extraction");
   const summarizationRow = rows.find((r) => r.task_type === "summarization");
   const dialogueRow = rows.find((r) => r.task_type === "dialogue");
+  const conflictRow = rows.find((r) => r.task_type === "conflict");
 
   // Get most recent pair timestamp
   const lastRow = db.prepare(`
@@ -133,6 +137,12 @@ export function getTrainingDataStats(db: Database.Database): TrainingDataStats {
       highQuality: dialogueRow?.high_quality ?? 0,
       mediumQuality: dialogueRow?.medium_quality ?? 0,
       heuristicDiverged: dialogueRow?.heuristic_diverged ?? 0,
+    },
+    conflict: {
+      total: conflictRow?.total ?? 0,
+      highQuality: conflictRow?.high_quality ?? 0,
+      mediumQuality: conflictRow?.medium_quality ?? 0,
+      heuristicDiverged: conflictRow?.heuristic_diverged ?? 0,
     },
     lastCapturedAt: lastRow?.last_at ?? null,
   };

@@ -9,6 +9,8 @@
 import type { KnowledgeEntry } from "./knowledge-store.js";
 import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 import type { LlmProvider } from "../extensions/llm-extraction/llm-provider.js";
+import type Database from "better-sqlite3";
+import { saveTrainingPair } from "../extensions/llm-extraction/training-capture.js";
 
 /** Action to apply to an existing entry. */
 export interface ConflictAction {
@@ -39,12 +41,14 @@ const FALLBACK_RESOLUTION: ConflictResolution = { shouldAdd: true, actions: [] }
  * @param candidate - The new entry to evaluate
  * @param store - Knowledge store for searching and mutating entries
  * @param provider - Optional LLM provider; null means fallback mode
+ * @param db - Optional database for training capture (Phase 0 distillation)
  * @returns ConflictResolution describing what mutations to apply
  */
 export async function resolveConflicts(
   candidate: KnowledgeEntry,
   store: IKnowledgeStore,
-  provider?: LlmProvider | null
+  provider?: LlmProvider | null,
+  db?: Database.Database
 ): Promise<ConflictResolution> {
   // Killswitch: STRATA_CONFLICT_RESOLUTION=0 disables conflict resolution
   if (process.env.STRATA_CONFLICT_RESOLUTION === "0") {
@@ -79,7 +83,27 @@ export async function resolveConflicts(
       timeoutMs: 8000,
     });
 
-    return parseResponse(raw, similar);
+    const resolution = parseResponse(raw, similar);
+
+    // Phase 0 distillation: capture (prompt, resolution) as a training pair.
+    // Only fires when a db is provided — never throws (training capture must
+    // never affect the primary resolution path).
+    if (db) {
+      try {
+        saveTrainingPair(db, {
+          taskType: "conflict",
+          inputText: prompt,
+          outputJson: JSON.stringify(resolution),
+          modelUsed: provider.name,
+          qualityScore: 1.0,
+          heuristicDiverged: false,
+        });
+      } catch {
+        // Training capture failure is silently swallowed — never block resolution
+      }
+    }
+
+    return resolution;
   } catch {
     // Any error → fallback to direct addEntry (existing trigram dedup still fires)
     return FALLBACK_RESOLUTION;

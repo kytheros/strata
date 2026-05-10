@@ -385,7 +385,7 @@ function initSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS training_data (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue')),
+      task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue', 'conflict')),
       input_text TEXT NOT NULL,
       output_json TEXT NOT NULL,
       model_used TEXT NOT NULL,
@@ -399,17 +399,21 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_training_created ON training_data(created_at);
   `);
 
-  // Migrate existing training_data tables that lack the 'dialogue' task type
+  // Migrate existing training_data tables that lack the 'dialogue' task type OR
+  // the 'conflict' task type (Phase 0 distillation capture expansion).
   const trainingSql = db.prepare(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='training_data'"
   ).get() as { sql: string } | undefined;
-  if (trainingSql && !trainingSql.sql.includes("'dialogue'")) {
+  if (
+    trainingSql &&
+    (!trainingSql.sql.includes("'dialogue'") || !trainingSql.sql.includes("'conflict'"))
+  ) {
     db.pragma("foreign_keys = OFF");
     const migrateTraining = db.transaction(() => {
       db.exec(`
         CREATE TABLE training_data_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue')),
+          task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue', 'conflict')),
           input_text TEXT NOT NULL,
           output_json TEXT NOT NULL,
           model_used TEXT NOT NULL,

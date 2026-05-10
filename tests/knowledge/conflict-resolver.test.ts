@@ -328,6 +328,69 @@ describe("parseResponse", () => {
   });
 });
 
+describe("resolveConflicts — training capture", () => {
+  let db: Database.Database;
+  let store: SqliteKnowledgeStore;
+
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+    store = new SqliteKnowledgeStore(db);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    db.close();
+  });
+
+  it("saves a 'conflict' task_type training pair after successful LLM resolution", async () => {
+    const existing = makeEntry({ id: "abc123", summary: "User uses yarn for packages" });
+    await store.addEntry(existing);
+
+    const provider = makeProvider(
+      JSON.stringify({ shouldAdd: true, actions: [{ id: "abc123", action: "noop" }] })
+    );
+    const candidate = makeEntry({ summary: "User uses yarn" });
+
+    await resolveConflicts(candidate, store, provider, db);
+
+    const rows = db.prepare(
+      "SELECT task_type FROM training_data WHERE task_type = 'conflict'"
+    ).all() as { task_type: string }[];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].task_type).toBe("conflict");
+  });
+
+  it("does NOT save training pair when LLM is skipped (no similar entries)", async () => {
+    const candidate = makeEntry({ summary: "Completely unique xyz987abc" });
+    const provider = makeProvider(JSON.stringify({ shouldAdd: true, actions: [] }));
+
+    await resolveConflicts(candidate, store, provider, db);
+
+    const rows = db.prepare("SELECT 1 FROM training_data").all();
+    expect(rows).toHaveLength(0);
+  });
+
+  it("does NOT save training pair when provider is null (fallback path)", async () => {
+    await resolveConflicts(makeEntry(), store, null, db);
+    const rows = db.prepare("SELECT 1 FROM training_data").all();
+    expect(rows).toHaveLength(0);
+  });
+
+  it("does NOT save training pair when db is not provided (backward compat)", async () => {
+    const existing = makeEntry({ id: "e1", summary: "User uses yarn workspaces" });
+    await store.addEntry(existing);
+
+    const provider = makeProvider(
+      JSON.stringify({ shouldAdd: true, actions: [] })
+    );
+    // Call with only 3 args — should not throw and should not write training data
+    const candidate = makeEntry({ summary: "User uses yarn" });
+    const result = await resolveConflicts(candidate, store, provider);
+    expect(result.shouldAdd).toBe(true);
+    // No db provided — cannot check rows, but the call must not throw
+  });
+});
+
 describe("executeResolution", () => {
   let db: Database.Database;
   let store: SqliteKnowledgeStore;
