@@ -673,33 +673,64 @@ async function runServe(
       : 3000;
 
   if (flags["multi-tenant"]) {
-    const { startMultiTenantHttpTransport } = await import(
-      "./transports/multi-tenant-http-transport.js"
-    );
-    const { getDataDir } = await import("./storage/database.js");
+    const databaseUrl = process.env.DATABASE_URL;
 
-    const baseDir = flags["data-dir"]
-      ? String(flags["data-dir"])
-      : process.env.STRATA_DATA_DIR || getDataDir();
-    const maxDbs = flags["max-dbs"]
-      ? parseInt(String(flags["max-dbs"]), 10)
-      : 200;
+    if (databaseUrl) {
+      // Tier B: Postgres-backed multi-tenant transport.
+      // DATABASE_URL routes all users through pg.Pool with row-level scoping.
+      const { startPgMultiTenantHttpTransport } = await import(
+        "./transports/pg-multi-tenant-http-transport.js"
+      );
 
-    const handle = await startMultiTenantHttpTransport({
-      port,
-      baseDir,
-      maxDbs,
-    });
+      const maxDbsFlag = flags["max-dbs"]
+        ? parseInt(String(flags["max-dbs"]), 10)
+        : undefined;
 
-    // Graceful shutdown
-    const shutdown = async () => {
-      console.log("\nShutting down multi-tenant server...");
-      await handle.close();
-      process.exit(0);
-    };
+      const handle = await startPgMultiTenantHttpTransport({
+        port,
+        connectionString: databaseUrl,
+        maxDbs: maxDbsFlag, // emits deprecation warning inside transport if set
+      });
 
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
+      // Graceful shutdown
+      const shutdownPg = async () => {
+        console.log("\nShutting down pg multi-tenant server...");
+        await handle.close();
+        process.exit(0);
+      };
+
+      process.on("SIGTERM", shutdownPg);
+      process.on("SIGINT", shutdownPg);
+    } else {
+      // Tier A: SQLite multi-tenant transport (default, no DATABASE_URL).
+      const { startMultiTenantHttpTransport } = await import(
+        "./transports/multi-tenant-http-transport.js"
+      );
+      const { getDataDir } = await import("./storage/database.js");
+
+      const baseDir = flags["data-dir"]
+        ? String(flags["data-dir"])
+        : process.env.STRATA_DATA_DIR || getDataDir();
+      const maxDbs = flags["max-dbs"]
+        ? parseInt(String(flags["max-dbs"]), 10)
+        : 200;
+
+      const handle = await startMultiTenantHttpTransport({
+        port,
+        baseDir,
+        maxDbs,
+      });
+
+      // Graceful shutdown
+      const shutdown = async () => {
+        console.log("\nShutting down multi-tenant server...");
+        await handle.close();
+        process.exit(0);
+      };
+
+      process.on("SIGTERM", shutdown);
+      process.on("SIGINT", shutdown);
+    } // end else (SQLite path)
   } else {
     const { startHttpTransport } = await import("./transports/http-transport.js");
 
