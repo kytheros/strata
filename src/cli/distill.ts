@@ -286,16 +286,16 @@ export async function runDistillExport(
     ? parseFloat(String(flags["min-quality"]))
     : 0.7;
 
-  if (!taskType || !["extraction", "summarization", "dialogue"].includes(taskType)) {
+  if (!taskType || !["extraction", "summarization", "dialogue", "conflict"].includes(taskType)) {
     console.log(
-      "Usage: strata distill export-data --task <extraction|summarization|dialogue> --output <path.jsonl> [--min-quality <0.0-1.0>]"
+      "Usage: strata distill export-data --task <extraction|summarization|dialogue|conflict> --output <path.jsonl> [--min-quality <0.0-1.0>]"
     );
     process.exit(1);
   }
 
   if (!outputPath) {
     console.log(
-      "Usage: strata distill export-data --task <extraction|summarization|dialogue> --output <path.jsonl> [--min-quality <0.0-1.0>]"
+      "Usage: strata distill export-data --task <extraction|summarization|dialogue|conflict> --output <path.jsonl> [--min-quality <0.0-1.0>]"
     );
     process.exit(1);
   }
@@ -320,6 +320,11 @@ export async function runDistillExport(
     // input_text and the NPC response as output_json. No system prompt
     // splitting needed — export them as-is.
     systemPrompt = "";
+  } else if (taskType === "conflict") {
+    // Conflict resolution pairs: input_text is the classification prompt
+    // (candidate + similar entries), output_json is the resolution JSON.
+    // No additional system prompt needed — the full context is in input_text.
+    systemPrompt = "";
   } else {
     systemPrompt = getSummarizerPrompt();
   }
@@ -331,7 +336,7 @@ export async function runDistillExport(
 
     for (const row of iterateTrainingData(
       db,
-      taskType as "extraction" | "summarization" | "dialogue",
+      taskType as "extraction" | "summarization" | "dialogue" | "conflict",
       minQuality
     )) {
       // The input_text contains SYSTEM_PROMPT + transcript.

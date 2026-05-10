@@ -171,6 +171,18 @@ describe("CLI: distill export-data", () => {
     expect(existsSync(output)).toBe(true);
     expect(readFileSync(output, "utf-8")).toBe("");
   }, 35_000);
+
+  it("accepts --task conflict and exports zero rows from empty database", () => {
+    const output = join(testDataDir, "conflict.jsonl").replace(/\\/g, "/");
+    const result = runCli(
+      ["distill", "export-data", "--task", "conflict", "--output", output],
+      { timeout: 30_000 }
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Exported 0 pairs");
+    expect(existsSync(output)).toBe(true);
+    expect(readFileSync(output, "utf-8")).toBe("");
+  }, 35_000);
 });
 
 describe("CLI: distill activate/deactivate", () => {
