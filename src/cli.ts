@@ -215,6 +215,8 @@ function parseArgs(argv: string[]): {
       flags["player-id"] = argv[++i];
     } else if (arg === "--dry-run") {
       flags["dry-run"] = true;
+    } else if (arg === "--status") {
+      flags["status"] = true;
     } else if (arg === "--rebuild-turns") {
       flags["rebuild-turns"] = true;
     } else if (arg === "--task" && i + 1 < argv.length) {
@@ -854,7 +856,13 @@ async function main(): Promise<void> {
       break;
     }
     case "migrate":
-      await runMigrate(flags);
+      if (args[0] === "pg") {
+        // strata migrate pg [--status] [--dry-run]
+        const { runPgMigrateCli } = await import("./cli/pg-migrate.js");
+        await runPgMigrateCli(process.argv.slice(3));
+      } else {
+        await runMigrate(flags);
+      }
       break;
     case "activate": {
       const key = args[0];

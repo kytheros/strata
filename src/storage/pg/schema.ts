@@ -12,8 +12,14 @@
  */
 
 import type { PgPool } from "./pg-types.js";
+import { runMigrations } from "./pg-migrations.js";
 
-/** Schema version for tracking migrations. */
+/**
+ * @deprecated Schema version is now tracked per-migration in the
+ * schema_migrations table. PG_SCHEMA_VERSION remains for backwards
+ * compatibility with code that reads it — do not use in new code.
+ * Replaced by the migration runner (kytheros/strata#10).
+ */
 export const PG_SCHEMA_VERSION = "1";
 
 /**
@@ -293,32 +299,22 @@ export const PG_SCHEMA_STATEMENTS: string[] = [
 
 /**
  * Apply the full Postgres schema to the given pool.
- * Idempotent: uses IF NOT EXISTS for all CREATE statements.
- * Checks schema version in index_meta to skip if already up to date.
+ *
+ * Delegates to the migration runner (pg-migrations.ts), which applies all
+ * pending migrations in src/storage/pg/migrations/ in version order and
+ * records them with sha256 checksums in schema_migrations.
+ *
+ * Idempotent: running this multiple times only applies unapplied migrations.
+ *
+ * Controlled by:
+ *   STRATA_NO_AUTO_MIGRATE=1 — skip auto-apply (explicit strata migrate only)
+ *   STRATA_ALLOW_DRIFT=1     — bypass checksum mismatch errors
  */
 export async function createSchema(pool: PgPool): Promise<void> {
-  // Check if schema is already at current version
-  try {
-    const result = await pool.query(
-      "SELECT value FROM index_meta WHERE key = 'schema_version'"
-    );
-    if (result.rows.length > 0 && result.rows[0].value === PG_SCHEMA_VERSION) {
-      return; // Schema is up to date
-    }
-  } catch {
-    // Table doesn't exist yet -- proceed with schema creation
+  if (process.env.STRATA_NO_AUTO_MIGRATE === "1") {
+    return; // Caller opted out of auto-migration
   }
-
-  // Apply all DDL statements
-  for (const stmt of PG_SCHEMA_STATEMENTS) {
-    await pool.query(stmt);
-  }
-
-  // Record the schema version
-  await pool.query(
-    "INSERT INTO index_meta (key, value) VALUES ('schema_version', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
-    [PG_SCHEMA_VERSION]
-  );
+  await runMigrations(pool);
 }
 
 /**
@@ -327,6 +323,8 @@ export async function createSchema(pool: PgPool): Promise<void> {
  */
 export async function dropSchema(pool: PgPool): Promise<void> {
   const tables = [
+    "schema_migrations",
+    "knowledge_turns",
     "training_data",
     "document_chunks",
     "stored_documents",
