@@ -29,7 +29,9 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createServer } from "../server.js";
 import type { HttpTransportHandle } from "./http-transport.js";
 import { createPgStorage } from "../storage/pg/index.js";
-import type { StorageContext } from "../storage/interfaces/index.js";
+import { createPool } from "../storage/pg/pg-types.js";
+import { createSchema } from "../storage/pg/schema.js";
+import type { PgPool } from "../storage/pg/pg-types.js";
 
 /** UUID v4 pattern for header validation */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -94,8 +96,6 @@ interface PgUserEntry {
   userId: string;
   /** MCP server with Postgres-backed StorageContext injected. */
   mcpServer: ReturnType<typeof createServer>;
-  /** StorageContext owns connection lifecycle for this user. */
-  storage: StorageContext;
   transports: Map<string, StreamableHTTPServerTransport>;
   lastAccess: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
@@ -134,10 +134,23 @@ export async function startPgMultiTenantHttpTransport(
 
   const authProxy = resolveAuthProxyConfig();
 
+  // ── Shared pg.Pool — created once per transport process ──────────────
+  // All users share a single pool (max 20 connections). Cloud SQL Sandbox
+  // provides 25 max connections total; 20 leaves headroom for admin queries.
+  // User isolation is enforced at the query level via userId row-scoping
+  // in every pg-* store. Pool lifecycle is tied to the transport: created
+  // here, ended in handle.close() — NOT per-user.
+  const sharedPool: PgPool = createPool({
+    connectionString,
+    maxConnections: 20,
+  });
+
+  // Apply schema (idempotent: runs migration runner, skips already-applied).
+  await createSchema(sharedPool);
+
   // ── User cache ────────────────────────────────────────────────────────
-  // Unlike the SQLite transport, we do NOT need an LRU database-count limit —
-  // all users share a single pg.Pool. We still maintain an in-memory user
-  // map for session routing and idle-eviction of MCP transport objects.
+  // All users share the single pg.Pool above. This map tracks in-memory
+  // MCP server instances and session routing for idle-eviction.
   const users = new Map<string, PgUserEntry>();
 
   // Map mcp-session-id -> { userId, transport }
@@ -147,19 +160,18 @@ export async function startPgMultiTenantHttpTransport(
   >();
 
   /**
-   * Create a fresh MCP server for a user, backed by Postgres StorageContext.
-   * Each user gets their own pg.Pool so that `storage.close()` ends their
-   * connections independently on eviction.
+   * Create a fresh MCP server for a user, injecting the shared pool.
+   * Schema was already applied above — no per-user createSchema call.
+   * storage.close() is a no-op for the shared-pool path (ownPool=false).
    */
   async function createPgUserServer(
     userId: string
-  ): Promise<{ mcpServer: ReturnType<typeof createServer>; storage: StorageContext }> {
+  ): Promise<ReturnType<typeof createServer>> {
     const storage = await createPgStorage({
-      connectionString,
+      pool: sharedPool,
       userId,
     });
-    const mcpServer = createServer({ storage });
-    return { mcpServer, storage };
+    return createServer({ storage });
   }
 
   async function evictUser(userId: string): Promise<void> {
@@ -181,11 +193,10 @@ export async function startPgMultiTenantHttpTransport(
     }
     entry.transports.clear();
 
-    try {
-      await entry.storage.close();
-    } catch {
-      // ignore close errors
-    }
+    // Do NOT call storage.close() here — the shared pool must not be ended
+    // until the entire transport shuts down. Per-user eviction only drops
+    // the MCP server cache entry; the pool's idle connections are recycled
+    // by pg's normal idleTimeoutMillis behavior.
 
     users.delete(userId);
   }
@@ -216,12 +227,11 @@ export async function startPgMultiTenantHttpTransport(
       return existing;
     }
 
-    const { mcpServer, storage } = await createPgUserServer(userId);
+    const mcpServer = await createPgUserServer(userId);
 
     const entry: PgUserEntry = {
       userId,
       mcpServer,
-      storage,
       transports: new Map(),
       lastAccess: Date.now(),
       idleTimer: null,
@@ -449,15 +459,21 @@ export async function startPgMultiTenantHttpTransport(
         server: httpServer,
         port,
         close: async () => {
-          // Evict all users (closes transports + pg pool for each user)
+          // Evict all users (closes MCP transports, removes cache entries).
+          // Does NOT end individual pg connections — the shared pool is ended below.
           const userIds = [...users.keys()];
           for (const userId of userIds) {
             await evictUser(userId);
           }
 
+          // Close HTTP server before ending the pool so in-flight requests
+          // can drain their queries before pool.end() drains connections.
           await new Promise<void>((res, rej) => {
             httpServer.close((err) => (err ? rej(err) : res()));
           });
+
+          // End the shared pool — all connections released.
+          await sharedPool.end();
         },
       };
 

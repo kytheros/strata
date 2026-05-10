@@ -23,7 +23,14 @@ import { PgMetaStore } from "./pg-meta-store.js";
 
 /** Options for creating a Postgres-backed StorageContext. */
 export interface PgStorageOptions {
-  connectionString: string;
+  /**
+   * Pre-created pg.Pool to share across users. When provided, this factory
+   * does NOT call pool.end() on close() — the caller owns the pool lifecycle.
+   * Use this path for multi-tenant deployments where one pool serves all users.
+   */
+  pool?: PgPool;
+  /** Connection string — used only when `pool` is not provided. */
+  connectionString?: string;
   userId: string;
   maxConnections?: number;
   embedder?: { embed(text: string, taskType: string): Promise<Float32Array> } | null;
@@ -35,6 +42,12 @@ export interface PgStorageOptions {
  * Accepts either PgStorageOptions directly or a StorageOptions from the factory.
  * Initializes the schema if needed (checks index_meta for schema version),
  * then constructs all 5 Pg store classes.
+ *
+ * Pool ownership:
+ *   - PgStorageOptions with `pool` set: caller owns the pool; close() is a no-op.
+ *   - PgStorageOptions with `connectionString`: factory creates and owns the pool;
+ *     close() calls pool.end().
+ *   - StorageOptions from factory: factory creates and owns the pool.
  */
 export async function createPgStorage(options: PgStorageOptions | StorageOptions): Promise<StorageContext> {
   let pool: PgPool;
@@ -42,8 +55,14 @@ export async function createPgStorage(options: PgStorageOptions | StorageOptions
   let embedder: { embed(text: string, taskType: string): Promise<Float32Array> } | null | undefined;
   let ownPool = false;
 
-  if ("connectionString" in options) {
-    // Direct PgStorageOptions
+  if ("userId" in options && "pool" in options && options.pool) {
+    // Caller-owned shared pool (multi-tenant transport path)
+    pool = options.pool;
+    userId = options.userId;
+    embedder = options.embedder;
+    ownPool = false; // caller is responsible for pool.end()
+  } else if ("connectionString" in options && options.connectionString) {
+    // Direct PgStorageOptions with connection string — factory creates pool
     pool = createPool({
       connectionString: options.connectionString,
       maxConnections: options.maxConnections,
@@ -52,16 +71,17 @@ export async function createPgStorage(options: PgStorageOptions | StorageOptions
     embedder = options.embedder;
     ownPool = true;
   } else {
-    // StorageOptions from factory
-    if (!options.pgConnectionString) {
+    // StorageOptions from factory (adapter === "pg", pgConnectionString set by factory.ts)
+    const storageOpts = options as import("../interfaces/index.js").StorageOptions;
+    if (!storageOpts.pgConnectionString) {
       throw new Error("Postgres adapter requires pgConnectionString in StorageOptions.");
     }
     pool = createPool({
-      connectionString: options.pgConnectionString,
-      maxConnections: options.pgMaxConnections,
+      connectionString: storageOpts.pgConnectionString,
+      maxConnections: storageOpts.pgMaxConnections,
     });
-    userId = options.userId ?? "default";
-    embedder = options.embedder;
+    userId = storageOpts.userId ?? "default";
+    embedder = storageOpts.embedder;
     ownPool = true;
   }
 
