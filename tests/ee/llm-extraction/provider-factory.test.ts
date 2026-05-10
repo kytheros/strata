@@ -582,3 +582,91 @@ describe("getConflictResolutionProvider", () => {
     expect(provider).toBeInstanceOf(HybridProvider);
   });
 });
+
+// ---------------------------------------------------------------------------
+// STRATA_EXTRACTION_PROVIDER env override (Task A.3)
+// Allows the E2E harness to swap providers without touching ~/.strata/config.json.
+// Accepted values: "gemini" | "ollama:<model>" | "hybrid"
+// ---------------------------------------------------------------------------
+describe("STRATA_EXTRACTION_PROVIDER env override", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetGeminiProviderCache();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetGeminiProviderCache();
+  });
+
+  it("STRATA_EXTRACTION_PROVIDER=gemini returns a GeminiProvider even when distillation is enabled", async () => {
+    vi.stubEnv("STRATA_EXTRACTION_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    // Even with distillation config present, the env override forces gemini
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ distillation: { enabled: true } })
+    );
+
+    const provider = await getExtractionProvider();
+    expect(provider).not.toBeNull();
+    expect(provider!.name).toBe("gemini");
+    expect(provider).not.toBeInstanceOf(HybridProvider);
+  });
+
+  it("STRATA_EXTRACTION_PROVIDER=ollama:<model> returns an OllamaProvider with that model", async () => {
+    vi.stubEnv("STRATA_EXTRACTION_PROVIDER", "ollama:gemma4:e4b");
+    vi.stubEnv("GEMINI_API_KEY", "");
+    mockExistsSync.mockReturnValue(false);
+
+    const provider = await getExtractionProvider();
+    expect(provider).not.toBeNull();
+    expect(provider!.name).toBe("ollama");
+  });
+
+  it("STRATA_EXTRACTION_PROVIDER=hybrid with GEMINI_API_KEY returns a HybridProvider", async () => {
+    vi.stubEnv("STRATA_EXTRACTION_PROVIDER", "hybrid");
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    mockExistsSync.mockReturnValue(false);
+
+    const provider = await getExtractionProvider();
+    expect(provider).not.toBeNull();
+    expect(provider).toBeInstanceOf(HybridProvider);
+  });
+
+  it("STRATA_EXTRACTION_PROVIDER=hybrid without GEMINI_API_KEY falls back to gemini=null", async () => {
+    vi.stubEnv("STRATA_EXTRACTION_PROVIDER", "hybrid");
+    vi.stubEnv("GEMINI_API_KEY", "");
+    mockExistsSync.mockReturnValue(false);
+
+    const provider = await getExtractionProvider();
+    // No frontier available — can't build a hybrid; falls back to null
+    expect(provider).toBeNull();
+  });
+
+  it("STRATA_EXTRACTION_PROVIDER does NOT mutate the config.json file (readFileSync not called)", async () => {
+    vi.stubEnv("STRATA_EXTRACTION_PROVIDER", "gemini");
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    // When env override is "gemini", loadDistillConfig is NOT called,
+    // which means readFileSync and existsSync are not called.
+    mockExistsSync.mockReturnValue(false);
+    mockReadFileSync.mockReturnValue("");
+
+    await getExtractionProvider();
+
+    // The env override short-circuits before calling loadDistillConfig,
+    // so readFileSync (which would read config.json) is not invoked.
+    expect(mockReadFileSync).not.toHaveBeenCalled();
+  });
+
+  it("unknown STRATA_EXTRACTION_PROVIDER value is ignored (falls through to normal resolution)", async () => {
+    vi.stubEnv("STRATA_EXTRACTION_PROVIDER", "unknown-provider");
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    mockExistsSync.mockReturnValue(false);
+
+    const provider = await getExtractionProvider();
+    // Unknown value => falls through to normal logic => gemini
+    expect(provider).not.toBeNull();
+    expect(provider!.name).toBe("gemini");
+  });
+});

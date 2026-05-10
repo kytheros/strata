@@ -10,6 +10,7 @@
  */
 
 import type { LlmProvider } from "./llm-provider.js";
+import { OllamaProvider } from "./llm-provider.js";
 import { getCachedGeminiProvider } from "./gemini-provider.js";
 import { HybridProvider } from "./hybrid-provider.js";
 import { readFileSync, existsSync } from "fs";
@@ -158,14 +159,76 @@ export function validateConflictResolutionOutput(raw: string): boolean {
 }
 
 /**
+ * Resolve the STRATA_EXTRACTION_PROVIDER env override into a provider.
+ *
+ * Accepted values (case-insensitive):
+ *   "gemini"           → return the Gemini frontier provider (or null if no key)
+ *   "ollama:<model>"   → return an OllamaProvider with that model name
+ *   "hybrid"           → build a HybridProvider using default extraction model
+ *                        (requires GEMINI_API_KEY for the fallback; null if no key)
+ *   anything else      → return undefined (caller falls through to normal resolution)
+ *
+ * This NEVER mutates ~/.strata/config.json — it is a process-scoped override
+ * only, intended for E2E test harnesses that need to swap providers between
+ * runs without touching user configuration.
+ */
+async function resolveEnvProviderOverride(
+  context: "extraction" | "summarization" | "conflict",
+  validateOutput: (raw: string) => boolean
+): Promise<LlmProvider | null | undefined> {
+  const override = process.env.STRATA_EXTRACTION_PROVIDER;
+  if (!override) return undefined; // No override — fall through to normal resolution
+
+  const normalized = override.trim().toLowerCase();
+
+  if (normalized === "gemini") {
+    // Force Gemini, bypass any distillation config
+    return getCachedGeminiProvider(); // null if GEMINI_API_KEY unset
+  }
+
+  if (normalized.startsWith("ollama:")) {
+    const model = override.slice("ollama:".length).trim();
+    if (!model) return undefined; // Malformed — fall through
+    const distillConfig = loadDistillConfig();
+    const baseUrl = distillConfig?.localUrl ?? "http://localhost:11434";
+    return new OllamaProvider(model, baseUrl);
+  }
+
+  if (normalized === "hybrid") {
+    const gemini = await getCachedGeminiProvider();
+    if (!gemini) return null; // No frontier available — hybrid not constructable
+    const distillConfig = loadDistillConfig();
+    const model = context === "conflict"
+      ? (distillConfig?.conflictResolutionModel ?? "gemma4:e2b")
+      : context === "summarization"
+        ? (distillConfig?.summarizationModel ?? "gemma4:e4b")
+        : (distillConfig?.extractionModel ?? "gemma4:e4b");
+    return new HybridProvider({
+      localUrl: distillConfig?.localUrl ?? "http://localhost:11434",
+      localModel: model,
+      frontierProvider: gemini,
+      validateOutput,
+      localTimeoutMs: context === "conflict" ? 60000 : context === "summarization" ? 90000 : 180000,
+    });
+  }
+
+  // Unknown value — fall through to normal resolution
+  return undefined;
+}
+
+/**
  * Get the appropriate LLM provider for knowledge extraction.
  *
  * Priority:
+ * 0. STRATA_EXTRACTION_PROVIDER env var (process-scoped override, no config mutation)
  * 1. Hybrid (distillation enabled + GEMINI_API_KEY) -> local-first with frontier fallback
  * 2. Gemini (GEMINI_API_KEY set) -> frontier only
  * 3. null (no key) -> heuristic fallback in caller
  */
 export async function getExtractionProvider(): Promise<LlmProvider | null> {
+  const envOverride = await resolveEnvProviderOverride("extraction", validateExtractionOutput);
+  if (envOverride !== undefined) return envOverride;
+
   const distillConfig = loadDistillConfig();
   const gemini = await getCachedGeminiProvider();
 
@@ -192,11 +255,15 @@ export async function getExtractionProvider(): Promise<LlmProvider | null> {
  * Get the appropriate LLM provider for session summarization.
  *
  * Priority:
+ * 0. STRATA_EXTRACTION_PROVIDER env var (process-scoped override, no config mutation)
  * 1. Hybrid (distillation enabled + GEMINI_API_KEY) -> local-first with frontier fallback
  * 2. Gemini (GEMINI_API_KEY set) -> frontier only
  * 3. null (no key) -> heuristic fallback in caller
  */
 export async function getSummarizationProvider(): Promise<LlmProvider | null> {
+  const envOverride = await resolveEnvProviderOverride("summarization", validateSummarizationOutput);
+  if (envOverride !== undefined) return envOverride;
+
   const distillConfig = loadDistillConfig();
   const gemini = await getCachedGeminiProvider();
 
@@ -218,12 +285,16 @@ export async function getSummarizationProvider(): Promise<LlmProvider | null> {
  * Get the LLM provider for conflict resolution (per-entry classify/delete/update).
  *
  * Priority:
+ * 0. STRATA_EXTRACTION_PROVIDER env var (process-scoped override, no config mutation)
  * 1. Hybrid (distillation enabled + GEMINI_API_KEY) -> local-first with frontier fallback
  *    — uses the smaller conflictResolutionModel (e.g. gemma4:e2b) for speed.
  * 2. Gemini (GEMINI_API_KEY set) -> frontier only
  * 3. null (no key) -> caller skips conflict resolution and direct-adds
  */
 export async function getConflictResolutionProvider(): Promise<LlmProvider | null> {
+  const envOverride = await resolveEnvProviderOverride("conflict", validateConflictResolutionOutput);
+  if (envOverride !== undefined) return envOverride;
+
   const distillConfig = loadDistillConfig();
   const gemini = await getCachedGeminiProvider();
 
