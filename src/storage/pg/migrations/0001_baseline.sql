@@ -10,16 +10,6 @@
 --
 -- Ticket: kytheros/strata#10
 
--- schema_migrations tracking table (created by the runner before applying any
--- migration, so it will already exist when this SQL runs — IF NOT EXISTS
--- ensures that is not a problem)
-CREATE TABLE IF NOT EXISTS schema_migrations (
-  version    TEXT        PRIMARY KEY,
-  name       TEXT        NOT NULL,
-  checksum   TEXT        NOT NULL,
-  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 -- Core document chunks
 CREATE TABLE IF NOT EXISTS documents (
   id            TEXT    PRIMARY KEY,

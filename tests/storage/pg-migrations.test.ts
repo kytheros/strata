@@ -15,7 +15,7 @@
  * Issue: kytheros/strata#10
  */
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import pg from "pg";
 import {
   runMigrations,
@@ -48,25 +48,19 @@ describe("Postgres Migration Runner", () => {
     }
   });
 
-  // Isolate each test: drop all strata tables so the runner starts from scratch
+  // Isolate each test: drop all strata tables before and after each test.
+  // beforeEach ensures we start from a clean slate regardless of what other
+  // concurrent test files may have left behind.
+  beforeEach(async () => {
+    if (!pool) return;
+    const { dropSchema } = await import("../../src/storage/pg/schema.js");
+    await dropSchema(pool).catch(() => {});
+  });
+
   afterEach(async () => {
     if (!pool) return;
-    // Drop schema_migrations first (no FK deps), then the rest
-    await pool
-      .query("DROP TABLE IF EXISTS schema_migrations CASCADE")
-      .catch(() => {});
-    // Minimal set needed to avoid FK errors when dropping schema_migrations
-    await pool
-      .query(
-        `DROP TABLE IF EXISTS
-          knowledge_turns,
-          training_data, document_chunks, stored_documents,
-          migration_state, analytics, evidence_gaps, knowledge_entities,
-          entity_relations, entities, events, embeddings, index_meta,
-          summaries, knowledge_history, knowledge, documents
-        CASCADE`
-      )
-      .catch(() => {});
+    const { dropSchema } = await import("../../src/storage/pg/schema.js");
+    await dropSchema(pool).catch(() => {});
   });
 
   it("runMigrations is exported as a function", () => {

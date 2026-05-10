@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import pg from "pg";
-import { createSchema } from "../../src/storage/pg/schema.js";
+import { createSchema, dropSchema } from "../../src/storage/pg/schema.js";
 import { PgSummaryStore } from "../../src/storage/pg/pg-summary-store.js";
 import { PgMetaStore } from "../../src/storage/pg/pg-meta-store.js";
 import type { SessionSummary } from "../../src/knowledge/session-summarizer.js";
@@ -45,20 +45,19 @@ describe("PgSummaryStore", () => {
       console.log("Postgres not available -- skipping PgSummaryStore tests");
       await pool.end();
       pool = undefined;
-      return;
     }
-
-    await createSchema(pool);
-    store = new PgSummaryStore(pool, "default");
   });
 
   beforeEach(async () => {
     if (!pool) return;
-    await pool.query("DELETE FROM summaries");
+    await dropSchema(pool);
+    await createSchema(pool);
+    store = new PgSummaryStore(pool, "default");
   });
 
   afterAll(async () => {
     if (pool) {
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
   });
@@ -138,21 +137,19 @@ describe("PgMetaStore", () => {
       console.log("Postgres not available -- skipping PgMetaStore tests");
       await pool.end();
       pool = undefined;
-      return;
     }
-
-    await createSchema(pool);
-    store = new PgMetaStore(pool);
   });
 
   beforeEach(async () => {
     if (!pool) return;
-    // Clean up only non-schema keys
-    await pool.query("DELETE FROM index_meta WHERE key != 'schema_version'");
+    await dropSchema(pool);
+    await createSchema(pool);
+    store = new PgMetaStore(pool);
   });
 
   afterAll(async () => {
     if (pool) {
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
   });

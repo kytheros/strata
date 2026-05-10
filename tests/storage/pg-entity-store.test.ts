@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import pg from "pg";
-import { createSchema } from "../../src/storage/pg/schema.js";
+import { createSchema, dropSchema } from "../../src/storage/pg/schema.js";
 import { PgEntityStore } from "../../src/storage/pg/pg-entity-store.js";
 
 const PG_URL = process.env.PG_URL || "postgresql://postgres:test@localhost:5432/postgres";
@@ -23,25 +23,19 @@ describe("PgEntityStore", () => {
       console.log("Postgres not available -- skipping PgEntityStore tests");
       await pool.end();
       pool = undefined;
-      return;
     }
-
-    await createSchema(pool);
-    store = new PgEntityStore(pool, "pg-ent-test");
   });
 
   beforeEach(async () => {
     if (!pool) return;
-    await pool.query("DELETE FROM knowledge_entities WHERE entity_id IN (SELECT id FROM entities WHERE user_scope = 'pg-ent-test')").catch(() => {});
-    await pool.query("DELETE FROM entity_relations WHERE source_entity_id IN (SELECT id FROM entities WHERE user_scope = 'pg-ent-test')").catch(() => {});
-    await pool.query("DELETE FROM entities WHERE user_scope = 'pg-ent-test'");
+    await dropSchema(pool);
+    await createSchema(pool);
+    store = new PgEntityStore(pool, "pg-ent-test");
   });
 
   afterAll(async () => {
     if (pool) {
-      await pool.query("DELETE FROM knowledge_entities WHERE entity_id IN (SELECT id FROM entities WHERE user_scope = 'pg-ent-test')").catch(() => {});
-      await pool.query("DELETE FROM entity_relations WHERE source_entity_id IN (SELECT id FROM entities WHERE user_scope = 'pg-ent-test')").catch(() => {});
-      await pool.query("DELETE FROM entities WHERE user_scope = 'pg-ent-test'").catch(() => {});
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
   });

@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import pg from "pg";
-import { createSchema } from "../../src/storage/pg/schema.js";
+import { createSchema, dropSchema } from "../../src/storage/pg/schema.js";
 import { PgKnowledgeStore } from "../../src/storage/pg/pg-knowledge-store.js";
 import type { KnowledgeEntry } from "../../src/knowledge/knowledge-store.js";
 
@@ -39,25 +39,19 @@ describe("PgKnowledgeStore", () => {
       console.log("Postgres not available -- skipping PgKnowledgeStore tests");
       await pool.end();
       pool = undefined;
-      return;
     }
-
-    await createSchema(pool);
-    store = new PgKnowledgeStore(pool, "pg-know-test");
   });
 
   beforeEach(async () => {
     if (!pool) return;
-    await pool.query("DELETE FROM knowledge_history WHERE entry_id IN (SELECT id FROM knowledge WHERE user_scope = 'pg-know-test')");
-    await pool.query("DELETE FROM knowledge_entities WHERE entry_id IN (SELECT id FROM knowledge WHERE user_scope = 'pg-know-test')");
-    await pool.query("DELETE FROM knowledge WHERE user_scope = 'pg-know-test'");
+    await dropSchema(pool);
+    await createSchema(pool);
+    store = new PgKnowledgeStore(pool, "pg-know-test");
   });
 
   afterAll(async () => {
     if (pool) {
-      await pool.query("DELETE FROM knowledge_history WHERE entry_id IN (SELECT id FROM knowledge WHERE user_scope IN ('pg-know-test','know-user-a','know-user-b'))").catch(() => {});
-      await pool.query("DELETE FROM knowledge_entities WHERE entry_id IN (SELECT id FROM knowledge WHERE user_scope IN ('pg-know-test','know-user-a','know-user-b'))").catch(() => {});
-      await pool.query("DELETE FROM knowledge WHERE user_scope IN ('pg-know-test','know-user-a','know-user-b')").catch(() => {});
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
   });

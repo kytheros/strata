@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import pg from "pg";
-import { createSchema } from "../../src/storage/pg/schema.js";
+import { createSchema, dropSchema } from "../../src/storage/pg/schema.js";
 import { PgDocumentStore } from "../../src/storage/pg/pg-document-store.js";
 import type { DocumentMetadata } from "../../src/indexing/document-store.js";
 
@@ -36,21 +36,19 @@ describe("PgDocumentStore", () => {
       console.log("Postgres not available -- skipping PgDocumentStore tests");
       await pool.end();
       pool = undefined;
-      return;
     }
-
-    await createSchema(pool);
-    store = new PgDocumentStore(pool, "pg-doc-test");
   });
 
   beforeEach(async () => {
     if (!pool) return;
-    await pool.query("DELETE FROM documents WHERE user_scope IN ('pg-doc-test', 'doc-user-a', 'doc-user-b')");
+    await dropSchema(pool);
+    await createSchema(pool);
+    store = new PgDocumentStore(pool, "pg-doc-test");
   });
 
   afterAll(async () => {
     if (pool) {
-      await pool.query("DELETE FROM documents WHERE user_scope IN ('pg-doc-test', 'doc-user-a', 'doc-user-b')");
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
   });

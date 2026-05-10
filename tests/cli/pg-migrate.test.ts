@@ -17,6 +17,7 @@ import {
   it,
   expect,
   beforeAll,
+  beforeEach,
   afterAll,
   afterEach,
   vi,
@@ -45,26 +46,22 @@ describe("strata migrate pg CLI", () => {
 
   afterAll(async () => {
     if (pool) {
+      const { dropSchema } = await import("../../src/storage/pg/schema.js");
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
   });
 
+  beforeEach(async () => {
+    if (!pool) return;
+    const { dropSchema } = await import("../../src/storage/pg/schema.js");
+    await dropSchema(pool).catch(() => {});
+  });
+
   afterEach(async () => {
     if (!pool) return;
-    await pool
-      .query("DROP TABLE IF EXISTS schema_migrations CASCADE")
-      .catch(() => {});
-    await pool
-      .query(
-        `DROP TABLE IF EXISTS
-          knowledge_turns,
-          training_data, document_chunks, stored_documents,
-          migration_state, analytics, evidence_gaps, knowledge_entities,
-          entity_relations, entities, events, embeddings, index_meta,
-          summaries, knowledge_history, knowledge, documents
-        CASCADE`
-      )
-      .catch(() => {});
+    const { dropSchema } = await import("../../src/storage/pg/schema.js");
+    await dropSchema(pool).catch(() => {});
   });
 
   it("pgMigrate is exported as a function", () => {

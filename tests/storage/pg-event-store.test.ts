@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import pg from "pg";
-import { createSchema } from "../../src/storage/pg/schema.js";
+import { createSchema, dropSchema } from "../../src/storage/pg/schema.js";
 import { PgEventStore } from "../../src/storage/pg/pg-event-store.js";
 import type { SVOEvent } from "../../src/storage/interfaces/index.js";
 
@@ -40,21 +40,19 @@ describe("PgEventStore", () => {
       console.log("Postgres not available -- skipping PgEventStore tests");
       await pool.end();
       pool = undefined;
-      return;
     }
-
-    await createSchema(pool);
-    store = new PgEventStore(pool, "pg-evt-test");
   });
 
   beforeEach(async () => {
     if (!pool) return;
-    await pool.query("DELETE FROM events WHERE user_scope = 'pg-evt-test'");
+    await dropSchema(pool);
+    await createSchema(pool);
+    store = new PgEventStore(pool, "pg-evt-test");
   });
 
   afterAll(async () => {
     if (pool) {
-      await pool.query("DELETE FROM events WHERE user_scope = 'pg-evt-test'");
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
   });

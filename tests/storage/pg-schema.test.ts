@@ -7,9 +7,9 @@
  * Run: PG_URL="postgresql://postgres:test@localhost:5432/postgres" npx vitest run tests/storage/pg-schema.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import pg from "pg";
-import { createSchema, PG_SCHEMA_VERSION } from "../../src/storage/pg/schema.js";
+import { createSchema, dropSchema, PG_SCHEMA_VERSION } from "../../src/storage/pg/schema.js";
 
 const PG_URL = process.env.PG_URL || "postgresql://postgres:test@localhost:5432/postgres";
 
@@ -25,17 +25,17 @@ describe("Postgres Schema", () => {
       await pool.end();
       pool = undefined;
     }
-    if (pool) {
-      // Ensure schema exists for subsequent tests
-      await createSchema(pool);
-    }
+  });
+
+  beforeEach(async () => {
+    if (!pool) return;
+    await dropSchema(pool);
+    await createSchema(pool);
   });
 
   afterAll(async () => {
     if (pool) {
-      // Don't drop schema here -- other test files may be running in parallel
-      // Clean up test data only
-      await pool.query("DELETE FROM documents WHERE id = 'test-tsv-1'").catch(() => {});
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
   });
@@ -67,14 +67,17 @@ describe("Postgres Schema", () => {
     expect(tableNames).toContain("training_data");
   });
 
-  it("should record schema version in index_meta", async () => {
+  it("should record applied migrations in schema_migrations", async () => {
     if (!pool) return;
 
-    const { rows } = await pool.query<{ value: string }>(
-      "SELECT value FROM index_meta WHERE key = 'schema_version'"
+    // Migration runner tracks versions in schema_migrations, not index_meta.
+    // PG_SCHEMA_VERSION is deprecated; check the runner's own tracking table.
+    const { rows } = await pool.query<{ version: string }>(
+      "SELECT version FROM schema_migrations ORDER BY version"
     );
-    expect(rows.length).toBe(1);
-    expect(rows[0].value).toBe(PG_SCHEMA_VERSION);
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    // Baseline must be present
+    expect(rows[0].version).toBe("0001");
   });
 
   it("should be idempotent (re-apply without error)", async () => {
@@ -83,11 +86,11 @@ describe("Postgres Schema", () => {
     // Apply again -- should not throw
     await createSchema(pool);
 
-    // Schema version should still be correct
-    const { rows } = await pool.query<{ value: string }>(
-      "SELECT value FROM index_meta WHERE key = 'schema_version'"
+    // schema_migrations should still show all migrations applied
+    const { rows } = await pool.query<{ count: string }>(
+      "SELECT count(*)::text FROM schema_migrations"
     );
-    expect(rows[0].value).toBe(PG_SCHEMA_VERSION);
+    expect(parseInt(rows[0].count, 10)).toBeGreaterThanOrEqual(1);
   });
 
   it("should have tsvector columns on documents, knowledge, events, document_chunks", async () => {

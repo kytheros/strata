@@ -12,7 +12,7 @@
  * Issue: kytheros/strata#9 (0004_knowledge_turns.sql applied by runner)
  */
 
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import pg from "pg";
 import { createSchema, dropSchema } from "../../src/storage/pg/schema.js";
 import { PgKnowledgeTurnStore } from "../../src/storage/pg/pg-knowledge-turn-store.js";
@@ -47,24 +47,21 @@ describe("PgKnowledgeTurnStore (#9)", () => {
       );
       await pool.end();
       pool = undefined;
-      return;
     }
+  });
 
-    // Apply schema (including 0004_knowledge_turns migration)
+  beforeEach(async () => {
+    if (!pool) return;
+    await dropSchema(pool);
     await createSchema(pool);
     store = new PgKnowledgeTurnStore(pool);
   });
 
   afterAll(async () => {
     if (pool) {
-      await dropSchema(pool);
+      await dropSchema(pool).catch(() => {});
       await pool.end();
     }
-  });
-
-  afterEach(async () => {
-    if (!pool) return;
-    await pool.query("DELETE FROM knowledge_turns").catch(() => {});
   });
 
   it("knowledge_turns table exists after createSchema", async () => {
