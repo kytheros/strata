@@ -10,6 +10,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import type { LlmProvider } from "../../src/extensions/llm-extraction/llm-provider.js";
 import type { EvalResult } from "./eval-extraction.js";
+import { parseJsonResponse } from "./strip-json-fence.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -53,13 +54,15 @@ export async function evalSummarization(provider: LlmProvider): Promise<EvalResu
     const start = Date.now();
     let pass = false;
     let reason = "";
+    let raw = "";
     try {
-      const raw = await provider.complete(prompt, {
+      raw = await provider.complete(prompt, {
         maxTokens: 1024,
         temperature: 0.1,
         timeoutMs: 30000,
+        jsonMode: true,
       });
-      const parsed = JSON.parse(raw);
+      const parsed = parseJsonResponse(raw);
       const topic = typeof parsed?.topic === "string" ? parsed.topic.toLowerCase() : "";
       if (!topic) {
         reason = "empty or missing topic";
@@ -76,7 +79,8 @@ export async function evalSummarization(provider: LlmProvider): Promise<EvalResu
         }
       }
     } catch (err) {
-      reason = `error: ${err instanceof Error ? err.message : String(err)}`;
+      const preview = raw.slice(0, 200).replace(/\n/g, "\\n");
+      reason = `error: ${err instanceof Error ? err.message : String(err)} | raw[:200]="${preview}"`;
     }
 
     const ms = Date.now() - start;

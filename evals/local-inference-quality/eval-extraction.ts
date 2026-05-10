@@ -10,6 +10,7 @@ import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import type { LlmProvider } from "../../src/extensions/llm-extraction/llm-provider.js";
+import { parseJsonResponse } from "./strip-json-fence.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,8 +71,9 @@ export async function evalExtraction(provider: LlmProvider): Promise<EvalResult>
         maxTokens: 4096,
         temperature: 0.1,
         timeoutMs: 60000,
+        jsonMode: true,
       });
-      const parsed = JSON.parse(raw);
+      const parsed = parseJsonResponse(raw);
       const entries = parsed?.entries;
       if (!Array.isArray(entries)) {
         reason = "no entries array";
@@ -93,7 +95,8 @@ export async function evalExtraction(provider: LlmProvider): Promise<EvalResult>
         }
       }
     } catch (err) {
-      reason = `error: ${err instanceof Error ? err.message : String(err)}`;
+      const preview = raw.slice(0, 200).replace(/\n/g, "\\n");
+      reason = `error: ${err instanceof Error ? err.message : String(err)} | raw[:200]="${preview}"`;
     }
 
     const ms = Date.now() - start;
