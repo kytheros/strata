@@ -19,6 +19,12 @@ export interface TrainingPair {
   modelUsed: string;
   qualityScore: number;
   heuristicDiverged: boolean;
+  /**
+   * Full raw LLM response including <think>...</think> blocks, captured
+   * BEFORE extractJson() strips the reasoning trace. NULL when the provider
+   * did not emit a reasoning trace (e.g. Gemini frontier model).
+   */
+  reasoningTrace?: string | null;
 }
 
 /** Counts of training data per task type */
@@ -36,8 +42,8 @@ export interface TrainingDataCounts {
 export function saveTrainingPair(db: Database.Database, pair: TrainingPair): void {
   const stmt = db.prepare(`
     INSERT INTO training_data
-      (task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+      (task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at, reasoning_trace)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     pair.taskType,
@@ -46,7 +52,8 @@ export function saveTrainingPair(db: Database.Database, pair: TrainingPair): voi
     pair.modelUsed,
     pair.qualityScore,
     pair.heuristicDiverged ? 1 : 0,
-    Date.now()
+    Date.now(),
+    pair.reasoningTrace ?? null
   );
 }
 
@@ -158,6 +165,8 @@ export interface TrainingDataRow {
   qualityScore: number;
   heuristicDiverged: boolean;
   createdAt: number;
+  /** Full raw LLM response with reasoning trace; NULL when not captured. */
+  reasoningTrace: string | null;
 }
 
 /**
@@ -170,7 +179,7 @@ export function* iterateTrainingData(
   minQuality: number = 0.7
 ): Generator<TrainingDataRow> {
   const stmt = db.prepare(`
-    SELECT id, task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at
+    SELECT id, task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at, reasoning_trace
     FROM training_data
     WHERE task_type = ? AND quality_score >= ?
     ORDER BY created_at ASC
@@ -185,6 +194,7 @@ export function* iterateTrainingData(
     quality_score: number;
     heuristic_diverged: number;
     created_at: number;
+    reasoning_trace: string | null;
   }>) {
     yield {
       id: row.id,
@@ -195,6 +205,7 @@ export function* iterateTrainingData(
       qualityScore: row.quality_score,
       heuristicDiverged: row.heuristic_diverged === 1,
       createdAt: row.created_at,
+      reasoningTrace: row.reasoning_trace,
     };
   }
 }

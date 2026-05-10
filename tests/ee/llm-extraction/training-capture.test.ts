@@ -486,3 +486,98 @@ describe("iterateTrainingData", () => {
     db.close();
   });
 });
+
+describe("saveTrainingPair — reasoning_trace column (Phase 0 distillation)", () => {
+  it("stores reasoning_trace when provided", () => {
+    const db = openDatabase(":memory:");
+
+    saveTrainingPair(db, {
+      taskType: "extraction",
+      inputText: "test prompt",
+      outputJson: '{"entries": []}',
+      modelUsed: "gemma4:e4b",
+      qualityScore: 1.0,
+      heuristicDiverged: false,
+      reasoningTrace: "<think>step 1: identify topics</think>",
+    });
+
+    const row = db.prepare("SELECT reasoning_trace FROM training_data").get() as {
+      reasoning_trace: string | null;
+    };
+    expect(row.reasoning_trace).toBe("<think>step 1: identify topics</think>");
+
+    db.close();
+  });
+
+  it("stores NULL reasoning_trace when not provided", () => {
+    const db = openDatabase(":memory:");
+
+    saveTrainingPair(db, {
+      taskType: "extraction",
+      inputText: "test prompt",
+      outputJson: '{"entries": []}',
+      modelUsed: "gemma4:e4b",
+      qualityScore: 1.0,
+      heuristicDiverged: false,
+    });
+
+    const row = db.prepare("SELECT reasoning_trace FROM training_data").get() as {
+      reasoning_trace: string | null;
+    };
+    expect(row.reasoning_trace).toBeNull();
+
+    db.close();
+  });
+
+  it("iterateTrainingData exposes reasoningTrace field", () => {
+    const db = openDatabase(":memory:");
+
+    saveTrainingPair(db, {
+      taskType: "extraction",
+      inputText: "with trace",
+      outputJson: "{}",
+      modelUsed: "gemma4:e4b",
+      qualityScore: 1.0,
+      heuristicDiverged: false,
+      reasoningTrace: "<think>reasoning here</think>",
+    });
+
+    saveTrainingPair(db, {
+      taskType: "extraction",
+      inputText: "without trace",
+      outputJson: "{}",
+      modelUsed: "gemini",
+      qualityScore: 1.0,
+      heuristicDiverged: false,
+    });
+
+    const rows = [...iterateTrainingData(db, "extraction", 0.0)];
+    const withTrace = rows.find((r) => r.inputText === "with trace");
+    const withoutTrace = rows.find((r) => r.inputText === "without trace");
+
+    expect(withTrace?.reasoningTrace).toBe("<think>reasoning here</think>");
+    expect(withoutTrace?.reasoningTrace).toBeNull();
+
+    db.close();
+  });
+
+  it("existing rows without reasoning_trace column upgrade cleanly to NULL", () => {
+    // Simulate a DB that has the old schema (without reasoning_trace) by opening
+    // a fresh DB — the migration adds the column with DEFAULT NULL so all
+    // existing rows get NULL automatically.
+    const db = openDatabase(":memory:");
+
+    // Insert without reasoning_trace (as if coming from old code)
+    db.prepare(
+      `INSERT INTO training_data (task_type, input_text, output_json, model_used, quality_score, heuristic_diverged, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("extraction", "old row", "{}", "gemini", 1.0, 0, Date.now());
+
+    const row = db.prepare("SELECT reasoning_trace FROM training_data").get() as {
+      reasoning_trace: string | null;
+    };
+    expect(row.reasoning_trace).toBeNull();
+
+    db.close();
+  });
+});

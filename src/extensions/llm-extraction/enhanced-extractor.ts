@@ -97,17 +97,21 @@ export async function enhancedExtract(
     const heuristicEntries = extractKnowledge(session);
     const merged = mergeEntries(entries, heuristicEntries);
 
-    // Training data capture (Task 6) — NEVER affects primary path
+    // Training data capture (Task 6 / Phase 0) — NEVER affects primary path.
+    // output_json = clean parsed JSON (useful training target for SFT)
+    // reasoning_trace = full raw LLM response BEFORE extractJson() strips
+    //   <think>...</think> blocks (needed for reasoning distillation)
     if (db && entries.length > 0) {
       try {
         const heuristicDiverged = heuristicEntries.length === 0 && entries.length > 0;
         saveTrainingPair(db, {
           taskType: "extraction",
           inputText: prompt,
-          outputJson: raw,
+          outputJson: JSON.stringify({ entries: parsed.entries }),
           modelUsed: provider.name,
           qualityScore: 1.0,
           heuristicDiverged,
+          reasoningTrace: raw,
         });
       } catch (captureErr) {
         // Swallow — training capture must never affect extraction

@@ -107,16 +107,20 @@ export async function smartSummarize(
       llmGenerated: true,
     };
 
-    // Training data capture (Task 6) — NEVER affects primary path
+    // Training data capture (Task 6 / Phase 0) — NEVER affects primary path.
+    // output_json = clean parsed JSON (useful training target for SFT)
+    // reasoning_trace = full raw LLM response BEFORE extractJson() strips
+    //   <think>...</think> blocks (needed for reasoning distillation)
     if (db && parsed.topic) {
       try {
         saveTrainingPair(db, {
           taskType: "summarization",
           inputText: prompt,
-          outputJson: raw,
+          outputJson: JSON.stringify(parsed),
           modelUsed: provider.name,
           qualityScore: 1.0,
           heuristicDiverged: false,
+          reasoningTrace: raw,
         });
       } catch (captureErr) {
         // Swallow — training capture must never affect summarization

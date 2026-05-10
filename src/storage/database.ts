@@ -434,6 +434,18 @@ function initSchema(db: Database.Database): void {
     db.pragma("foreign_keys = ON");
   }
 
+  // Add reasoning_trace column to training_data (Phase 0 distillation — capture
+  // full LLM response including <think>...</think> blocks before extractJson strips them).
+  // NULL for all existing rows; new captures populate it when available.
+  {
+    const hasReasoningTrace = db.prepare(
+      "SELECT 1 FROM pragma_table_info('training_data') WHERE name = 'reasoning_trace'"
+    ).get();
+    if (!hasReasoningTrace) {
+      db.exec("ALTER TABLE training_data ADD COLUMN reasoning_trace TEXT");
+    }
+  }
+
   // Evidence gap tracking table
   db.exec(`
     CREATE TABLE IF NOT EXISTS evidence_gaps (
