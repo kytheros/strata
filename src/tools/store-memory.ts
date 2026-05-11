@@ -89,7 +89,7 @@ export async function handleStoreMemory(
   // Conflict resolution: resolve semantic conflicts before writing.
   // Falls back to direct addEntry when provider is null or on any error.
   const resolution = await resolveConflicts(entry, knowledgeStore, provider);
-  executeResolution(resolution, entry, knowledgeStore);
+  await executeResolution(resolution, entry, knowledgeStore);
 
   // Resolve any evidence gaps that match this new entry
   if (db) {
