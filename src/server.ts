@@ -286,6 +286,7 @@ Parameters:
 - after_date: Filter results after this date — ISO format (2024-01-15) or relative (7d, 30d, 1w, 1m) (optional)
 - before_date: Filter results before this date — ISO format (2024-01-15) or relative (7d, 30d, 1w, 1m) (optional)
 - model: Consuming model name for retrieval optimization (optional, e.g., 'gemini-2.0-flash', 'gpt-4o')
+- retrieval_strategy: Override per-query retrieval lane — "auto" (default), "tirqdp" (force turn-level), "legacy" (force BM25+chunk)
 
 Filter syntax (include in query string):
 - project:name — filter by project
@@ -307,6 +308,12 @@ Example: Browse all sessions from the last 7 days — query: "", after_date: "7d
         after_date: z.string().optional().describe("Filter results after this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
         before_date: z.string().optional().describe("Filter results before this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
         model: z.string().optional().describe("Consuming model name for retrieval optimization (e.g., 'gemini-2.0-flash', 'gpt-4o')"),
+        retrieval_strategy: z.enum(["auto", "tirqdp", "legacy"]).optional().describe(
+          "Per-query retrieval strategy override. " +
+          "\"auto\" (default): reads the global CONFIG.search.useTirQdp flag, current behavior. " +
+          "\"tirqdp\": force turn-level TIR+QDP retrieval for this query — opt in for knowledge_update, preference, and extraction questions where TIR+QDP excels. Falls back to legacy if turn store is unavailable. " +
+          "\"legacy\": force BM25+chunk retrieval for this query — use for temporal or multi-session questions where legacy outperforms TIR+QDP."
+        ),
       }).strict(),
       annotations: {
         readOnlyHint: true,
@@ -315,7 +322,7 @@ Example: Browse all sessions from the last 7 days — query: "", after_date: "7d
     },
     async (args) => {
       const start = Date.now();
-      const key = cacheKey("search", args.query, args.project, args.limit, args.include_context, args.format, args.user, args.max_chars, args.after_date, args.before_date, args.model);
+      const key = cacheKey("search", args.query, args.project, args.limit, args.include_context, args.format, args.user, args.max_chars, args.after_date, args.before_date, args.model, args.retrieval_strategy);
       const cached = searchCache.get(key);
       if (cached) {
         onToolCall?.("search_history", args as Record<string, unknown>, Date.now() - start);

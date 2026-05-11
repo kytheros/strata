@@ -97,6 +97,35 @@ export interface SearchHistoryArgs {
   before_date?: string;
   /** Consuming model name for retrieval routing (e.g., 'gemini-2.0-flash', 'gpt-4o') */
   model?: string;
+  /**
+   * Per-query retrieval strategy override.
+   *
+   * - "auto"   (default / omitted): reads CONFIG.search.useTirQdp, current behavior.
+   * - "tirqdp": force TIR+QDP turn-level retrieval for this query, even when
+   *             CONFIG.search.useTirQdp is false. Opt-in bridge to #13.
+   *             Falls back to legacy gracefully when turnStore is unavailable.
+   * - "legacy": force BM25+chunk lane for this query, even when
+   *             CONFIG.search.useTirQdp is true. Useful for temporal/multi-session
+   *             queries where TIR+QDP underperforms (see 2026-05-11 stratified eval).
+   */
+  retrieval_strategy?: "auto" | "tirqdp" | "legacy";
+}
+
+/**
+ * Resolve the effective retrieval strategy for a query.
+ *
+ * "auto" or omitted → defer to CONFIG.search.useTirQdp (zero behavior change).
+ * "tirqdp"          → force TIR+QDP regardless of config flag.
+ * "legacy"          → force legacy BM25+chunk regardless of config flag.
+ */
+function resolveRetrievalStrategy(
+  param: SearchHistoryArgs["retrieval_strategy"],
+  configFlag: boolean,
+): "tirqdp" | "legacy" {
+  if (param === "tirqdp") return "tirqdp";
+  if (param === "legacy") return "legacy";
+  // "auto" or undefined: fall back to global config
+  return configFlag ? "tirqdp" : "legacy";
 }
 
 /**
@@ -219,12 +248,20 @@ export async function handleSearchHistory(
 
   let results: SearchResult[];
 
-  if (CONFIG.search.useTirQdp && turnStore) {
+  const strategy = resolveRetrievalStrategy(args.retrieval_strategy, CONFIG.search.useTirQdp);
+
+  // When tirqdp is forced but turnStore is unavailable, fall back to legacy and note it.
+  const effectiveTirqdp = strategy === "tirqdp" && !turnStore ? "legacy" : strategy;
+  const tirqdpUnavailableNote = strategy === "tirqdp" && !turnStore
+    ? "\nnote: retrieval_strategy \"tirqdp\" requested but turn store is unavailable — fell back to legacy BM25+chunk path."
+    : null;
+
+  if (effectiveTirqdp === "tirqdp" && turnStore) {
     // ── TIR+QDP path (TIRQDP-2.1) ────────────────────────────────────────────
-    // When the flag is on and a turn store is available, fuse the chunk lane
-    // (existing search results) and the turn lane (knowledge_turns FTS hits)
-    // via RRF, then apply QDP pruning. Both paths coexist — the legacy path
-    // below remains the default until Phase 4 flips the flag.
+    // When the effective strategy is tirqdp and a turn store is available, fuse
+    // the chunk lane (existing search results) and the turn lane
+    // (knowledge_turns FTS hits) via RRF, then apply QDP pruning.
+    // Activated by: CONFIG.search.useTirQdp=true (auto), or retrieval_strategy="tirqdp".
 
     // Chunk lane: existing search path (semantic bridge or FTS5)
     const chunkSearchResults = asyncSearch
@@ -286,7 +323,9 @@ export async function handleSearchHistory(
     })).slice(0, limit);
 
   } else {
-    // ── Legacy path (default when useTirQdp=false or no turnStore) ────────────
+    // ── Legacy path ──────────────────────────────────────────────────────────
+    // Active when: effectiveTirqdp="legacy" (config flag off, or strategy="legacy",
+    // or strategy="tirqdp" but turnStore unavailable).
     results = asyncSearch
       ? await asyncSearch(query, searchOptions)
       : await engine.search(query, searchOptions);
@@ -335,11 +374,12 @@ export async function handleSearchHistory(
       try {
         const occurrences = getGapOccurrences(db, args.query, args.project ?? "", args.user ?? "default");
         if (occurrences >= 2) {
-          return `No results found for "${args.query}".\nNote: This topic has been searched ${occurrences} times without good matches \u2014 consider using store_memory to record relevant knowledge.`;
+          return `No results found for "${args.query}".\nNote: This topic has been searched ${occurrences} times without good matches \u2014 consider using store_memory to record relevant knowledge.`
+            + (tirqdpUnavailableNote ?? "");
         }
       } catch { /* best-effort */ }
     }
-    return `No results found for "${args.query}".`;
+    return `No results found for "${args.query}".` + (tirqdpUnavailableNote ?? "");
   }
 
   const records = toRecords(results, maxChars);
@@ -349,13 +389,13 @@ export async function handleSearchHistory(
   if (format === ResponseFormat.CONCISE) {
     const serializer = new CompactSerializer("results");
     return `Found ${results.length} result(s) for "${args.query}":\n\n` +
-      serializer.serialize(records, { format });
+      serializer.serialize(records, { format }) + (tirqdpUnavailableNote ?? "");
   }
 
   // Detailed: full JSON (for programmatic consumers like strata-py SDK)
   if (format === ResponseFormat.DETAILED) {
     const serializer = new CompactSerializer("results");
-    return serializer.serialize(records, { format });
+    return serializer.serialize(records, { format }) + (tirqdpUnavailableNote ?? "");
   }
 
   // Standard: structured text (default)
@@ -391,5 +431,5 @@ export async function handleSearchHistory(
     lines.push("");
   }
 
-  return lines.join("\n");
+  return lines.join("\n") + (tirqdpUnavailableNote ?? "");
 }

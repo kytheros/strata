@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import { openDatabase } from "../../src/storage/database.js";
 import { SqliteDocumentStore } from "../../src/storage/sqlite-document-store.js";
 import { SqliteKnowledgeStore } from "../../src/storage/sqlite-knowledge-store.js";
+import { SqliteKnowledgeTurnStore } from "../../src/storage/sqlite-knowledge-turn-store.js";
 import { SqliteSearchEngine } from "../../src/search/sqlite-search-engine.js";
 import { handleSearchHistory } from "../../src/tools/search-history.js";
 import type { KnowledgeEntry } from "../../src/knowledge/knowledge-store.js";
 import type { DocumentMetadata } from "../../src/indexing/document-store.js";
+import { CONFIG } from "../../src/config.js";
 
 function makeMetadata(overrides: Partial<DocumentMetadata> = {}): DocumentMetadata {
   return {
@@ -141,5 +143,145 @@ describe("handleSearchHistory knowledge retrieval", () => {
 
     expect(result).not.toContain("No results found");
     expect(result).toContain("dark mode");
+  });
+});
+
+// ── retrieval_strategy parameter tests ──────────────────────────────────────
+
+describe("handleSearchHistory retrieval_strategy", () => {
+  let db: Database.Database;
+  let docStore: SqliteDocumentStore;
+  let knowledgeStore: SqliteKnowledgeStore;
+  let turnStore: SqliteKnowledgeTurnStore;
+  let engine: SqliteSearchEngine;
+  let savedUseTirQdp: boolean;
+
+  beforeEach(async () => {
+    db = openDatabase(":memory:");
+    docStore = new SqliteDocumentStore(db);
+    knowledgeStore = new SqliteKnowledgeStore(db);
+    turnStore = new SqliteKnowledgeTurnStore(db);
+    engine = new SqliteSearchEngine(docStore, null, null, null, knowledgeStore);
+
+    // Store the original flag value and reset after each test
+    savedUseTirQdp = CONFIG.search.useTirQdp;
+
+    // Seed a knowledge entry so legacy path can return something
+    await knowledgeStore.addEntry(makeEntry({
+      id: "entry-strategy-test",
+      summary: "LGBTQ support group meeting notes",
+      details: "The user attended a weekly LGBTQ support group meeting",
+      sessionId: "session-strategy",
+    }));
+
+    // Seed a turn entry so TIR+QDP path can return something
+    await turnStore.insert({
+      userId: "default",
+      project: "test-project",
+      sessionId: "session-turn-1",
+      speaker: "user",
+      content: "LGBTQ support group turn-level content",
+      messageIndex: 0,
+    });
+  });
+
+  afterEach(() => {
+    // Restore CONFIG flag to avoid cross-test pollution
+    (CONFIG.search as { useTirQdp: boolean }).useTirQdp = savedUseTirQdp;
+    db.close();
+  });
+
+  it("omitting retrieval_strategy uses CONFIG.search.useTirQdp (back-compat)", async () => {
+    // With useTirQdp=false and no param, must use legacy path (no 'source' in output)
+    (CONFIG.search as { useTirQdp: boolean }).useTirQdp = false;
+
+    const result = await handleSearchHistory(
+      engine,
+      { query: "LGBTQ support group" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+
+    expect(result).not.toContain("No results found");
+    // Legacy path: results don't have source: "turn"
+    expect(result).not.toContain('"source":"turn"');
+  });
+
+  it('retrieval_strategy: "auto" behaves identically to omitting the param', async () => {
+    (CONFIG.search as { useTirQdp: boolean }).useTirQdp = false;
+
+    const withAuto = await handleSearchHistory(
+      engine,
+      { query: "LGBTQ support group", retrieval_strategy: "auto" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+    const withOmit = await handleSearchHistory(
+      engine,
+      { query: "LGBTQ support group" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+
+    expect(withAuto).toBe(withOmit);
+  });
+
+  it('retrieval_strategy: "legacy" forces legacy path even when CONFIG.search.useTirQdp=true', async () => {
+    (CONFIG.search as { useTirQdp: boolean }).useTirQdp = true;
+
+    const result = await handleSearchHistory(
+      engine,
+      { query: "LGBTQ support group", retrieval_strategy: "legacy" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+
+    expect(result).not.toContain("No results found");
+    // Legacy path results come from knowledge store; no turn-lane source discriminator
+    expect(result).not.toMatch(/"source"\s*:\s*"turn"/);
+  });
+
+  it('retrieval_strategy: "tirqdp" forces TIR+QDP path even when CONFIG.search.useTirQdp=false', async () => {
+    (CONFIG.search as { useTirQdp: boolean }).useTirQdp = false;
+
+    const result = await handleSearchHistory(
+      engine,
+      { query: "LGBTQ support group", retrieval_strategy: "tirqdp" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+
+    expect(result).not.toContain("No results found");
+    // TIR+QDP path produces results with source: "turn" from the turn lane
+    expect(result).toContain("turn");
+  });
+
+  it('retrieval_strategy: "tirqdp" with no turnStore falls back to legacy gracefully', async () => {
+    (CONFIG.search as { useTirQdp: boolean }).useTirQdp = false;
+
+    // Pass no turnStore — graceful fallback
+    const result = await handleSearchHistory(
+      engine,
+      { query: "LGBTQ support group", retrieval_strategy: "tirqdp" },
+      db,
+      undefined,
+      knowledgeStore,
+      // turnStore intentionally omitted
+    );
+
+    // Should not crash; should return results from legacy path
+    expect(result).not.toContain("No results found");
+    // Result should contain a note that TIR+QDP was requested but fell back
+    expect(result).toContain("note");
   });
 });
