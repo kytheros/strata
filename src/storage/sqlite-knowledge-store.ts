@@ -693,6 +693,21 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
     return this.stmts.getHistory.all(entryId, effectiveLimit) as KnowledgeHistoryRow[];
   }
 
+  /**
+   * Return the number of "update" events logged in knowledge_history for an entry.
+   * Does not count the initial "add" event — returns 0 for a freshly-added entry
+   * that has never been edited.
+   *
+   * @param entryId - The entry ID to count edits for.
+   * @returns Count of "update" rows in knowledge_history.
+   */
+  async getEditCount(entryId: string): Promise<number> {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM knowledge_history WHERE entry_id = ? AND event = 'update'")
+      .get(entryId) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
   /** Prune history rows for an entry to keep at most 100. */
   private pruneHistoryForEntry(entryId: string): void {
     const { count } = this.stmts.countHistory.get(entryId) as { count: number };
