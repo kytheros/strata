@@ -32,8 +32,9 @@ export interface SearchResult {
   timestamp: number;
   toolNames: string[];
   role: "user" | "assistant" | "mixed";
-  /** Source of this result: "conversation" (default) or "document" */
-  source?: "conversation" | "document";
+  /** Source of this result: "conversation" (default) or "document" for document chunks,
+   *  "chunk" or "turn" for TIR+QDP fused results (TIRQDP-2.1). */
+  source?: "conversation" | "document" | "chunk" | "turn";
 }
 
 export interface SearchOptions {

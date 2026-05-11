@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { SqliteSearchEngine, SearchResult, SearchOptions } from "../search/sqlite-search-engine.js";
 import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
+import type { IKnowledgeTurnStore } from "../storage/interfaces/knowledge-turn-store.js";
 import { extractProjectName } from "../utils/path-encoder.js";
 import { ResponseFormat } from "../utils/response-format.js";
 import { CompactSerializer } from "../utils/compact-serializer.js";
@@ -9,6 +10,9 @@ import { CONFIG } from "../config.js";
 import { recordGap, getGapOccurrences } from "../search/evidence-gaps.js";
 import { parseDate } from "../search/query-processor.js";
 import { knowledgeEntryToSearchResult } from "../search/knowledge-to-search-result.js";
+import { fuseCommunityLanes } from "../search/recall-fusion-community.js";
+import type { CommunityChunkResult } from "../search/recall-fusion-community.js";
+import { recallQdpCommunity } from "../search/recall-qdp-community.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -96,19 +100,28 @@ export interface SearchHistoryArgs {
 
 /**
  * Normalize search results into serializable records.
+ * When a result carries source: "turn" | "chunk" (TIR+QDP path), the field is
+ * included in the output so downstream consumers and tests can verify the lane.
  */
 function toRecords(results: SearchResult[], maxChars: number): Record<string, unknown>[] {
-  return results.map((r) => ({
-    project: extractProjectName(r.project),
-    sessionId: r.sessionId,
-    date: r.timestamp ? new Date(r.timestamp).toLocaleDateString() : "unknown",
-    score: Math.round(r.score * 100) / 100,
-    confidence: r.confidence,
-    role: r.role,
-    tools: r.toolNames.length > 0 ? r.toolNames.join(", ") : "",
-    snippet: truncatePreview(r.text, 200),
-    text: r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text,
-  }));
+  return results.map((r) => {
+    const record: Record<string, unknown> = {
+      project: extractProjectName(r.project),
+      sessionId: r.sessionId,
+      date: r.timestamp ? new Date(r.timestamp).toLocaleDateString() : "unknown",
+      score: Math.round(r.score * 100) / 100,
+      confidence: r.confidence,
+      role: r.role,
+      tools: r.toolNames.length > 0 ? r.toolNames.join(", ") : "",
+      snippet: truncatePreview(r.text, 200),
+      text: r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text,
+    };
+    // Include source discriminator when present (TIR+QDP fused results carry "turn" | "chunk")
+    if (r.source === "turn" || r.source === "chunk") {
+      record.source = r.source;
+    }
+    return record;
+  });
 }
 
 /**
@@ -133,7 +146,9 @@ export async function handleSearchHistory(
   args: SearchHistoryArgs,
   db?: Database.Database,
   asyncSearch?: (query: string, options: SearchOptions) => Promise<SearchResult[]>,
-  knowledgeStore?: IKnowledgeStore
+  knowledgeStore?: IKnowledgeStore,
+  /** Optional turn store — required for TIR+QDP lane (CONFIG.search.useTirQdp). */
+  turnStore?: IKnowledgeTurnStore
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
 
@@ -201,26 +216,97 @@ export async function handleSearchHistory(
     return lines.join("\n");
   }
 
-  let results = asyncSearch
-    ? await asyncSearch(query, searchOptions)
-    : await engine.search(query, searchOptions);
+  let results: SearchResult[];
 
-  // Also search the knowledge table for stored memories.
-  // Prefer IKnowledgeStore (FTS5 with stop-word removal) when available;
-  // fall back to raw SQL LIKE (slower, no stop-word handling) when only db is available.
-  if (knowledgeStore) {
-    const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
-    if (knowledgeResults.length > 0) {
-      results = [...results, ...knowledgeResults]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+  if (CONFIG.search.useTirQdp && turnStore) {
+    // ── TIR+QDP path (TIRQDP-2.1) ────────────────────────────────────────────
+    // When the flag is on and a turn store is available, fuse the chunk lane
+    // (existing search results) and the turn lane (knowledge_turns FTS hits)
+    // via RRF, then apply QDP pruning. Both paths coexist — the legacy path
+    // below remains the default until Phase 4 flips the flag.
+
+    // Chunk lane: existing search path (semantic bridge or FTS5)
+    const chunkSearchResults = asyncSearch
+      ? await asyncSearch(query, searchOptions)
+      : await engine.search(query, searchOptions);
+
+    // Also merge knowledge entries into chunk lane (same as legacy path)
+    let chunkLane = chunkSearchResults;
+    if (knowledgeStore) {
+      const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        chunkLane = [...chunkLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+      }
+    } else if (db) {
+      const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        chunkLane = [...chunkLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+      }
     }
-  } else if (db) {
-    const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
-    if (knowledgeResults.length > 0) {
-      results = [...results, ...knowledgeResults]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+
+    // Turn lane: knowledge_turns FTS hits
+    const limit = Math.min(searchOptions.limit ?? 20, 100);
+    const turnHits = await turnStore.searchByQuery(args.query, {
+      userId: searchOptions.user ?? undefined,
+      project: searchOptions.project,
+      limit,
+    });
+
+    // Adapt chunkLane → CommunityChunkResult[] for fuseCommunityLanes
+    const chunkInputs: CommunityChunkResult[] = chunkLane.map((r, idx) => ({
+      id: r.sessionId + ":" + idx,
+      score: r.score,
+      userId: searchOptions.user ?? null,
+      project: r.project ?? null,
+      content: r.text,
+      tags: r.toolNames,
+      createdAt: r.timestamp ?? Date.now(),
+    }));
+
+    // Fuse lanes and prune
+    const fused = fuseCommunityLanes(chunkInputs, turnHits, {});
+    const pruned = recallQdpCommunity(fused, args.query);
+
+    // Convert FusedResult[] → SearchResult[] for the shared rendering path
+    results = pruned.map(f => ({
+      sessionId: f.id,
+      project: f.project ?? "",
+      text: f.content,
+      score: f.rrfScore,
+      confidence: Math.min(f.rrfScore, 1),
+      timestamp: f.createdAt,
+      toolNames: f.tags,
+      role: "mixed" as const,
+      source: f.source,   // "turn" | "chunk" — carried through for downstream consumers
+    })).slice(0, limit);
+
+  } else {
+    // ── Legacy path (default when useTirQdp=false or no turnStore) ────────────
+    results = asyncSearch
+      ? await asyncSearch(query, searchOptions)
+      : await engine.search(query, searchOptions);
+
+    // Also search the knowledge table for stored memories.
+    // Prefer IKnowledgeStore (FTS5 with stop-word removal) when available;
+    // fall back to raw SQL LIKE (slower, no stop-word handling) when only db is available.
+    if (knowledgeStore) {
+      const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        results = [...results, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+      }
+    } else if (db) {
+      const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        results = [...results, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+      }
     }
   }
 
