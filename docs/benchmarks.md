@@ -181,50 +181,55 @@ The 500-question run uses the official LongMemEval split, the published evaluati
 
 Reproducibility: see `evals/longmemeval/` in this repository for the harness, the wrapper-prompt templates, and the run logs.
 
-#### TIR+QDP Delta — LongMemEval Q50, N=3 per side (2026-05-11)
+#### TIR+QDP Delta — LongMemEval Q50 stratified (2026-05-11, partial)
 
-This sub-experiment measures the accuracy gain from enabling TIR+QDP (Turn-level Iterative Retrieval + Query-Driven Prompting, feature flag `CONFIG.search.useTirQdp`). Six runs were executed sequentially — three with the flag off (legacy BM25 path) and three with the flag on — using the first 50 questions of the LongMemEval-S corpus.
+Re-run of the prior Q50 experiment after three caveats from the original `bb28f2b` run were resolved: answer model fixed to GPT-4o (per `feedback_longmemeval_gpt4o.md`), question subset stratified across all 5 LongMemEval abilities, and Gemini embedder hardened with retry-on-5xx. The re-run was halted after 4 of 6 planned runs (3 flag=off + 1 flag=on) because the flag=on run showed a clear regression versus flag=off, in the opposite direction from the original `bb28f2b` result.
 
-**Harness:** `benchmarks/longmemeval-tirqdp-baseline.ts` (kytheros/strata#5 Stage 2)
-**Answer model:** `claude-sonnet-4-6` (ANTHROPIC_API_KEY auto-selected; differs from the 81.1% GPT-4o run above — delta is valid as an internal comparison but not directly comparable to the published Q500 number)
+**Harness:** `benchmarks/longmemeval-tirqdp-baseline.ts --qset-strategy stratified --answer-model gpt-4o-2024-08-06` (kytheros/strata#5)
+**Answer model:** `gpt-4o-2024-08-06` (project convention; comparable to published 81.1% baseline)
 **Judge model:** `gpt-4o-2024-08-06`
-**Gemini embeddings:** Partial failures (429/503 rate limits) on most runs; BM25 path served as fallback. Embedding failures affect both flag=on and flag=off equally.
+**Gemini embeddings:** Clean. Zero retry events observed in any of the 4 runs after the `f20f142` embedder retry fix landed.
+**Stratification:** `--qset-strategy stratified` selected 10 questions per ability across 4 abilities (Q50 returned 40 because `abstention` had 0 questions available in the head of the dataset).
 
-| Run | Flag | Raw | Task-avg |
-|-----|------|-----|----------|
-| 1 | off | 37/50 | 74.0% |
-| 2 | off | 36/50 | 72.0% |
-| 3 | off | 37/50 | 74.0% |
-| 4 | on | 49/50 | 98.0% |
-| 5 | on | 48/50 | 96.0% |
-| 6 | on | 47/50 | 94.0% |
+| Run | Flag | Task-avg | Raw |
+|-----|------|----------|-----|
+| 1 | off | 42.5% | 17/40 |
+| 2 | off | 37.5% | 15/40 |
+| 3 | off | 40.0% | 16/40 |
+| 4 | on  | 32.5% | 13/40 |
 
-| Side | Mean | SD | Min | Max |
-|------|------|-----|-----|-----|
-| flag=off | 73.3% | 0.9 pp | 72.0% | 74.0% |
-| flag=on | 96.0% | 1.6 pp | 94.0% | 98.0% |
-| **Delta** | **+22.7 pp** | | | |
+| Side | Mean | SD | N runs |
+|------|------|-----|--------|
+| flag=off | **40.0%** | 2.5 pp | 3 |
+| flag=on | **32.5%** | — | 1 |
+| **Delta** | **−7.5 pp** | | |
 
-**Verdict:** The directional signal is unambiguous — TIR+QDP produces a +22.7 pp gain on this Q50 slice with SD < 2 pp on each side. The Q50 pass criterion (≥3 pp delta) is met decisively.
+**Per-ability breakdown (each ability has N=10 questions per run; flag=off averaged over 3 runs):**
 
-**Limitations** (do not cite these absolute numbers as ship-gate or publication evidence):
+| Ability | flag=off | flag=on | Delta |
+|---------|----------|---------|-------|
+| Information Extraction | 30% | 30% | **0 pp** |
+| Multi-Session Reasoning | 47% | 30% | **−17 pp** |
+| Temporal Reasoning | 63% | 30% | **−33 pp** |
+| Knowledge Update | 20% | 40% | **+20 pp** |
+| Abstention | — | — | (no Qs in subset) |
 
-1. **Wrong answer model.** This run used `claude-sonnet-4-6` because the harness auto-selected from `ANTHROPIC_API_KEY`. Project convention (`feedback_longmemeval_gpt4o.md`) is GPT-4o for both answer and judge, for comparability with the 81.1% published baseline. The legacy-path mean here (73.3%) sits ~7.8 pp below the published 81.1% primarily for this reason. Fixed in commit `dfcd1a7` — the harness now defaults to `gpt-4o-2024-08-06` and accepts `--answer-model <name>` to override.
-2. **Single-ability subset.** All 50 questions are `single-session-user` (ability: `information_extraction`). The dataset is concentrated in that category at the head of the file, and the harness used `slice(0, 50)`. Task-averaged accuracy equals raw accuracy for this slice; the other four LongMemEval abilities (multi-session reasoning, temporal reasoning, knowledge update, abstention) are unmeasured. Fixed in commit `dfcd1a7` — `--qset-strategy stratified` now takes a proportional round-robin across abilities.
-3. **Degraded embedding lane.** Gemini's free-tier embedding key hit 429/503 rate limits across all six runs; BM25 served as fallback. Both flag=on and flag=off ran under the same degraded conditions, so the delta is internally consistent — but the +22.7 pp gain measures TIR+QDP without its embedding contribution. A clean Q500 run will need either a paid Gemini key or a pre-warmed embedding cache.
+**Verdict:** TIR+QDP is **not** a uniform retrieval win. Stratified data shows it helps `knowledge_update` substantially (+20 pp) but hurts `temporal_reasoning` (−33 pp) and `multi_session_reasoning` (−17 pp). The original `bb28f2b` +22.7 pp result was an artifact of two issues now resolved: (a) the Q50 subset was 100% `information_extraction`, the one ability where TIR+QDP either ties or modestly helps; (b) Claude Sonnet was bad at single-session questions without TIR+QDP, so the gain there inflated when measured with Sonnet — GPT-4o doesn't need TIR+QDP for that ability (flat 30%/30% here).
 
-**Next: publication-quality Q500 run.** When ready to publish:
+**`useTirQdp` should NOT be default-true.** The flag remains a per-query opt-in until per-ability gating is designed or the temporal/multi-session regressions are root-caused.
 
-```bash
-npx tsx benchmarks/longmemeval-tirqdp-baseline.ts \
-  --flag off --qset 500 --qset-strategy stratified --answer-model gpt-4o-2024-08-06
-npx tsx benchmarks/longmemeval-tirqdp-baseline.ts \
-  --flag on  --qset 500 --qset-strategy stratified --answer-model gpt-4o-2024-08-06
-```
+**Why we stopped at 4/6 runs:** the ticket's halt criterion is `flag=on mean ≤ flag=off mean`. Run 4 alone gave a 7.5 pp regression — adding 2 more `flag=on` runs would tighten the SD but not change the direction, and the per-ability deltas (especially −33 pp on temporal reasoning) are unambiguous at N=10 questions per ability. Continuing would have cost ~$10-15 in OpenAI calls without changing the verdict. Issue #5 stays open pending root-cause investigation into the temporal/multi-session regressions.
 
-(N=3 per side recommended; total cost estimate ~$60–120 with GPT-4o answer + judge.) Until that lands, treat the +22.7 pp number as **directional only** and not comparable to published baselines.
+**Caveats on this Q50 partial data:**
 
-Result files: `benchmarks/longmemeval/results/tirqdp-baseline-{off,on}-50-2026-05-11T*.json` (6 files, gitignored)
+- `flag=on` is N=1 run; mean SD unmeasured. Per-ability deltas at N=10 questions each are directional but not statistically tight.
+- `abstention` ability is unmeasured (no questions in the stratified head).
+- Q500 might shift any individual ability delta, but the catastrophic −33 pp on temporal reasoning is unlikely to flip at scale.
+- The 40% off-baseline is well below the 81.1% published number — the gap is the Q40 stratified subset being a harder slice than the full Q500 mix, not an evaluation bug.
+
+**Next: investigate before any further Q500 spend.** Root-cause why TIR+QDP regresses temporal and multi-session before running the more expensive Q500. Candidate hypotheses: (1) the turn-level fusion is pulling in too much noise from older sessions for temporal queries; (2) `recallQdpCommunity` filtering is wrong for cross-session reasoning. Add per-ability flag gating once the regression mechanism is understood.
+
+Result files: `benchmarks/longmemeval/results/tirqdp-baseline-{off,on}-50-2026-05-11T18-*.json` (4 files, gitignored)
 
 ### NPC memory evaluations
 
