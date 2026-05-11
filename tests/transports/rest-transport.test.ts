@@ -1454,3 +1454,228 @@ describe("REST Transport — recall TIR + QDP (Spec 2026-04-26)", () => {
     expect(texts).toContain("a generic fact about the village");
   });
 });
+
+// ── Issue #3 fixes ────────────────────────────────────────────────────────
+
+describe("REST Transport — issue #3-A: legacy /api/players re-mints token on re-fetch", () => {
+  const ADMIN_TOKEN = "a".repeat(32);
+
+  it("re-fetching the same externalId on the legacy path returns a non-empty playerToken", async () => {
+    handle = await startRestTransport({
+      port: 0,
+      token: ADMIN_TOKEN,
+      baseDir: makeTempDir(),
+    });
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ADMIN_TOKEN}`,
+    };
+    const body = JSON.stringify({ externalId: "device:refetch:test" });
+
+    // First call — creates the player
+    const first = await (
+      await fetch(`${getBaseUrl()}/api/players`, { method: "POST", headers, body })
+    ).json();
+    expect(first.playerToken).toMatch(/^pt_[0-9a-f]{32}$/);
+
+    // Second call — re-fetch by same externalId (legacy path, no X-Strata-World)
+    const second = await (
+      await fetch(`${getBaseUrl()}/api/players`, { method: "POST", headers, body })
+    ).json();
+    expect(second.isNew).toBe(false);
+    expect(second.playerId).toBe(first.playerId);
+    // BUG (pre-fix): second.playerToken was "" — clients lost access after restart
+    expect(second.playerToken).toMatch(/^pt_[0-9a-f]{32}$/);
+  });
+});
+
+describe("REST Transport — issue #3-B: GET /api/players/:playerId returns real memoryCount", () => {
+  const ADMIN_TOKEN = "a".repeat(32);
+
+  it("memoryCount reflects stored memories for that player", async () => {
+    handle = await startRestTransport({
+      port: 0,
+      token: ADMIN_TOKEN,
+      baseDir: makeTempDir(),
+    });
+    const base = getBaseUrl();
+
+    // Provision a player
+    const { playerId, playerToken } = await (
+      await fetch(`${base}/api/players`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({}),
+      })
+    ).json();
+
+    // Store one memory through their token
+    await fetch(`${base}/api/agents/goran/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+      body: JSON.stringify({ memory: "test memory for count check", type: "fact" }),
+    });
+
+    // GET player detail and assert memoryCount is wired
+    const res = await fetch(`${base}/api/players/${playerId}`, {
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+    const detail = await res.json();
+    // BUG (pre-fix): memoryCount was null
+    expect(detail.memoryCount).toBe(1);
+  });
+
+  it("npcCount reflects the number of distinct agents the player has interacted with", async () => {
+    handle = await startRestTransport({
+      port: 0,
+      token: ADMIN_TOKEN,
+      baseDir: makeTempDir(),
+    });
+    const base = getBaseUrl();
+
+    const { playerId, playerToken } = await (
+      await fetch(`${base}/api/players`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({}),
+      })
+    ).json();
+
+    // Store memories for two distinct NPCs
+    for (const npc of ["goran", "brynn"]) {
+      await fetch(`${base}/api/agents/${npc}/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${playerToken}` },
+        body: JSON.stringify({ memory: `memory for ${npc}`, type: "fact" }),
+      });
+    }
+
+    const res = await fetch(`${base}/api/players/${playerId}`, {
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
+    });
+    const detail = await res.json();
+    // BUG (pre-fix): npcCount was null
+    expect(detail.npcCount).toBe(2);
+  });
+});
+
+describe("REST Transport — issue #3-C: token rotation grace period", () => {
+  const ADMIN_TOKEN = "a".repeat(32);
+
+  it("old token still verifies after rotating to a new secret (STRATA_TOKEN_SECRET_PREVIOUS)", async () => {
+    const SECRET_X = "secret-x-" + "a".repeat(23); // ≥32 chars not required for token secret
+    const SECRET_Y = "secret-y-" + "b".repeat(23);
+
+    const prevSecret = process.env.STRATA_TOKEN_SECRET;
+    const prevPrev = process.env.STRATA_TOKEN_SECRET_PREVIOUS;
+
+    try {
+      // Boot with secret X
+      process.env.STRATA_TOKEN_SECRET = SECRET_X;
+      delete process.env.STRATA_TOKEN_SECRET_PREVIOUS;
+
+      handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+      const base = getBaseUrl();
+
+      // Mint a world + player (v2 HMAC token signed with SECRET_X)
+      await fetch(`${base}/api/worlds`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ worldId: "rotation-test", name: "Rotation" }),
+      });
+      const { playerToken: oldToken } = await (
+        await fetch(`${base}/api/players`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${ADMIN_TOKEN}`,
+            "X-Strata-World": "rotation-test",
+          },
+          body: JSON.stringify({}),
+        })
+      ).json();
+
+      // Verify oldToken works before rotation
+      const beforeRotation = await fetch(`${base}/api/agents/goran/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${oldToken}` },
+        body: JSON.stringify({ memory: "pre-rotation memory", type: "fact" }),
+      });
+      expect(beforeRotation.status).toBe(200);
+
+      // Close and restart with Y as current, X as previous
+      await handle.close();
+      handle = undefined;
+
+      process.env.STRATA_TOKEN_SECRET = SECRET_Y;
+      process.env.STRATA_TOKEN_SECRET_PREVIOUS = SECRET_X;
+
+      handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+      const base2 = getBaseUrl();
+
+      // Recreate world on the new server instance
+      await fetch(`${base2}/api/worlds`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ worldId: "rotation-test", name: "Rotation" }),
+      });
+
+      // BUG (pre-fix): oldToken (signed with X) would fail when only Y is checked
+      const afterRotation = await fetch(`${base2}/api/agents/goran/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${oldToken}` },
+        body: JSON.stringify({ memory: "post-rotation memory via old token", type: "fact" }),
+      });
+      expect(afterRotation.status).toBe(200);
+    } finally {
+      if (prevSecret !== undefined) process.env.STRATA_TOKEN_SECRET = prevSecret;
+      else delete process.env.STRATA_TOKEN_SECRET;
+      if (prevPrev !== undefined) process.env.STRATA_TOKEN_SECRET_PREVIOUS = prevPrev;
+      else delete process.env.STRATA_TOKEN_SECRET_PREVIOUS;
+    }
+  });
+
+  it("new tokens signed with current secret work normally after rotation", async () => {
+    const SECRET_X = "secret-x-" + "a".repeat(23);
+    const SECRET_Y = "secret-y-" + "b".repeat(23);
+
+    const prevSecret = process.env.STRATA_TOKEN_SECRET;
+    const prevPrev = process.env.STRATA_TOKEN_SECRET_PREVIOUS;
+
+    try {
+      process.env.STRATA_TOKEN_SECRET = SECRET_Y;
+      process.env.STRATA_TOKEN_SECRET_PREVIOUS = SECRET_X;
+
+      handle = await startRestTransport({ port: 0, token: ADMIN_TOKEN, baseDir: makeTempDir() });
+      const base = getBaseUrl();
+
+      // Mint a new token (signed with Y)
+      const { playerToken: newToken } = await (
+        await fetch(`${base}/api/players`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${ADMIN_TOKEN}`,
+            "X-Strata-World": "default",
+          },
+          body: JSON.stringify({}),
+        })
+      ).json();
+
+      expect(newToken).toMatch(/^strata_v2\./);
+
+      const res = await fetch(`${base}/api/agents/goran/store`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${newToken}` },
+        body: JSON.stringify({ memory: "new token works fine", type: "fact" }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      if (prevSecret !== undefined) process.env.STRATA_TOKEN_SECRET = prevSecret;
+      else delete process.env.STRATA_TOKEN_SECRET;
+      if (prevPrev !== undefined) process.env.STRATA_TOKEN_SECRET_PREVIOUS = prevPrev;
+      else delete process.env.STRATA_TOKEN_SECRET_PREVIOUS;
+    }
+  });
+});

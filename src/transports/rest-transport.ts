@@ -21,7 +21,7 @@ import {
 } from "node:http";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, readdirSync, existsSync } from "node:fs";
 import { buildHealthResponse } from "./health.js";
 import { createServer, type CreateServerResult } from "../server.js";
 import { KNOWLEDGE_TYPES, type KnowledgeType } from "../knowledge/knowledge-store.js";
@@ -261,6 +261,11 @@ export async function startRestTransport(
   }
 
   const tokenSecret = resolveTokenSecret();
+  // Accept-only previous secret for the rolling rotation grace window.
+  // Tokens verified with previousTokenSecret are still valid; new tokens are
+  // always signed with tokenSecret. Cleared by unsetting the env var after
+  // all in-flight sessions have re-authenticated with the new secret.
+  const previousTokenSecret = process.env.STRATA_TOKEN_SECRET_PREVIOUS || undefined;
 
   // Provider resolution: override (from tests) takes precedence, else lazy-load
   // via getExtractionProvider() on first /store+extract request and cache the
@@ -418,7 +423,7 @@ export async function startRestTransport(
     // Detect v2 HMAC token by prefix.
     if (bearer.startsWith("strata_v2.")) {
       try {
-        const claims = verifyPlayerToken(bearer, tokenSecret);
+        const claims = verifyPlayerToken(bearer, tokenSecret, previousTokenSecret);
         return { kind: "player-v2", player: null, v2Claims: claims };
       } catch {
         return null; // tampered or wrong secret
@@ -575,6 +580,12 @@ export async function startRestTransport(
 
         // Legacy path: issue pt_ token.
         const result = await registry.provision(externalId);
+        // On re-fetch (isNew===false) the registry never reveals the original raw
+        // token — it was forgotten after first issuance. Re-mint a fresh token so
+        // clients that lose local state can always recover. Matches v2 behaviour.
+        const legacyToken = result.isNew
+          ? result.playerToken
+          : (registry.remint(result.playerId) ?? result.playerToken);
         auditLog("player.provision", {
           playerId: result.playerId,
           externalId,
@@ -582,7 +593,7 @@ export async function startRestTransport(
         });
         json(res, 200, {
           playerId: result.playerId,
-          playerToken: result.playerToken || null, // empty on idempotent re-fetch
+          playerToken: legacyToken,
           externalId: result.externalId,
           createdAt: result.createdAt,
           isNew: result.isNew,
@@ -604,13 +615,39 @@ export async function startRestTransport(
           json(res, 404, { error: "Player not found", code: 404 });
           return;
         }
+        // Derive memoryCount + npcCount by scanning the player's agent directories.
+        // npcCount = number of agent directories that exist on disk.
+        // memoryCount = sum of knowledge entry counts across all agent DBs (uses
+        //   the LRU-cached server when available, otherwise opens transiently).
+        const agentsDir = join(baseDir, "players", params.playerId, "agents");
+        let memoryCount = 0;
+        let npcCount = 0;
+        if (existsSync(agentsDir)) {
+          let agentIds: string[];
+          try {
+            agentIds = readdirSync(agentsDir, { withFileTypes: true })
+              .filter((d) => d.isDirectory())
+              .map((d) => d.name);
+          } catch {
+            agentIds = [];
+          }
+          npcCount = agentIds.length;
+          for (const agentId of agentIds) {
+            try {
+              const srv = getOrCreateAgentServer(params.playerId, agentId);
+              memoryCount += await srv.storage.knowledge.getEntryCount();
+            } catch {
+              // ignore errors from individual agent DBs
+            }
+          }
+        }
         json(res, 200, {
           playerId: entry.playerId,
           externalId: entry.externalId,
           createdAt: entry.createdAt,
           lastAccess: entry.lastAccess,
-          memoryCount: null, // derived on demand; not tracked in registry
-          npcCount: null,
+          memoryCount,
+          npcCount,
         });
         return;
       }

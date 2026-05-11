@@ -154,6 +154,30 @@ export class PlayerRegistry {
     return this.players.get(playerId) ?? null;
   }
 
+  /**
+   * Re-mint a fresh `pt_` token for an existing player.
+   *
+   * The registry never reveals the original raw token after issuance — once
+   * a player is re-fetched via externalId the token is lost. This method
+   * generates a new token, atomically replaces the stored hash, and returns
+   * the fresh raw token so the caller can recover access.
+   *
+   * Used by the legacy `/api/players` re-fetch path so clients that lose
+   * local state can always recover without needing `world-migrate`.
+   */
+  remint(playerId: string): string | null {
+    const entry = this.players.get(playerId);
+    if (!entry) return null;
+    // Remove old hash from index
+    this.tokenHashIndex.delete(entry.tokenHash);
+    // Generate and register a fresh token
+    const rawToken = PlayerRegistry.generateToken();
+    entry.tokenHash = PlayerRegistry.hashToken(rawToken);
+    this.tokenHashIndex.set(entry.tokenHash, entry);
+    this.save();
+    return rawToken;
+  }
+
   /** Remove a player. Returns true if removed, false if not found. */
   remove(playerId: string): boolean {
     const entry = this.players.get(playerId);
