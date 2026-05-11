@@ -57,6 +57,7 @@
   "query": "API key rotation interval",
   "query_user_id": "user-alice",
   "query_project": "project-alpha",
+  "_comment_assertion": "expected_top_3_contains was relaxed from ['90 days'] to ['90'] during TIRQDP-1.10 iteration. The user's fact-stating turn (message_index 1) contains '90 days'; the assistant's acknowledgment (message_index 2) contains '90-day' (hyphenated) and '90' (loose). The looser substring lets the assertion pass when only the acknowledgment surfaces, which weakens scenario 01's barrier — a future bug that drops the user's fact-stating turn entirely (the failure mode this scenario was designed to catch) could go undetected. Tracked in kytheros/strata#7. Future maintainers: if you add scenarios whose turn corpus mentions '90' incidentally (port 9000, message_index 90, etc.), re-tighten this assertion to ['90 days'] and either drop the acknowledgment turn or reword it.",
   "expected_top_3_contains": ["90"],
   "must_not_contain": ["React component", "ESLint", "Redis"]
 }
