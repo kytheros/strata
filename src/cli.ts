@@ -53,6 +53,7 @@ Usage:
   strata status                           Print index statistics
   strata index --rebuild-turns            Backfill knowledge_turns from session files (TIR+QDP opt-in)
   strata index --backfill-junction        Backfill knowledge_entities junction from existing knowledge entries
+  strata index --clean-entities          Remove tag-fragment pollution from the entity graph
   strata activate <key>                   Activate a license (JWT or Polar key)
   strata update                           Check for and install newer versions
   strata license                          Show current license status
@@ -222,6 +223,8 @@ function parseArgs(argv: string[]): {
       flags["rebuild-turns"] = true;
     } else if (arg === "--backfill-junction") {
       flags["backfill-junction"] = true;
+    } else if (arg === "--clean-entities") {
+      flags["clean-entities"] = true;
     } else if (arg === "--task" && i + 1 < argv.length) {
       flags.task = argv[++i];
     } else if (arg === "--output" && i + 1 < argv.length) {
@@ -1051,12 +1054,16 @@ async function main(): Promise<void> {
       } else if (flags["backfill-junction"]) {
         const { runBackfillJunction } = await import("./cli/backfill-junction.js");
         await runBackfillJunction(flags);
+      } else if (flags["clean-entities"]) {
+        const { runCleanEntities } = await import("./cli/clean-entities.js");
+        await runCleanEntities(flags);
       } else {
         console.log("Usage: strata index <subcommand> [options]");
         console.log("");
         console.log("Subcommands:");
         console.log("  --rebuild-turns       Backfill knowledge_turns from all indexed sessions");
         console.log("  --backfill-junction   Backfill knowledge_entities junction from knowledge entries");
+        console.log("  --clean-entities      Remove tag-fragment pollution from the entity graph");
         console.log("");
         console.log("Flags:");
         console.log("  --project=<name>    Restrict to a single project");

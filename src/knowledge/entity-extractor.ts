@@ -2,9 +2,15 @@
  * Heuristic entity extraction from text.
  * Identifies libraries, services, tools, languages, frameworks, people, concepts, and files
  * using regex patterns and a built-in alias map.
+ *
+ * Pre-extraction step: XML/HTML-like tag patterns (system-reminder formatting used by
+ * Claude Code) are stripped before pattern matching via stripSystemTags(). This prevents
+ * tag names like <tool-use-id>, <command-message>, <task-notification> from being
+ * matched by the NPM_PATTERN and stored as garbage entities in the entity graph.
  */
 
 import { randomUUID } from "crypto";
+import { stripSystemTags } from "./strip-system-tags.js";
 
 /** Entity types recognized by the extractor. */
 export type EntityType =
@@ -190,23 +196,70 @@ const FILE_PATTERN = /(?:\/[\w.-]{3,}){2,}/g;
 const URL_PATTERN = /https?:\/\/[^\s)]+/g;
 
 /**
+ * Tag-fragment patterns that must never be stored as entities.
+ *
+ * These are canonical names that look like hyphenated npm packages but are
+ * actually fragments of system-reminder XML tags (e.g. <tool-use-id>,
+ * <command-message>) or artifacts of partial tag stripping (e.g. ommand-*
+ * when the leading '<' was consumed but the tag body was not).
+ *
+ * This deny-list is a second-layer defence; the primary defence is
+ * stripSystemTags() which removes tag content before extraction runs.
+ * The deny-list handles edge cases where bare tag-name tokens appear in
+ * text outside any enclosing tag (e.g. copied snippets, partial remnants).
+ */
+const TAG_FRAGMENT_DENYLIST = new Set([
+  // Claude Code system-reminder tags
+  "tool-use-id",
+  "task-notification",
+  "task-id",
+  "ask-id",
+  "command-message",
+  "command-args",
+  "command-name",
+  "system-reminder",
+  // Partial-strip artifacts (leading '<' consumed, rest matched as npm-package)
+  "ommand-message",
+  "ommand-args",
+  "ommand-name",
+  "ool-use-id",
+  "ask-notification",
+  // Other common Claude Code tool tags
+  "tool-result",
+  "tool-call",
+  "invoke-tool",
+  "function-calls",
+  "function-call",
+  "antml-function",
+]);
+
+/**
  * Extract entities from text using heuristic patterns and the alias map.
+ *
+ * Pre-processes text through stripSystemTags() to remove XML/HTML-like
+ * formatting tags (Claude Code system reminders) before pattern matching.
+ * A secondary deny-list rejects any remaining tag-fragment candidates.
+ *
  * Synchronous, no I/O, designed to complete in < 5ms for 2000 chars.
  */
 export function extractEntities(text: string): ExtractedEntity[] {
   if (!text || !text.trim()) return [];
 
+  // Pre-process: strip XML/HTML-like tags before any pattern matching.
+  // This is the primary defence against system-reminder tag pollution.
+  const clean = stripSystemTags(text);
+  if (!clean.trim()) return [];
+
   const found = new Map<string, ExtractedEntity>();
 
-  // 1. Check alias map matches (whole-word, case-insensitive)
-  const textLower = text.toLowerCase();
+  // 1. Check alias map matches (whole-word, case-insensitive) against cleaned text
   for (const [canonical, aliases] of Object.entries(ALIAS_MAP)) {
     for (const alias of aliases) {
       const aliasLower = alias.toLowerCase();
       // Build word-boundary pattern — handle special chars in alias
       const escaped = aliasLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const re = new RegExp(`\\b${escaped}\\b`, "i");
-      if (re.test(text)) {
+      if (re.test(clean)) {
         if (!found.has(canonical)) {
           found.set(canonical, {
             name: alias,
@@ -219,8 +272,8 @@ export function extractEntities(text: string): ExtractedEntity[] {
     }
   }
 
-  // 2. npm packages not in alias map
-  const npmMatches = text.match(NPM_PATTERN);
+  // 2. npm packages not in alias map — run against stripped text only
+  const npmMatches = clean.match(NPM_PATTERN);
   if (npmMatches) {
     for (const match of npmMatches) {
       // Skip if it's already covered by alias map
@@ -229,6 +282,8 @@ export function extractEntities(text: string): ExtractedEntity[] {
       if (ALIAS_REVERSE.has(lower)) continue;
       // Must contain a hyphen or be scoped to qualify as npm package
       if (!match.startsWith("@") && !match.includes("-")) continue;
+      // Secondary deny-list: reject known tag-fragment patterns
+      if (TAG_FRAGMENT_DENYLIST.has(lower)) continue;
       const canonical = lower;
       if (!found.has(canonical)) {
         found.set(canonical, {
@@ -240,8 +295,8 @@ export function extractEntities(text: string): ExtractedEntity[] {
     }
   }
 
-  // 3. File paths
-  const fileMatches = text.match(FILE_PATTERN);
+  // 3. File paths — run against stripped text
+  const fileMatches = clean.match(FILE_PATTERN);
   if (fileMatches) {
     for (const match of fileMatches) {
       const canonical = match;
@@ -255,8 +310,8 @@ export function extractEntities(text: string): ExtractedEntity[] {
     }
   }
 
-  // 4. URLs
-  const urlMatches = text.match(URL_PATTERN);
+  // 4. URLs — run against stripped text
+  const urlMatches = clean.match(URL_PATTERN);
   if (urlMatches) {
     for (const match of urlMatches) {
       const canonical = match;

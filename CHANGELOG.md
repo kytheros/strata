@@ -5,6 +5,18 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.2] - 2026-05-11
+
+### Fixed
+
+- **Entity extractor no longer mis-extracts Claude Code system-reminder tag names as entities.** Tags like `<task-notification>`, `<tool-use-id>`, `<command-message>`, `<command-args>`, `<command-name>` were being matched by the `NPM_PATTERN` (hyphenated strings) as npm package candidates. The backfill-junction run over 2,228 entries produced ~5,700+ garbage entities including `tool-use-id`, `task-notification`, `task-id`, `ask-id`, `command-message`, `command-args`, `ommand-message` (partial-strip artifact), and others. Root cause: no pre-extraction stripping of XML/HTML-like tags, and no deny-list for known tag-fragment names.
+
+### Added
+
+- **`stripSystemTags(text): string`** (`src/knowledge/strip-system-tags.ts`). Pre-extraction sanitizer that removes XML/HTML-like tag patterns (`<foo-bar>...</foo-bar>`, `<foo-bar/>`, bare `<foo-bar>`, `</foo-bar>`) from text before entity extraction runs. Called at the top of `extractEntities()` — primary defence against system-reminder pollution.
+- **`TAG_FRAGMENT_DENYLIST`** in `entity-extractor.ts`. Secondary deny-list applied to npm-pattern matches. Rejects known tag-fragment canonical names (`tool-use-id`, `command-message`, `ommand-*` variants, etc.) even if they somehow survive tag stripping.
+- **`strata index --clean-entities` CLI command** (`src/cli/clean-entities.ts`). One-time cleanup for databases polluted before v2.2.2. Scans the `entities` table, identifies tag-fragment pollution using `isTagFragment()`, and removes matching entities plus their `knowledge_entities` junction rows and `entity_relations` rows. Idempotent. Supports `--dry-run` and `--project=name`. Reports counts of entities removed, junction rows removed, and relations removed.
+
 ## [2.2.1] - 2026-05-11
 
 ### Fixed
