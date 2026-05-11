@@ -13,6 +13,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { createSchema, dropSchema } from "../../src/storage/pg/schema.js";
 import { PgKnowledgeTurnStore } from "../../src/storage/pg/pg-knowledge-turn-store.js";
@@ -105,7 +106,7 @@ describe("PgKnowledgeTurnStore (#9)", () => {
   it("searchByQuery() returns turns matching the query", async () => {
     if (!pool) return;
 
-    const sid = `session-search-${Date.now()}`;
+    const sid = `session-search-${randomUUID()}`;
     await store.insert(
       makeTurn({
         sessionId: sid,
@@ -125,7 +126,7 @@ describe("PgKnowledgeTurnStore (#9)", () => {
   it("getBySessionId() returns turns for the given session_id", async () => {
     if (!pool) return;
 
-    const sid = `session-get-${Date.now()}`;
+    const sid = `session-get-${randomUUID()}`;
     await store.insert(makeTurn({ sessionId: sid, content: "turn one" }));
     await store.insert(makeTurn({ sessionId: sid, content: "turn two" }));
     await store.insert(makeTurn({ sessionId: "other-session", content: "different" }));
