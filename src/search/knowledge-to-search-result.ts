@@ -9,6 +9,7 @@
 
 import type { KnowledgeEntry } from "../knowledge/knowledge-store.js";
 import type { SearchResult } from "./sqlite-search-engine.js";
+import type { ProvenanceHandle } from "../types/provenance.js";
 
 /**
  * Map a single KnowledgeEntry to a SearchResult.
@@ -30,6 +31,19 @@ export function knowledgeEntryToSearchResult(entry: KnowledgeEntry): SearchResul
       : `[${entry.type}] ${entry.summary}`;
   const tags = entry.tags ?? [];
   const baseScore = (entry.importance ?? 0.5) * 10;
+
+  // Provenance: populated for all knowledge-store results so callers can
+  // emit bracket-handle citations without follow-up lookups.
+  // editCount is 0 here — the per-entry COUNT(*) is deferred to callers that
+  // need accurate edit counts (the sync mapper cannot call the async getEditCount).
+  const provenance: ProvenanceHandle = {
+    id: entry.id,
+    sessionId: entry.sessionId || null,
+    createdAt: entry.timestamp,
+    updatedAt: entry.timestamp,
+    editCount: 0,
+  };
+
   return {
     sessionId: entry.sessionId || "knowledge",
     project: entry.project,
@@ -39,6 +53,7 @@ export function knowledgeEntryToSearchResult(entry: KnowledgeEntry): SearchResul
     timestamp: entry.timestamp,
     toolNames: tags.length > 0 ? [`tags:${tags.join(",")}`] : [],
     role: "assistant" as const,
+    provenance,
   };
 }
 

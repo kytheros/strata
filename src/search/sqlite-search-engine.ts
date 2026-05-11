@@ -22,6 +22,7 @@ import type { IReranker } from "./reranker/types.js";
 import { isCountingQuestion, isTemporalQuestion } from "./query-classifier.js";
 import { resolveModelRouting } from "./model-router.js";
 import type { DocumentChunkStore } from "../storage/document-chunk-store.js";
+import type { ProvenanceHandle } from "../types/provenance.js";
 
 export interface SearchResult {
   sessionId: string;
@@ -35,6 +36,13 @@ export interface SearchResult {
   /** Source of this result: "conversation" (default) or "document" for document chunks,
    *  "chunk" or "turn" for TIR+QDP fused results (TIRQDP-2.1). */
   source?: "conversation" | "document" | "chunk" | "turn";
+  /**
+   * Structured provenance for this result — populated for knowledge-store results
+   * (search_history, find_solutions) where the originating memory row is known.
+   * Undefined for raw FTS5 conversation chunks (no knowledge-store row).
+   * Added in strata-mcp@2.2.0.
+   */
+  provenance?: ProvenanceHandle;
 }
 
 export interface SearchOptions {
