@@ -14,15 +14,24 @@
  *   npx tsx benchmarks/longmemeval-tirqdp-baseline.ts --flag on  --qset 500 --dry-run
  *
  * Flags:
- *   --flag on|off   Sets CONFIG.search.useTirQdp (required)
- *   --qset N        Number of questions to run (50 | 500, default: 50)
- *   --dry-run       Exercise code paths but skip all LLM calls (free)
- *   --skip N        Skip the first N questions (resume after crash)
- *   --top-k N       Search results per question (default: 20)
+ *   --flag on|off              Sets CONFIG.search.useTirQdp (required)
+ *   --qset N                   Number of questions to run (50 | 500, default: 50)
+ *   --qset-strategy first|stratified
+ *                              "first" (default): take questions[0..N) — fast iteration,
+ *                                may bias toward one ability category.
+ *                              "stratified": proportional sample across all 5 abilities
+ *                                — better directional signal for delta measurement.
+ *   --answer-model <name>      Model for answer generation. Default: gpt-4o-2024-08-06
+ *                              (matches feedback_longmemeval_gpt4o.md project convention
+ *                              for comparability with published baselines). Examples:
+ *                              gpt-4o, gpt-4o-mini, claude-sonnet-4-6, gemini-2.5-flash.
+ *   --dry-run                  Exercise code paths but skip all LLM calls (free)
+ *   --skip N                   Skip the first N questions (resume after crash)
+ *   --top-k N                  Search results per question (default: 20)
  *
  * Environment:
- *   OPENAI_API_KEY      GPT-4o judge (required for non-dry-run per convention)
- *   ANTHROPIC_API_KEY   Claude answer model (recommended)
+ *   OPENAI_API_KEY      GPT-4o answer + judge (default per project convention)
+ *   ANTHROPIC_API_KEY   Claude answer model (only used when --answer-model overrides)
  *   GEMINI_API_KEY      Embeddings + fallback answer model
  *
  * Caching:
@@ -51,6 +60,7 @@ import type {
   AbilityScore,
 } from "./longmemeval/types.js";
 import { questionTypeToAbility } from "./longmemeval/types.js";
+import type { MemoryAbility as AbilityName } from "./longmemeval/types.js";
 import { ingestQuestion, closeIngested } from "./longmemeval/ingest.js";
 import { generateAnswer, sleep, withRetry } from "./longmemeval/answer.js";
 import { judgeAnswer } from "./longmemeval/judge.js";
@@ -92,6 +102,20 @@ interface BenchmarkArgs {
   flag: "on" | "off";
   /** Number of questions to run (50 or 500) */
   qset: number;
+  /**
+   * Subset selection strategy.
+   *   "first"      — questions.slice(0, qset). Back-compat default. Fast,
+   *                  but may concentrate in a single ability category.
+   *   "stratified" — proportional sample across all 5 LongMemEval abilities.
+   *                  Preferred for directional delta measurement.
+   */
+  qsetStrategy: "first" | "stratified";
+  /**
+   * Model name for answer generation. Defaults to gpt-4o-2024-08-06 per
+   * feedback_longmemeval_gpt4o.md — keeps published-baseline comparability.
+   * Pass through to LONGMEMEVAL_ANSWER_MODEL env var before provider creation.
+   */
+  answerModel: string;
   /** Dry-run: skip all LLM calls, return dummy answers/verdicts */
   dryRun: boolean;
   /** Skip the first N questions (for resuming crashed runs) */
@@ -135,7 +159,30 @@ function parseArgs(): BenchmarkArgs {
   const topKArg = argv.find(a => a.startsWith("--top-k="));
   const topK = topKArg ? parseInt(topKArg.split("=")[1], 10) : 20;
 
-  return { flag: flagVal as "on" | "off", qset, dryRun, skip, topK, verifyFlagPath };
+  // --qset-strategy first|stratified  (default: first, back-compat)
+  const qsetStrategyEqArg = argv.find(a => a.startsWith("--qset-strategy="));
+  const qsetStrategyIdx = argv.indexOf("--qset-strategy");
+  const qsetStrategyRaw = qsetStrategyEqArg
+    ? qsetStrategyEqArg.split("=")[1]
+    : qsetStrategyIdx >= 0
+      ? argv[qsetStrategyIdx + 1]
+      : "first";
+  if (qsetStrategyRaw !== "first" && qsetStrategyRaw !== "stratified") {
+    console.error(`Invalid --qset-strategy: ${qsetStrategyRaw}. Use "first" or "stratified".`);
+    process.exit(1);
+  }
+  const qsetStrategy = qsetStrategyRaw as "first" | "stratified";
+
+  // --answer-model <name>  (default: gpt-4o-2024-08-06 per feedback_longmemeval_gpt4o.md)
+  const answerModelEqArg = argv.find(a => a.startsWith("--answer-model="));
+  const answerModelIdx = argv.indexOf("--answer-model");
+  const answerModel = answerModelEqArg
+    ? answerModelEqArg.split("=")[1]
+    : answerModelIdx >= 0
+      ? argv[answerModelIdx + 1]
+      : "gpt-4o-2024-08-06";
+
+  return { flag: flagVal as "on" | "off", qset, qsetStrategy, answerModel, dryRun, skip, topK, verifyFlagPath };
 }
 
 // ---------------------------------------------------------------------------
@@ -143,13 +190,62 @@ function parseArgs(): BenchmarkArgs {
 // ---------------------------------------------------------------------------
 
 /**
- * Select the Q50 subset or full Q500 from the dataset.
- * Q50 uses the first 50 questions for fast iteration.
- * Q500 uses all questions.
+ * Select a subset of questions from the dataset.
+ *
+ * Strategies:
+ *   "first"      — questions.slice(0, qset). Back-compat. Fast but may
+ *                  bias toward one ability if the dataset is ordered.
+ *   "stratified" — proportional round-robin across all 5 abilities. Better
+ *                  for delta measurement; the actual sample size may be
+ *                  slightly under `qset` if a bucket runs dry.
  */
-function selectQuestions(questions: LongMemQuestion[], qset: number): LongMemQuestion[] {
+function selectQuestions(
+  questions: LongMemQuestion[],
+  qset: number,
+  strategy: "first" | "stratified" = "first"
+): LongMemQuestion[] {
   if (qset >= questions.length) return questions;
-  return questions.slice(0, qset);
+  if (strategy === "first") return questions.slice(0, qset);
+  return stratifiedSelect(questions, qset);
+}
+
+function stratifiedSelect(questions: LongMemQuestion[], qset: number): LongMemQuestion[] {
+  const abilities: AbilityName[] = [
+    "information_extraction",
+    "multi_session_reasoning",
+    "temporal_reasoning",
+    "knowledge_update",
+    "abstention",
+  ];
+
+  // Partition the full pool by ability — keep dataset ordering within each bucket
+  // so re-runs are deterministic without a seed.
+  const buckets = new Map<AbilityName, LongMemQuestion[]>();
+  for (const ab of abilities) buckets.set(ab, []);
+  for (const q of questions) {
+    const ab = questionTypeToAbility(q.question_type);
+    buckets.get(ab)!.push(q);
+  }
+
+  // Target: qset / 5 per bucket, with leftover distributed to the first buckets.
+  const perBucket = Math.floor(qset / abilities.length);
+  const remainder = qset % abilities.length;
+
+  const result: LongMemQuestion[] = [];
+  abilities.forEach((ab, i) => {
+    const bucket = buckets.get(ab)!;
+    const target = perBucket + (i < remainder ? 1 : 0);
+    const take = Math.min(target, bucket.length);
+    if (take < target) {
+      console.warn(
+        `[qset stratified] Ability "${ab}" has only ${bucket.length} questions, wanted ${target}. ` +
+        `Final sample size will be smaller than requested qset.`
+      );
+    }
+    result.push(...bucket.slice(0, take));
+  });
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,13 +442,20 @@ async function main(): Promise<void> {
   // This is safe because benchmarks are single-process and run sequentially.
   CONFIG.search.useTirQdp = args.flag === "on";
 
+  // Force the provider factory to use the chosen answer model. Unconditional
+  // override — args.answerModel always has a value (defaulted in parseArgs).
+  // Required because the factory's auto-detect picks Claude when ANTHROPIC_API_KEY
+  // is present, which silently breaks comparability with the GPT-4o published baseline.
+  process.env.LONGMEMEVAL_ANSWER_MODEL = args.answerModel;
+
   console.log("LongMemEval TIR+QDP Baseline Benchmark");
   console.log("=======================================");
-  console.log(`Flag:     useTirQdp = ${CONFIG.search.useTirQdp}`);
-  console.log(`Q-set:    ${args.qset} questions`);
-  console.log(`Dry-run:  ${args.dryRun}`);
-  console.log(`Top-K:    ${args.topK}`);
-  if (args.skip > 0) console.log(`Skip:     ${args.skip} questions`);
+  console.log(`Flag:           useTirQdp = ${CONFIG.search.useTirQdp}`);
+  console.log(`Q-set:          ${args.qset} questions (${args.qsetStrategy})`);
+  console.log(`Answer model:   ${args.answerModel}`);
+  console.log(`Dry-run:        ${args.dryRun}`);
+  console.log(`Top-K:          ${args.topK}`);
+  if (args.skip > 0) console.log(`Skip:           ${args.skip} questions`);
   console.log();
 
   // Validate dataset exists
@@ -364,7 +467,7 @@ async function main(): Promise<void> {
   }
 
   const allQuestions = JSON.parse(readFileSync(dataFile, "utf-8")) as LongMemQuestion[];
-  const questions = selectQuestions(allQuestions, args.qset).slice(args.skip);
+  const questions = selectQuestions(allQuestions, args.qset, args.qsetStrategy).slice(args.skip);
 
   console.log(`Loaded ${allQuestions.length} total questions, running ${questions.length}`);
   console.log();
