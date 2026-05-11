@@ -88,6 +88,7 @@
     "benchmark:longmemeval:retrieval": "tsx benchmarks/longmemeval/run-benchmark.ts --retrieval-only",
     "benchmark:longmemeval:calibrate": "tsx benchmarks/longmemeval/run-calibration.ts",
     "autoresearch:longmemeval": "tsx autoresearch/longmemeval/run-eval.ts",
+    "benchmark:tirqdp-baseline": "tsx benchmarks/longmemeval-tirqdp-baseline.ts",
     "rebuild:native": "npm rebuild --ignore-scripts=false better-sqlite3 esbuild sharp onnxruntime-node protobufjs workerd",
     "prepare": "husky"
   },

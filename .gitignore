@@ -10,6 +10,7 @@ dist/
 .work/session-cookie.txt
 *.db
 benchmarks/*
+!benchmarks/longmemeval-tirqdp-baseline.ts
 !benchmarks/locomo/
 benchmarks/locomo/.venv/
 benchmarks/locomo/__pycache__/
