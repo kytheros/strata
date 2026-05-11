@@ -41,6 +41,8 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 import { CONFIG } from "../src/config.js";
+import { handleSearchHistory } from "../src/tools/search-history.js";
+import type { SearchResult } from "../src/search/sqlite-search-engine.js";
 import type {
   LongMemQuestion,
   AnswerResult,
@@ -96,6 +98,14 @@ interface BenchmarkArgs {
   skip: number;
   /** Search results per question */
   topK: number;
+  /**
+   * Verify that the flag path actually changes result composition.
+   * Runs the first question twice (flag on, flag off) and asserts that:
+   *   - flag=on produces at least one source:"turn" result
+   *   - flag=off produces zero source:"turn" results
+   * Exits 0 on success, 1 on failure. No LLM calls; implies --dry-run.
+   */
+  verifyFlagPath: boolean;
 }
 
 function parseArgs(): BenchmarkArgs {
@@ -117,6 +127,7 @@ function parseArgs(): BenchmarkArgs {
   const qset = qsetVal ?? qsetSpaceVal ?? 50;
 
   const dryRun = argv.includes("--dry-run");
+  const verifyFlagPath = argv.includes("--verify-flag-path");
 
   const skipArg = argv.find(a => a.startsWith("--skip="));
   const skip = skipArg ? parseInt(skipArg.split("=")[1], 10) : 0;
@@ -124,7 +135,7 @@ function parseArgs(): BenchmarkArgs {
   const topKArg = argv.find(a => a.startsWith("--top-k="));
   const topK = topKArg ? parseInt(topKArg.split("=")[1], 10) : 20;
 
-  return { flag: flagVal as "on" | "off", qset, dryRun, skip, topK };
+  return { flag: flagVal as "on" | "off", qset, dryRun, skip, topK, verifyFlagPath };
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +150,129 @@ function parseArgs(): BenchmarkArgs {
 function selectQuestions(questions: LongMemQuestion[], qset: number): LongMemQuestion[] {
   if (qset >= questions.length) return questions;
   return questions.slice(0, qset);
+}
+
+// ---------------------------------------------------------------------------
+// Search wrapper — uses handleSearchHistory so the flag is actually exercised
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a search against the ingested question's DB via handleSearchHistory.
+ * This is the only path that reads CONFIG.search.useTirQdp, so it's required
+ * for the benchmark to produce a real delta between --flag on and --flag off.
+ *
+ * Returns a SearchResult-compatible array for use with generateAnswer().
+ * The "detailed" format produces a JSON array; we parse it back into objects.
+ */
+async function searchIngested(
+  ingested: Awaited<ReturnType<typeof ingestQuestion>>,
+  query: string,
+  topK: number
+): Promise<SearchResult[]> {
+  const raw = await handleSearchHistory(
+    ingested.searchEngine,
+    {
+      query,
+      limit: topK,
+      format: "detailed",
+      project: "longmemeval",
+    },
+    ingested.db,
+    undefined,           // no asyncSearch — use FTS5 directly
+    ingested.knowledgeStore,
+    ingested.turnStore,
+  );
+
+  // "detailed" format returns a JSON array wrapped in CompactSerializer output.
+  // The CompactSerializer detailed format is: JSON array of record objects.
+  try {
+    // Try to extract JSON array from the response (may have a leading label line)
+    const jsonStart = raw.indexOf("[");
+    if (jsonStart === -1) return [];
+    const parsed = JSON.parse(raw.slice(jsonStart)) as Array<{
+      sessionId: string;
+      project: string;
+      text: string;
+      score: number;
+      confidence: number;
+      date: string;
+      source?: string;
+    }>;
+
+    return parsed.map(r => ({
+      sessionId: r.sessionId ?? "",
+      project: r.project ?? "longmemeval",
+      text: r.text ?? "",
+      score: r.score ?? 0,
+      confidence: r.confidence ?? 0,
+      timestamp: r.date ? new Date(r.date).getTime() || 0 : 0,
+      toolNames: [],
+      role: "mixed" as const,
+      source: r.source as SearchResult["source"],
+    }));
+  } catch {
+    // If parsing fails, fall back to the engine directly (no flag effect, but safe)
+    return ingested.searchEngine.search(query, { limit: topK });
+  }
+}
+
+/** Count how many results carry source: "turn" in a search result set. */
+function countTurnResults(results: SearchResult[]): number {
+  return results.filter(r => r.source === "turn").length;
+}
+
+// ---------------------------------------------------------------------------
+// --verify-flag-path mode
+// ---------------------------------------------------------------------------
+
+/**
+ * Self-check mode: ingest the first question, run the search twice (flag on
+ * and flag off), and assert the result compositions differ as expected.
+ *
+ * Exits 0 on success, 1 on failure. No LLM calls.
+ */
+async function runVerifyFlagPath(questions: LongMemQuestion[], topK: number): Promise<void> {
+  console.log("=== --verify-flag-path mode ===");
+  console.log("Ingesting first question...");
+
+  const question = questions[0];
+  const ingested = await ingestQuestion(question);
+
+  try {
+    const turnCount = await ingested.turnStore.count();
+    console.log(`Turn store: ${turnCount} rows (expect ≥1)`);
+    if (turnCount === 0) {
+      console.error("FAIL: turn store is empty after ingest — turns are not being indexed");
+      process.exit(1);
+    }
+
+    // Run with flag ON
+    CONFIG.search.useTirQdp = true;
+    const onResults = await searchIngested(ingested, question.question, topK);
+    const onTurnCount = countTurnResults(onResults);
+
+    // Run with flag OFF
+    CONFIG.search.useTirQdp = false;
+    const offResults = await searchIngested(ingested, question.question, topK);
+    const offTurnCount = countTurnResults(offResults);
+
+    console.log(`\nflag=on:  ${onResults.length} results, ${onTurnCount} with source:"turn"`);
+    console.log(`flag=off: ${offResults.length} results, ${offTurnCount} with source:"turn"`);
+
+    if (onTurnCount === 0) {
+      console.error("FAIL: flag=on produced 0 turn results — TIR+QDP lane not reached");
+      process.exit(1);
+    }
+    if (offTurnCount > 0) {
+      console.error("FAIL: flag=off produced turn results — legacy path is leaking");
+      process.exit(1);
+    }
+
+    console.log("\nPASS: flag=on and flag=off produce different result compositions.");
+    console.log("Stage 2 is safe to run.");
+  } finally {
+    closeIngested(ingested);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +369,12 @@ async function main(): Promise<void> {
   console.log(`Loaded ${allQuestions.length} total questions, running ${questions.length}`);
   console.log();
 
+  // --verify-flag-path: self-check mode — runs before API key validation
+  if (args.verifyFlagPath) {
+    await runVerifyFlagPath(questions, args.topK);
+    process.exit(0);
+  }
+
   // Require API keys for non-dry-run mode.
   // Per feedback_longmemeval_gpt4o.md: GPT-4o judge is required for comparable scores.
   if (!args.dryRun) {
@@ -267,16 +407,10 @@ async function main(): Promise<void> {
     // Caching of LLM extraction results (if used) happens inside pro-pipeline.ts.
     const ingested = await ingestQuestion(question);
 
-    // Retrieve context. The search engine in `ingested` is already configured with
-    // the in-memory DB and knowledge store. TIR+QDP is active if flag=on, but
-    // handleSearchHistory is called via the search engine directly here — the turn
-    // store path would need additional wiring for the benchmark's in-memory DB.
-    // For this baseline, we use searchEngine.search() which goes through the FTS5
-    // path. A future benchmark iteration can inject the turn store here.
-    const searchResults = await ingested.searchEngine.search(
-      question.question,
-      { limit: args.topK }
-    );
+    // Retrieve context via handleSearchHistory — the same MCP tool path real
+    // clients use. This is the only call that reads CONFIG.search.useTirQdp,
+    // so flag=on vs flag=off produce different result compositions here.
+    const searchResults = await searchIngested(ingested, question.question, args.topK);
 
     // Answer generation
     const answerResult = args.dryRun || !answerProvider
