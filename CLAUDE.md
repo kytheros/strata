@@ -100,6 +100,24 @@ HMAC. It refuses to start unless one of the following is set:
 
 Setting neither aborts startup with a diagnostic pointing at both paths.
 
+### Token rotation
+
+Rotating `STRATA_TOKEN_SECRET` normally invalidates every player token immediately. To avoid mid-session disruption, use a grace-window rotation:
+
+| Env Var | Purpose |
+|---------|---------|
+| `STRATA_TOKEN_SECRET=<new>` | Current signing key. All new tokens are signed with this. |
+| `STRATA_TOKEN_SECRET_PREVIOUS=<old>` | Accept-only. Tokens signed with the old key still verify during the grace window. |
+
+**Rotation procedure:**
+
+1. Set `STRATA_TOKEN_SECRET_PREVIOUS` to the current value of `STRATA_TOKEN_SECRET`.
+2. Update `STRATA_TOKEN_SECRET` to the new secret (`openssl rand -hex 32`).
+3. Restart the REST transport. New tokens are signed with the new secret; existing tokens signed with the old secret continue to verify.
+4. After a suitable grace window (e.g., one session length — however long players stay logged in), unset `STRATA_TOKEN_SECRET_PREVIOUS` and restart.
+
+Note: `STRATA_TOKEN_SECRET_PREVIOUS` is never used for signing — only for verification. Tokens signed with the old key remain valid only while the previous secret env var is set.
+
 ## Security Scanning
 
 Shared security scanning pipeline across all Strata repos.
