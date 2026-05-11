@@ -34,6 +34,25 @@ export class EmbedderError extends Error {
   }
 }
 
+/**
+ * Retry settings for transient upstream failures. The Gemini API occasionally
+ * returns 5xx (especially 503 UNAVAILABLE) under load. Retry on 5xx and 429;
+ * fail-fast on 4xx (caller errors that won't resolve on retry).
+ */
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 500;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function isRetryable(err: unknown): boolean {
+  if (!(err instanceof EmbedderError)) return false;
+  if (err.statusCode === undefined) return false;
+  return RETRYABLE_STATUS.has(err.statusCode);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** OAuth token with expiration */
 interface AccessToken {
   token: string;
@@ -126,30 +145,59 @@ export class GeminiEmbedder {
 
   /**
    * Embed a chunk of up to 10 texts in a single API call.
+   *
+   * Retries up to MAX_RETRIES times on transient upstream failures (5xx + 429)
+   * with exponential backoff. Fails fast on 4xx errors (caller-side; retries
+   * won't help). The AbortController + timeout is scoped to each attempt so a
+   * stalled response doesn't block the retry from kicking in.
    */
   private async embedChunk(texts: string[], taskType?: string): Promise<Float32Array[]> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let lastError: unknown;
 
-    try {
-      if (this.apiKey) {
-        return await this.embedViaGeminiApi(texts, controller.signal, taskType);
-      } else {
-        return await this.embedViaVertexAi(texts, controller.signal, taskType);
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+      try {
+        if (this.apiKey) {
+          return await this.embedViaGeminiApi(texts, controller.signal, taskType);
+        } else {
+          return await this.embedViaVertexAi(texts, controller.signal, taskType);
+        }
+      } catch (error) {
+        lastError = error;
+
+        // Normalize non-EmbedderError throws to EmbedderError for consistent handling.
+        let normalized: unknown = error;
+        if (!(error instanceof EmbedderError)) {
+          if (error instanceof Error && error.name === "AbortError") {
+            normalized = new EmbedderError(
+              `Embedding request timed out after ${REQUEST_TIMEOUT_MS}ms`
+            );
+          } else {
+            normalized = new EmbedderError(
+              `Embedding request failed: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
+          lastError = normalized;
+        }
+
+        // Decide whether to retry. Non-retryable errors or last-attempt → re-throw.
+        const canRetry = attempt < MAX_RETRIES && isRetryable(normalized);
+        if (!canRetry) {
+          throw normalized;
+        }
+
+        // Backoff: 500ms, 1000ms, 2000ms. Don't block the retry on a stale timeout.
+        const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        await sleep(delay);
+      } finally {
+        clearTimeout(timeout);
       }
-    } catch (error) {
-      if (error instanceof EmbedderError) throw error;
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new EmbedderError(
-          `Embedding request timed out after ${REQUEST_TIMEOUT_MS}ms`
-        );
-      }
-      throw new EmbedderError(
-        `Embedding request failed: ${error instanceof Error ? error.message : String(error)}`
-      );
-    } finally {
-      clearTimeout(timeout);
     }
+
+    // Unreachable: the loop either returns success or throws on the last attempt.
+    throw lastError;
   }
 
   /**
