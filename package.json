@@ -74,6 +74,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval:local-inference": "tsx evals/local-inference-quality/run-eval.ts",
+    "eval:community-recall-tir-qdp": "tsx evals/community-recall-tir-qdp/eval.ts",
     "prepublishOnly": "npm run build && npm test",
     "build-index": "tsx src/cli/build-index.ts",
     "install-hook": "tsx src/cli/install.ts",

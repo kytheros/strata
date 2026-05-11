@@ -149,6 +149,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     project: e.project ?? null,
     content: e.summary + (e.details ? " " + e.details : ""),
     tags: e.tags ?? [],
+    createdAt: e.timestamp,
   }));
 
   const fused = fuseCommunityLanes(chunkResults, turnHits, {});

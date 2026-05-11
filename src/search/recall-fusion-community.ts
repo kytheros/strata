@@ -44,6 +44,10 @@ export interface CommunityChunkResult {
   /** Source tags (e.g. language hints, importance markers). Used by QDP filler
    *  filter. */
   tags: string[];
+  /** Epoch ms creation timestamp. Carried through to FusedResult.createdAt for
+   *  downstream recency sort. Must never be hardcoded to 0 — use the underlying
+   *  KnowledgeEntry.timestamp (or equivalent) from the source record. */
+  createdAt: number;
 }
 
 // ── Output type ───────────────────────────────────────────────────────────────
@@ -123,7 +127,7 @@ export function fuseCommunityLanes(
     tags: c.tags,
     userId: c.userId,
     project: c.project,
-    createdAt: 0,
+    createdAt: c.createdAt,
   }));
 
   const turnList: Candidate[] = turnResults.map(h => ({
