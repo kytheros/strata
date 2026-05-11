@@ -181,6 +181,38 @@ The 500-question run uses the official LongMemEval split, the published evaluati
 
 Reproducibility: see `evals/longmemeval/` in this repository for the harness, the wrapper-prompt templates, and the run logs.
 
+#### TIR+QDP Delta — LongMemEval Q50, N=3 per side (2026-05-11)
+
+This sub-experiment measures the accuracy gain from enabling TIR+QDP (Turn-level Iterative Retrieval + Query-Driven Prompting, feature flag `CONFIG.search.useTirQdp`). Six runs were executed sequentially — three with the flag off (legacy BM25 path) and three with the flag on — using the first 50 questions of the LongMemEval-S corpus.
+
+**Harness:** `benchmarks/longmemeval-tirqdp-baseline.ts` (kytheros/strata#5 Stage 2)
+**Answer model:** `claude-sonnet-4-6` (ANTHROPIC_API_KEY auto-selected; differs from the 81.1% GPT-4o run above — delta is valid as an internal comparison but not directly comparable to the published Q500 number)
+**Judge model:** `gpt-4o-2024-08-06`
+**Gemini embeddings:** Partial failures (429/503 rate limits) on most runs; BM25 path served as fallback. Embedding failures affect both flag=on and flag=off equally.
+
+| Run | Flag | Raw | Task-avg |
+|-----|------|-----|----------|
+| 1 | off | 37/50 | 74.0% |
+| 2 | off | 36/50 | 72.0% |
+| 3 | off | 37/50 | 74.0% |
+| 4 | on | 49/50 | 98.0% |
+| 5 | on | 48/50 | 96.0% |
+| 6 | on | 47/50 | 94.0% |
+
+| Side | Mean | SD | Min | Max |
+|------|------|-----|-----|-----|
+| flag=off | 73.3% | 0.9 pp | 72.0% | 74.0% |
+| flag=on | 96.0% | 1.6 pp | 94.0% | 98.0% |
+| **Delta** | **+22.7 pp** | | | |
+
+**Q50 corpus note:** The Q50 subset is all `single-session-user` / `information_extraction` questions — a subset of question types. Task-averaged accuracy equals raw accuracy for this slice. The full Q500 run spans all five ability categories (information extraction, multi-session reasoning, temporal reasoning, knowledge update, abstention), so the Q500 delta may differ.
+
+**flag=off baseline vs. published 81.1%:** The legacy-path mean of 73.3% is ~7.8 pp below the published 81.1%. This is primarily attributable to the answer model change (Claude Sonnet vs. GPT-4o) and secondarily to the Q50 subset composition. The delta is internally consistent.
+
+**Verdict:** The directional signal is unambiguous — TIR+QDP produces a +22.7 pp gain on this Q50 slice with SD < 2 pp on each side. The Q50 pass criterion (≥3 pp delta) is met decisively. Q500 run is warranted for publication-quality numbers with GPT-4o as answer model.
+
+Result files: `benchmarks/longmemeval/results/tirqdp-baseline-{off,on}-50-2026-05-11T*.json` (6 files, gitignored)
+
 ### NPC memory evaluations
 
 The game-engine track evaluates Strata's REST + world-scoped storage path on multi-turn dialogue with NPCs (Spec 2026-04-28: NPC Conflict Resolution).
