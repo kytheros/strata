@@ -5,6 +5,19 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-05-11
+
+### Added
+
+- **Provenance handles on all search tool responses** (`search_history`, `find_solutions`). Each result header now includes a `[mem:<short> sess:<short> t:<date>]` bracket-citation so calling agents can cite their sources without follow-up lookups. Citations appear only for knowledge-store results (memories written via `store_memory`); raw FTS5 conversation chunks remain unchanged.
+- **`Sources:` block on `get_project_context` narrative output.** When knowledge entries exist for the project, a trailing `Sources: [mem:…] [mem:…]` line is appended listing all referenced memory bracket-handles.
+- **`getEditCount(id): Promise<number>`** on `SqliteKnowledgeStore`. Returns the count of explicit `update` events in `knowledge_history` for an entry (0 for a freshly-added entry, increments on each `updateEntry()` call).
+- **`ProvenanceHandle` interface** exported from `strata-mcp` (`src/types/provenance.ts`). Encodes `id`, `sessionId`, `createdAt`, `updatedAt`, and `editCount` for a single memory row.
+- **`formatProvenanceHandle(p: ProvenanceHandle): string`** utility (`src/utils/format-provenance.ts`). Renders a 6-char short-id bracket citation: `[mem:k_8a3fb4 sess:s_7d21e9 t:2024-05-08]`.
+- **`provenance?: ProvenanceHandle`** field added to `SearchResult` (additive, optional per D3). Populated by `knowledgeEntryToSearchResult` for all knowledge-store paths.
+- **`buildProvenanceSources(entries: KnowledgeEntry[]): string`** exported from `get-project-context.ts`. Builds a deduplicated `Sources:` line from a list of knowledge entries.
+- **Cross-transport provenance test** (`tests/transports/provenance-transport.test.ts`). Verifies the bracket-handle survives MCP JSON-RPC serialization through the HTTP transport.
+
 ## [2.1.3] - 2026-05-03
 
 ### Removed
