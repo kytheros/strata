@@ -12,6 +12,8 @@ import { getCachedGeminiProvider } from "../extensions/llm-extraction/gemini-pro
 import { resolveConflicts, executeResolution } from "../knowledge/conflict-resolver.js";
 import { computeImportance } from "../knowledge/importance.js";
 import { resolveGaps } from "../search/evidence-gaps.js";
+import { extractEntities } from "../knowledge/entity-extractor.js";
+import type { IEntityStore } from "../storage/interfaces/entity-store.js";
 
 import type { KnowledgeType } from "../knowledge/knowledge-store.js";
 
@@ -27,12 +29,15 @@ export interface StoreMemoryArgs {
  * Handle the store_memory tool call.
  * Creates a KnowledgeEntry and writes it to the SQLite store.
  * When a Gemini provider is available, compresses the memory text via LLM.
+ * When an entityStore is provided, extracts entities from the memory text and
+ * writes knowledge_entities junction rows linking the entry to each entity.
  * Returns a confirmation message.
  */
 export async function handleStoreMemory(
   knowledgeStore: IKnowledgeStore,
   args: StoreMemoryArgs,
-  db?: Database.Database
+  db?: Database.Database,
+  entityStore?: IEntityStore
 ): Promise<string> {
   const { memory, type, tags = [], project = "global", user } = args;
 
@@ -96,6 +101,32 @@ export async function handleStoreMemory(
     try {
       resolveGaps(db, entry);
     } catch { /* gap resolution is best-effort */ }
+  }
+
+  // Entity extraction: link the written entry to any entities found in its text.
+  // Only runs when an entityStore is provided (opt-in, D3-compliant).
+  // Errors are non-fatal — entity linking must never block memory storage.
+  if (entityStore && resolution.shouldAdd) {
+    const text = `${summary} ${details}`;
+    const entities = extractEntities(text);
+    const now = Date.now();
+    for (const extracted of entities) {
+      try {
+        const entityId = await entityStore.upsertEntity({
+          id: randomUUID(),
+          name: extracted.name,
+          type: extracted.type,
+          canonicalName: extracted.canonicalName,
+          aliases: [extracted.name.toLowerCase()],
+          firstSeen: now,
+          lastSeen: now,
+          project: entry.project,
+        });
+        await entityStore.linkToKnowledge(entry.id, entityId);
+      } catch {
+        // Entity linking errors must never block storage
+      }
+    }
   }
 
   const deletedCount = resolution.actions.filter((a) => a.action === "delete").length;

@@ -5,6 +5,16 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-05-11
+
+### Fixed
+
+- **`knowledge_entities` junction table now populated on `store_memory` calls.** The `handleStoreMemory` function now accepts an optional `IEntityStore` and, when provided, runs heuristic entity extraction on the stored memory text and writes `(entry_id, entity_id)` rows into `knowledge_entities`. Previously the junction table remained empty even when `entities` and `entity_relations` were populated from the file-watcher path — breaking `find_contradictions` entity-bridge prefilter (precision-at-10 landed at 1/10 instead of ≥70%). The `store_memory` MCP tool in `server.ts` now passes `entityStore` to the handler automatically.
+
+### Added
+
+- **`strata index --backfill-junction` CLI command** (`src/cli/backfill-junction.ts`). Reconstructs missing `knowledge_entities` junction rows from all existing knowledge entries by re-running heuristic entity extraction on each entry's `summary + details` text. Idempotent (`INSERT OR IGNORE`) — running twice produces the same final state. Supports `--project=name` to scope to a single project and `--dry-run` to report counts without writing. Required one-time upgrade step for production databases created before v2.2.1.
+
 ## [2.2.0] - 2026-05-11
 
 ### Added

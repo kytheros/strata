@@ -760,7 +760,7 @@ Example: Store a fact like "API rate limit is 100/min"`,
     },
     async (args) => {
       const start = Date.now();
-      const result = await handleStoreMemory(storage.knowledge, args, indexManager?.db);
+      const result = await handleStoreMemory(storage.knowledge, args, indexManager?.db, entityStore);
       onToolCall?.("store_memory", args as Record<string, unknown>, Date.now() - start);
       return buildTextResponse(result);
     }
