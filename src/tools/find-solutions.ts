@@ -7,6 +7,8 @@ import { CompactSerializer } from "../utils/compact-serializer.js";
 import { truncatePreview } from "../utils/response.js";
 import { CONFIG } from "../config.js";
 import { recordGap, getGapOccurrences } from "../search/evidence-gaps.js";
+import { formatProvenanceHandle } from "../utils/format-provenance.js";
+import type { ProvenanceHandle } from "../types/provenance.js";
 
 function confidenceBand(c: number): string {
   if (c >= CONFIG.search.confidenceHighThreshold) return "high";
@@ -59,6 +61,13 @@ async function searchSolutionsViaStore(
         : `[${entry.type}] ${entry.summary}`;
       const isSolutionType = solutionTypes.includes(entry.type);
       const baseScore = ((entry.importance ?? 0.5) * 10) * (isSolutionType ? 1.5 : 1);
+      const provenance: ProvenanceHandle = {
+        id: entry.id,
+        sessionId: entry.sessionId || null,
+        createdAt: entry.timestamp,
+        updatedAt: entry.timestamp,
+        editCount: 0,
+      };
       return {
         sessionId: entry.sessionId || "knowledge",
         project: entry.project,
@@ -68,6 +77,7 @@ async function searchSolutionsViaStore(
         timestamp: entry.timestamp,
         toolNames: [] as string[],
         role: "assistant" as const,
+        provenance,
       };
     });
   } catch {
@@ -210,8 +220,9 @@ export async function handleFindSolutions(
       ? new Date(r.timestamp).toLocaleDateString()
       : "unknown date";
     const band = confidenceBand(r.confidence);
+    const handle = r.provenance ? ` ${formatProvenanceHandle(r.provenance)}` : "";
 
-    lines.push(`--- ${projectName} (${date}) [${band}] ---`);
+    lines.push(`--- ${projectName} (${date}) [${band}]${handle} ---`);
     const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
     lines.push(text);
     lines.push("");

@@ -1,7 +1,10 @@
 import { parseHistoryFile, groupBySession, getProjectInfos } from "../parsers/history-parser.js";
 import { extractProjectName } from "../utils/path-encoder.js";
 import type { SqliteSearchEngine } from "../search/sqlite-search-engine.js";
+import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 import { STOP_WORDS } from "../indexing/tokenizer.js";
+import { formatProvenanceHandle } from "../utils/format-provenance.js";
+import type { KnowledgeEntry } from "../knowledge/knowledge-store.js";
 
 export const getProjectContextTool = {
   name: "get_project_context",
@@ -25,11 +28,37 @@ export const getProjectContextTool = {
   },
 };
 
-export function handleGetProjectContext(
+/**
+ * Build a trailing `Sources:` line from a list of knowledge entries.
+ * Deduplicates by entry id and formats each as a bracket-handle citation.
+ * Returns empty string when no entries are provided.
+ */
+export function buildProvenanceSources(entries: KnowledgeEntry[]): string {
+  const seen = new Set<string>();
+  const handles: string[] = [];
+  for (const entry of entries) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    handles.push(
+      formatProvenanceHandle({
+        id: entry.id,
+        sessionId: entry.sessionId || null,
+        createdAt: entry.timestamp,
+        updatedAt: entry.timestamp,
+        editCount: 0,
+      })
+    );
+  }
+  if (handles.length === 0) return "";
+  return `\nSources: ${handles.join(" ")}`;
+}
+
+export async function handleGetProjectContext(
   engine: SqliteSearchEngine,
-  args: { project?: string; depth?: string },
+  args: { project?: string; depth?: string; user?: string },
   profileSummary?: string,
-): string {
+  knowledgeStore?: IKnowledgeStore,
+): Promise<string> {
   const project = args.project || "";
   const depth = args.depth || "normal";
 
@@ -47,6 +76,19 @@ export function handleGetProjectContext(
   );
 
   if (matching.length === 0) {
+    // Even without conversation history, if there are knowledge entries,
+    // surface them via the Sources block.
+    if (knowledgeStore) {
+      try {
+        const knowledgeEntries = await knowledgeStore.getProjectEntries(project, args.user);
+        if (knowledgeEntries.length > 0) {
+          const sources = buildProvenanceSources(knowledgeEntries);
+          return `No history found for project "${project}".${sources}`;
+        }
+      } catch {
+        // best-effort
+      }
+    }
     return `No history found for project "${project}".`;
   }
 
@@ -126,6 +168,19 @@ export function handleGetProjectContext(
   if (profileSummary) {
     lines.push("");
     lines.push(profileSummary);
+  }
+
+  // Append knowledge-store Sources: block when store is provided
+  if (knowledgeStore) {
+    try {
+      const knowledgeEntries = await knowledgeStore.getProjectEntries(project, args.user);
+      const sources = buildProvenanceSources(knowledgeEntries);
+      if (sources) {
+        lines.push(sources);
+      }
+    } catch {
+      // best-effort — don't block context retrieval
+    }
   }
 
   return lines.join("\n");

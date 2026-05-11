@@ -630,7 +630,7 @@ Example: What do you know about my React project?`,
         // Profile synthesis is best-effort — don't block context retrieval
       }
 
-      const result = handleGetProjectContext(searchEngine, args, profileSummary);
+      const result = await handleGetProjectContext(searchEngine, args, profileSummary, storage.knowledge);
       historyCache.set(key, result);
       onToolCall?.("get_project_context", args as Record<string, unknown>, Date.now() - start);
 

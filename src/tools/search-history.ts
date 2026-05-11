@@ -10,6 +10,7 @@ import { CONFIG } from "../config.js";
 import { recordGap, getGapOccurrences } from "../search/evidence-gaps.js";
 import { parseDate } from "../search/query-processor.js";
 import { knowledgeEntryToSearchResult } from "../search/knowledge-to-search-result.js";
+import { formatProvenanceHandle } from "../utils/format-provenance.js";
 import { fuseCommunityLanes } from "../search/recall-fusion-community.js";
 import type { CommunityChunkResult } from "../search/recall-fusion-community.js";
 import { recallQdpCommunity } from "../search/recall-qdp-community.js";
@@ -382,8 +383,9 @@ export async function handleSearchHistory(
     const toolInfo =
       r.toolNames.length > 0 ? ` [tools: ${r.toolNames.join(", ")}]` : "";
     const band = confidenceBand(r.confidence);
+    const handle = r.provenance ? ` ${formatProvenanceHandle(r.provenance)}` : "";
 
-    lines.push(`--- ${projectName} (${date}) [${band}]${toolInfo} ---`);
+    lines.push(`--- ${projectName} (${date}) [${band}]${toolInfo}${handle} ---`);
     const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
     lines.push(text);
     lines.push("");
