@@ -205,11 +205,24 @@ This sub-experiment measures the accuracy gain from enabling TIR+QDP (Turn-level
 | flag=on | 96.0% | 1.6 pp | 94.0% | 98.0% |
 | **Delta** | **+22.7 pp** | | | |
 
-**Q50 corpus note:** The Q50 subset is all `single-session-user` / `information_extraction` questions — a subset of question types. Task-averaged accuracy equals raw accuracy for this slice. The full Q500 run spans all five ability categories (information extraction, multi-session reasoning, temporal reasoning, knowledge update, abstention), so the Q500 delta may differ.
+**Verdict:** The directional signal is unambiguous — TIR+QDP produces a +22.7 pp gain on this Q50 slice with SD < 2 pp on each side. The Q50 pass criterion (≥3 pp delta) is met decisively.
 
-**flag=off baseline vs. published 81.1%:** The legacy-path mean of 73.3% is ~7.8 pp below the published 81.1%. This is primarily attributable to the answer model change (Claude Sonnet vs. GPT-4o) and secondarily to the Q50 subset composition. The delta is internally consistent.
+**Limitations** (do not cite these absolute numbers as ship-gate or publication evidence):
 
-**Verdict:** The directional signal is unambiguous — TIR+QDP produces a +22.7 pp gain on this Q50 slice with SD < 2 pp on each side. The Q50 pass criterion (≥3 pp delta) is met decisively. Q500 run is warranted for publication-quality numbers with GPT-4o as answer model.
+1. **Wrong answer model.** This run used `claude-sonnet-4-6` because the harness auto-selected from `ANTHROPIC_API_KEY`. Project convention (`feedback_longmemeval_gpt4o.md`) is GPT-4o for both answer and judge, for comparability with the 81.1% published baseline. The legacy-path mean here (73.3%) sits ~7.8 pp below the published 81.1% primarily for this reason. Fixed in commit `dfcd1a7` — the harness now defaults to `gpt-4o-2024-08-06` and accepts `--answer-model <name>` to override.
+2. **Single-ability subset.** All 50 questions are `single-session-user` (ability: `information_extraction`). The dataset is concentrated in that category at the head of the file, and the harness used `slice(0, 50)`. Task-averaged accuracy equals raw accuracy for this slice; the other four LongMemEval abilities (multi-session reasoning, temporal reasoning, knowledge update, abstention) are unmeasured. Fixed in commit `dfcd1a7` — `--qset-strategy stratified` now takes a proportional round-robin across abilities.
+3. **Degraded embedding lane.** Gemini's free-tier embedding key hit 429/503 rate limits across all six runs; BM25 served as fallback. Both flag=on and flag=off ran under the same degraded conditions, so the delta is internally consistent — but the +22.7 pp gain measures TIR+QDP without its embedding contribution. A clean Q500 run will need either a paid Gemini key or a pre-warmed embedding cache.
+
+**Next: publication-quality Q500 run.** When ready to publish:
+
+```bash
+npx tsx benchmarks/longmemeval-tirqdp-baseline.ts \
+  --flag off --qset 500 --qset-strategy stratified --answer-model gpt-4o-2024-08-06
+npx tsx benchmarks/longmemeval-tirqdp-baseline.ts \
+  --flag on  --qset 500 --qset-strategy stratified --answer-model gpt-4o-2024-08-06
+```
+
+(N=3 per side recommended; total cost estimate ~$60–120 with GPT-4o answer + judge.) Until that lands, treat the +22.7 pp number as **directional only** and not comparable to published baselines.
 
 Result files: `benchmarks/longmemeval/results/tirqdp-baseline-{off,on}-50-2026-05-11T*.json` (6 files, gitignored)
 
