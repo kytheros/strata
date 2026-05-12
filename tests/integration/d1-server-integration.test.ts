@@ -304,7 +304,9 @@ describe("D1 Server Integration", () => {
       // Second entry should still exist
       const remaining = await storage.knowledge.search("parameterized queries");
       expect(remaining.length).toBeGreaterThan(0);
-    });
+    }, 15_000); // Two store_memory calls each trigger entity extraction +
+                // linking (commit 8c31647) plus async writes and two searches.
+                // Empirically ~5.8s — gives headroom under full-suite load.
   });
 
   // -----------------------------------------------------------------------
