@@ -325,9 +325,15 @@ export async function runSearch(
     // Inner content width: boxWidth - 2 (left/right │) - 3 (left pad) - 3 (right pad)
     const contentMax = boxWidth - 8;
 
+    // ANSI escape sequences sometimes appear inside stored content (e.g. a
+    // captured `[HybridProvider] ...` log line that included terminal color
+    // codes). The renderer applies its own color scheme, so passing embedded
+    // ANSI through corrupts both colored and --no-color output. Strip always.
+    const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
     for (const r of results) {
       const date = new Date(r.timestamp).toISOString().slice(0, 10);
-      const snippetText = r.text.replace(/\n/g, " ").trim();
+      const snippetText = r.text.replace(ANSI_RE, "").replace(/\n/g, " ").trim();
       const wrappedLines = fmt.wordWrap(snippetText, contentMax);
 
       console.log(`  ${fmt.topBorder(`Session ${date}`, boxWidth)}`);

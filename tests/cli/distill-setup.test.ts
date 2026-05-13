@@ -156,7 +156,8 @@ describe.skipIf(process.env.CI === "true")("runDistillTest", () => {
     expect(joined).toContain("Conflict resolution test");
     expect(joined).toContain("All checks passed");
     expect(joined).not.toContain("FAIL");
-  });
+  }, 30_000); // runDistillTest probes Ollama at runtime (per file-top TODO);
+              // the live probe + 3 stages can exceed 5s default under load.
 
   it("reports failure when a provider returns invalid JSON", async () => {
     const mockBadProvider = {
@@ -178,5 +179,5 @@ describe.skipIf(process.env.CI === "true")("runDistillTest", () => {
 
     const joined = logs.join("\n");
     expect(joined).toContain("FAIL");
-  });
+  }, 30_000); // Same Ollama-probe timing concern as the all-green test above.
 });
