@@ -24,3 +24,7 @@ autoresearch/
 benchmarks/locomo/diagnose-*.ts
 evals/local-inference-quality/probe-*.ts
 evals/local-inference-quality/sweep-*.ts
+
+# Distillation E2E harness — run artifacts and extraction cache (never commit)
+evals/distillation-e2e/runs/
+evals/distillation-e2e/.cache/
