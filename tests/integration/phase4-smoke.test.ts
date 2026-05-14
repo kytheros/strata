@@ -183,7 +183,9 @@ describe("Smoke: store_memory → search round-trip", () => {
     const entries = await knowledgeStore.search("ECONNREFUSED");
     expect(entries.length).toBeGreaterThan(0);
     expect(entries.some(e => e.details.includes("ECONNREFUSED"))).toBe(true);
-  });
+  }, 15_000); // store_memory now triggers entity extraction + linking
+              // (commit 8c31647), pushing this past the 5s default under load.
+              // Same fix pattern as 34b99cf (d1 timeout bump).
 
   it("store then search via search engine (full-text)", async () => {
     // Seed document store with the same content to test the full search pipeline
