@@ -220,9 +220,10 @@ export interface SessionFileInfo {
 
 /**
  * Enumerate all session JSONL files across all projects.
+ * @param overrideDir - Optional directory to use instead of CONFIG.projectsDir (for tests).
  */
-export function enumerateSessionFiles(): SessionFileInfo[] {
-  const projectsDir = CONFIG.projectsDir;
+export function enumerateSessionFiles(overrideDir?: string): SessionFileInfo[] {
+  const projectsDir = overrideDir ?? CONFIG.projectsDir;
   if (!existsSync(projectsDir)) return [];
 
   const results: SessionFileInfo[] = [];

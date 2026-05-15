@@ -38,8 +38,11 @@ export class IndexManager {
   tfidf: TFIDFIndex;
   documents: DocumentStore;
   private meta: IndexMeta;
+  /** Optional override for the projects directory (used in tests). */
+  private projectsDir?: string;
 
-  constructor() {
+  constructor(projectsDir?: string) {
+    this.projectsDir = projectsDir;
     this.bm25 = new BM25Index();
     this.tfidf = new TFIDFIndex();
     this.documents = new DocumentStore();
@@ -55,7 +58,7 @@ export class IndexManager {
    */
   async buildFullIndex(): Promise<{ sessions: number; chunks: number }> {
     const startTime = Date.now();
-    const files = enumerateSessionFiles();
+    const files = enumerateSessionFiles(this.projectsDir);
 
     // Reset everything
     this.bm25 = new BM25Index();
@@ -89,7 +92,7 @@ export class IndexManager {
     updated: number;
     unchanged: number;
   }> {
-    const files = enumerateSessionFiles();
+    const files = enumerateSessionFiles(this.projectsDir);
     let added = 0;
     let updated = 0;
     let unchanged = 0;

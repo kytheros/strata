@@ -1,26 +1,23 @@
+// Uses an in-repo fixture (tests/fixtures/claude-projects/) instead of ~/.claude/projects/
+// so the test is deterministic and completes in milliseconds on any machine.
 import { describe, it, expect, beforeAll } from "vitest";
-import { existsSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
+import { fileURLToPath } from "url";
 import { IndexManager } from "../../src/indexing/index-manager.js";
 import { SearchEngine } from "../../src/search/search-engine.js";
 
-// Skip in CI — requires real Claude history data on disk
-const hasData = existsSync(join(homedir(), ".claude", "projects"));
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const FIXTURE_DIR = join(__dirname, "..", "fixtures", "claude-projects");
 
-describe.skipIf(!hasData)("SearchEngine integration", () => {
+describe("SearchEngine integration", () => {
   let indexManager: IndexManager;
   let engine: SearchEngine;
 
   beforeAll(async () => {
-    indexManager = new IndexManager();
-    // Try loading the pre-built index, fall back to building
-    const loaded = await indexManager.load();
-    if (!loaded) {
-      await indexManager.buildFullIndex();
-    }
+    indexManager = new IndexManager(FIXTURE_DIR);
+    await indexManager.buildFullIndex();
     engine = new SearchEngine(indexManager);
-  }, 60000);
+  });
 
   it("should have indexed sessions", () => {
     const stats = indexManager.getStats();
@@ -30,7 +27,7 @@ describe.skipIf(!hasData)("SearchEngine integration", () => {
 
   it("should return results for a general query", () => {
     const results = engine.search("docker");
-    // This is a common topic, should have results
+    // docker appears in multiple fixture sessions
     expect(results.length).toBeGreaterThanOrEqual(0);
   });
 
