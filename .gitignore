@@ -18,6 +18,12 @@ benchmarks/locomo/__pycache__/
 benchmarks/longmemeval/*
 !benchmarks/longmemeval/strata_adapter.py
 !benchmarks/longmemeval/run_retrieval_benchmark.py
+# Code deps of the tracked ingest.ts (types/schema/extraction logic, not data).
+# Without these the tracked tests/benchmarks/longmemeval-tirqdp-instrumentation
+# test cannot resolve its module graph on CI.
+!benchmarks/longmemeval/benchmark-schema.ts
+!benchmarks/longmemeval/types.ts
+!benchmarks/longmemeval/extract-events.ts
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
