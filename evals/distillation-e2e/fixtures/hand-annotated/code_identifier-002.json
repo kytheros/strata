@@ -1,0 +1,27 @@
+{
+  "id": "code_identifier-002",
+  "source": "hand-annotated",
+  "failure_mode": "code_identifier",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "ci2sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "We dropped STRATA_ALLOW_INSECURE_DEV_SECRET from the prod deployment checklist. It's a local-dev-only fallback and shouldn't ever be set in prod — leaving it in the checklist gave the wrong impression that it was a valid prod option."
+        },
+        {
+          "role": "assistant",
+          "content": "Right call. Setting it logs a warn loudly at startup, but checklist presence implied legitimacy. Cleaner to scope it to dev docs only and let the warn-loudly behavior catch anyone who tries it in prod by accident."
+        }
+      ]
+    }
+  ],
+  "query": "What env var got removed from the prod deployment checklist?",
+  "expected_answer": "STRATA_ALLOW_INSECURE_DEV_SECRET",
+  "expected_evidence_turns": [
+    { "session_id": "ci2sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

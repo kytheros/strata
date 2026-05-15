@@ -1,0 +1,91 @@
+{
+  "id": "long_context-002",
+  "source": "hand-annotated",
+  "failure_mode": "long_context",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "lc2sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "I'm sketching the Concierge demo deployment on AWS. Cloud Run is off the table — going AWS-native for this one. ECS Fargate or Lambda for the worker tier?"
+        },
+        {
+          "role": "assistant",
+          "content": "Fargate is the right default for stateless workloads at our scale. The only reasons to skip would be sub-second cold-start sensitivity or very high egress, neither of which applies to a demo path."
+        },
+        {
+          "role": "user",
+          "content": "Cold start is fine; demo path is mostly steady-state. What about the data layer? Aurora?"
+        },
+        {
+          "role": "assistant",
+          "content": "Aurora Serverless v2 if you want pay-per-actual-load, regular Aurora Postgres if you want predictable cost. For a demo that you tear down between runs, serverless is the cheaper bet."
+        },
+        {
+          "role": "user",
+          "content": "We already have a Glue catalog from the data platform work — does Aurora play nicely with Glue?"
+        },
+        {
+          "role": "assistant",
+          "content": "Yes, via the JDBC connector. You'd register the Aurora cluster as a Glue connection, then Crawl/ETL jobs treat it as a source. Same auth model as your existing Postgres connections."
+        },
+        {
+          "role": "user",
+          "content": "ok. For the worker tier — really Lambda or ECS? I keep going back and forth."
+        },
+        {
+          "role": "assistant",
+          "content": "Depends on per-request work. If you're doing >5s extraction calls, Lambda's 15-minute timeout is technically fine, but the cost curve favors ECS once you cross ~30% utilization. For sustained demo traffic, ECS wins."
+        },
+        {
+          "role": "user",
+          "content": "Probably ECS then. Steady traffic."
+        },
+        {
+          "role": "user",
+          "content": "VPC peering between this account and the strata-team account?"
+        },
+        {
+          "role": "assistant",
+          "content": "Transit Gateway would be cleaner than direct peering if you anticipate adding more accounts. Direct peering is fine for two-account topologies but doesn't scale."
+        },
+        {
+          "role": "user",
+          "content": "Yeah probably TGW. One note while we're here — we're standardizing on us-east-2 for all new infra, not us-east-1. The east-1 control plane has been overloaded and we've had two outages in three months tied directly to it."
+        },
+        {
+          "role": "assistant",
+          "content": "Smart move. us-east-2 has the same service coverage now, lower latency from the Ohio CO, and significantly less blast-radius noise. Aurora, ECS, R2 inbound, all of it lights up there."
+        },
+        {
+          "role": "user",
+          "content": "ok keeping that in mind. For IaC, CDK or Terraform?"
+        },
+        {
+          "role": "assistant",
+          "content": "For greenfield AWS-native, CDK gives you typed constructs and tight CloudFormation integration. Terraform if you want multi-cloud later — but you've said AWS-only for now."
+        },
+        {
+          "role": "user",
+          "content": "AWS-only. CDK it is."
+        },
+        {
+          "role": "user",
+          "content": "One more — how do we keep secrets out of CloudFormation templates?"
+        },
+        {
+          "role": "assistant",
+          "content": "SecretsManager + CDK's SecretValue.secretsManager() — the templates reference the secret by ARN, never the raw value. Same pattern as the strata-web Supabase keys."
+        }
+      ]
+    }
+  ],
+  "query": "What AWS region is the user standardizing on for new infra?",
+  "expected_answer": "us-east-2",
+  "expected_evidence_turns": [
+    { "session_id": "lc2sess001", "turn_index": 11 }
+  ],
+  "min_recall_at_k": 1
+}

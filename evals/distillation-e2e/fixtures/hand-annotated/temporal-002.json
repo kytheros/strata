@@ -1,0 +1,40 @@
+{
+  "id": "temporal-002",
+  "source": "hand-annotated",
+  "failure_mode": "temporal",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "t2sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "Semantic search is a Pro feature — embeddings via Gemini, only enabled when STRATA_TIER=pro."
+        },
+        {
+          "role": "assistant",
+          "content": "That keeps the community tier dependency-free, which is the main reason it gates behind tier."
+        }
+      ]
+    },
+    {
+      "id": "t2sess002",
+      "turns": [
+        {
+          "role": "user",
+          "content": "As of yesterday I moved semantic search from Pro to Community — the Mem0 parity argument won out. The Gemini dependency is optional now and lights up only when GEMINI_API_KEY is set in the user's environment."
+        },
+        {
+          "role": "assistant",
+          "content": "Good call — community tier with semantic search closes the most common reason users churn to Mem0. The optional-dep pattern keeps the no-key path clean."
+        }
+      ]
+    }
+  ],
+  "query": "Is semantic search a Pro feature?",
+  "expected_answer": "No, as of yesterday it moved to Community.",
+  "expected_evidence_turns": [
+    { "session_id": "t2sess002", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

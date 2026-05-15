@@ -1,0 +1,27 @@
+{
+  "id": "compound-002",
+  "source": "hand-annotated",
+  "failure_mode": "compound",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "c2sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "For the REST transport prod config, set STRATA_TOKEN_SECRET (HMAC signing key, 32 hex bytes from openssl rand -hex 32), STRATA_AUTH_PROXY_TOKEN (shared secret with the upstream proxy), and STRATA_REQUIRE_AUTH_PROXY=1 so the transport refuses unverified requests."
+        },
+        {
+          "role": "assistant",
+          "content": "Got it. Want me to add those three to the deployment runbook with the openssl example and a note that STRATA_TOKEN_SECRET_PREVIOUS exists for grace-window rotation?"
+        }
+      ]
+    }
+  ],
+  "query": "Which env var sets the REST signing key?",
+  "expected_answer": "STRATA_TOKEN_SECRET",
+  "expected_evidence_turns": [
+    { "session_id": "c2sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

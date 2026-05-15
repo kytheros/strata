@@ -1,0 +1,40 @@
+{
+  "id": "temporal-001",
+  "source": "hand-annotated",
+  "failure_mode": "temporal",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "t1sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "I'm on Node 20 for all Strata repos right now. Husky and vitest are pinned to versions that target it."
+        },
+        {
+          "role": "assistant",
+          "content": "Node 20 is LTS through April 2026, so you've got runway before any forced bump."
+        }
+      ]
+    },
+    {
+      "id": "t1sess002",
+      "turns": [
+        {
+          "role": "user",
+          "content": "Heads up — I bumped Strata to Node 22 last week. The benchmark perf was 12% better on the indexing path, and 22 is the new active LTS now so I figured no reason to wait."
+        },
+        {
+          "role": "assistant",
+          "content": "Makes sense. Did the husky hook scripts need any changes for the bump, or did the existing scripts work as-is?"
+        }
+      ]
+    }
+  ],
+  "query": "What Node version is the user on?",
+  "expected_answer": "Node 22 (bumped last week)",
+  "expected_evidence_turns": [
+    { "session_id": "t1sess002", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

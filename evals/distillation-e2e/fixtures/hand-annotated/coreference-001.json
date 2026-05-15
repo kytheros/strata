@@ -1,0 +1,35 @@
+{
+  "id": "coreference-001",
+  "source": "hand-annotated",
+  "failure_mode": "coreference",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "cr1sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "Picked up a new keyboard for the office setup yesterday."
+        },
+        {
+          "role": "assistant",
+          "content": "Nice — what'd you go with?"
+        },
+        {
+          "role": "user",
+          "content": "It's an HHKB Pro 3, the silenced variant. The Topre travel feels right after years on a stock Apple keyboard."
+        },
+        {
+          "role": "assistant",
+          "content": "Silenced Topre is a great long-session typing experience. Layout-wise, did you stick with the HHKB default or remap?"
+        }
+      ]
+    }
+  ],
+  "query": "What keyboard does the user have?",
+  "expected_answer": "HHKB Pro 3, silenced variant",
+  "expected_evidence_turns": [
+    { "session_id": "cr1sess001", "turn_index": 2 }
+  ],
+  "min_recall_at_k": 1
+}

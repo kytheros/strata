@@ -1,0 +1,27 @@
+{
+  "id": "negation-002",
+  "source": "hand-annotated",
+  "failure_mode": "negation",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "n2sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "We dropped the legacy MCP tool descriptions entirely. Only the AutoResearch-optimized versions ship — the old description text is gone from src/server.ts and the registration code."
+        },
+        {
+          "role": "assistant",
+          "content": "Good — keeping both around was the kind of dead code that slowly accumulates drift, and the optimized descriptions hit the 25/25 score ceiling so there's no reason to retain the legacy strings."
+        }
+      ]
+    }
+  ],
+  "query": "Are legacy MCP tool descriptions still supported?",
+  "expected_answer": "No — dropped; only AutoResearch-optimized versions ship.",
+  "expected_evidence_turns": [
+    { "session_id": "n2sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

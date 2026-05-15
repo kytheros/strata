@@ -1,0 +1,87 @@
+{
+  "id": "long_context-001",
+  "source": "hand-annotated",
+  "failure_mode": "long_context",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "lc1sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "I'm getting `Error 10000: account_id is required` deploying strata-worker via wrangler. The token was working yesterday so I don't think it's auth."
+        },
+        {
+          "role": "assistant",
+          "content": "That error typically means the wrangler.toml lost its `account_id` field, OR the env var $CLOUDFLARE_ACCOUNT_ID didn't make it into the shell that ran wrangler deploy. Can you paste the relevant chunk of wrangler.toml?"
+        },
+        {
+          "role": "user",
+          "content": "```\nname = \"strata-worker\"\nmain = \"src/index.ts\"\ncompatibility_date = \"2026-04-01\"\n\n[[d1_databases]]\nbinding = \"DB\"\ndatabase_name = \"strata-prod\"\ndatabase_id = \"abc123\"\n```"
+        },
+        {
+          "role": "assistant",
+          "content": "account_id is missing entirely. Either add it inline at the top level (`account_id = \"<id>\"`) or export `CLOUDFLARE_ACCOUNT_ID` before invoking wrangler deploy."
+        },
+        {
+          "role": "user",
+          "content": "I usually set it via env. The export is in my .zshrc but maybe the deploy ran from a different shell since I'm using a new terminal multiplexer."
+        },
+        {
+          "role": "assistant",
+          "content": "If you're running via an npm script, double-check the script invocation environment. CI doesn't read .zshrc either, so that's worth knowing for the eventual pipeline."
+        },
+        {
+          "role": "user",
+          "content": "This is local for now. Let me try the inline approach in wrangler.toml."
+        },
+        {
+          "role": "assistant",
+          "content": "SGTM. While you're editing, you could also pin `workers_dev = false` at the top level if you don't want a *.workers.dev URL exposed. Probably want that for a licensed-release worker."
+        },
+        {
+          "role": "user",
+          "content": "Yeah good call, adding that too."
+        },
+        {
+          "role": "user",
+          "content": "wait — also unrelated, can you confirm my Cloudflare account ID is 7f3e2a01-4b8c-4d3e-9a01-2c3d4e5f6a7b? That's the kytheros tenant, right? I'm paranoid I'm about to deploy to the wrong account."
+        },
+        {
+          "role": "assistant",
+          "content": "That matches what's in the README — kytheros tenant. The strata-releases-prod R2 bucket and the strata-team-* DO bindings all reference that account."
+        },
+        {
+          "role": "user",
+          "content": "ok deploying with the inline account_id."
+        },
+        {
+          "role": "user",
+          "content": "same error."
+        },
+        {
+          "role": "assistant",
+          "content": "With the inline account_id in wrangler.toml? Can you paste the new toml so I can spot-check the format?"
+        },
+        {
+          "role": "user",
+          "content": "```\naccount_id = \"7f3e2a01-4b8c-4d3e-9a01-2c3d4e5f6a7bb\"\nname = \"strata-worker\"\n...\n```"
+        },
+        {
+          "role": "assistant",
+          "content": "There's a typo: `...6a7bb` has an extra `b` at the end. Should be `...6a7b`. Wrangler validates the format too loosely, so the error message is misleading."
+        },
+        {
+          "role": "user",
+          "content": "oh my god. fixing and retrying."
+        }
+      ]
+    }
+  ],
+  "query": "What is the user's Cloudflare account ID?",
+  "expected_answer": "7f3e2a01-4b8c-4d3e-9a01-2c3d4e5f6a7b",
+  "expected_evidence_turns": [
+    { "session_id": "lc1sess001", "turn_index": 9 }
+  ],
+  "min_recall_at_k": 1
+}

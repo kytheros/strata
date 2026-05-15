@@ -1,0 +1,27 @@
+{
+  "id": "tool_output_buried-002",
+  "source": "hand-annotated",
+  "failure_mode": "tool_output_buried",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "to2sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "Show me the last 5 commits on strata-worker."
+        },
+        {
+          "role": "assistant",
+          "content": "Here's `git log --oneline -5` from strata-worker:\n\n```\nb1c4d2f docs: clarify R2 artifact path convention in RELEASES.md\n3e8a7b1 chore(deps): bump @cloudflare/workers-types to 4.2026.05.01\n9af7c2a fix(sync): debounce KV writes to avoid eventual consistency\n5d2f1c8 feat(license): cache Polar validation results for 5 minutes\n7e0b3a4 test: add miniflare-based KV namespace fixtures\n```\n\n9af7c2a is the one that fixed the user-facing \"license validated then immediately invalid\" issue you flagged last week."
+        }
+      ]
+    }
+  ],
+  "query": "Which commit fixed the KV debounce issue?",
+  "expected_answer": "9af7c2a",
+  "expected_evidence_turns": [
+    { "session_id": "to2sess001", "turn_index": 1 }
+  ],
+  "min_recall_at_k": 1
+}

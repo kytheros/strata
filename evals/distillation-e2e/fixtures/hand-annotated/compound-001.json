@@ -1,0 +1,27 @@
+{
+  "id": "compound-001",
+  "source": "hand-annotated",
+  "failure_mode": "compound",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "c1sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "Quick recap of yesterday's supply-chain cleanup: I migrated all HTTP calls from axios to native fetch, dropped postinstall scripts repo-wide via ignore-scripts=true in .npmrc, and added the banned-http-client-library Semgrep rule. Anything I missed?"
+        },
+        {
+          "role": "assistant",
+          "content": "That covers the three big surfaces: runtime dependency, install-time execution, and CI gate. I'd add: refresh the rebuild:native allowlist in each repo's package.json so trusted native modules (better-sqlite3, esbuild, sharp) still compile, and document the rebuild step in CLAUDE.md so contributors don't get tripped up."
+        }
+      ]
+    }
+  ],
+  "query": "What HTTP client does the user use now?",
+  "expected_answer": "native fetch",
+  "expected_evidence_turns": [
+    { "session_id": "c1sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

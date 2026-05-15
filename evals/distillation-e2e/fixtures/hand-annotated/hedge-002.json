@@ -1,0 +1,27 @@
+{
+  "id": "hedge-002",
+  "source": "hand-annotated",
+  "failure_mode": "hedge",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "h2sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "Maybe I'll move cross-NPC scoping to Postgres for the analytics joins, but I'm not committed yet — SQLite has held up so far and I don't want to add ops surface area without a clear win."
+        },
+        {
+          "role": "assistant",
+          "content": "Fair. The Tier B Postgres adapter exists in the GCP design but isn't wired to runtime — you've got the optionality without paying the migration cost yet."
+        }
+      ]
+    }
+  ],
+  "query": "Is the user moving cross-NPC scoping to Postgres?",
+  "expected_answer": "Considering it, but not committed — SQLite is still working.",
+  "expected_evidence_turns": [
+    { "session_id": "h2sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

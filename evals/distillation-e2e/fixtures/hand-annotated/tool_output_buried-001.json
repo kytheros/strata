@@ -1,0 +1,27 @@
+{
+  "id": "tool_output_buried-001",
+  "source": "hand-annotated",
+  "failure_mode": "tool_output_buried",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "to1sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "Can you list the S3 buckets in the production account?"
+        },
+        {
+          "role": "assistant",
+          "content": "Here's `aws s3 ls` from the production account:\n\n```\n2026-01-04 12:14:32 strata-cf-logs-archive\n2026-01-04 12:14:32 strata-glue-staging\n2026-04-12 09:02:17 strata-releases-prod\n2026-04-22 16:33:49 strata-tf-state-prod\n2026-05-01 11:51:08 strata-web-static-assets\n```\n\nstrata-releases-prod is the one that serves licensed release tarballs to strata-worker; the others are infra-internal."
+        }
+      ]
+    }
+  ],
+  "query": "What's the production releases bucket?",
+  "expected_answer": "strata-releases-prod",
+  "expected_evidence_turns": [
+    { "session_id": "to1sess001", "turn_index": 1 }
+  ],
+  "min_recall_at_k": 1
+}

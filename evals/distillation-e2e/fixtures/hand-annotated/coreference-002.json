@@ -1,0 +1,35 @@
+{
+  "id": "coreference-002",
+  "source": "hand-annotated",
+  "failure_mode": "coreference",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "cr2sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "Did the D1 migration for ai-readiness-toolkit finally land?"
+        },
+        {
+          "role": "assistant",
+          "content": "Yes — it shipped in last week's release. The custom worker is replaced by real Strata on D1, and the ingest_document tool is wired through for document extraction recall."
+        },
+        {
+          "role": "user",
+          "content": "Great — knew it would work eventually. The custom D1 worker was a hack we'd been hauling around for months."
+        },
+        {
+          "role": "assistant",
+          "content": "Now you get the full Strata search stack instead of a stripped-down ingest path."
+        }
+      ]
+    }
+  ],
+  "query": "Did the D1 migration for ai-readiness-toolkit succeed?",
+  "expected_answer": "Yes — shipped last week.",
+  "expected_evidence_turns": [
+    { "session_id": "cr2sess001", "turn_index": 1 }
+  ],
+  "min_recall_at_k": 1
+}

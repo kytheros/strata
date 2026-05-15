@@ -1,0 +1,27 @@
+{
+  "id": "hedge-001",
+  "source": "hand-annotated",
+  "failure_mode": "hedge",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "h1sess001",
+      "turns": [
+        {
+          "role": "user",
+          "content": "I think SearchEngine's constructor takes an IndexManager — I'd have to double-check the file to be sure, but that's the pattern I remember from the integration test."
+        },
+        {
+          "role": "assistant",
+          "content": "Worth confirming directly; the constructor signature governs how downstream consumers in strata-pro wire it up. src/search/search-engine.ts is the source of truth."
+        }
+      ]
+    }
+  ],
+  "query": "What does SearchEngine's constructor take?",
+  "expected_answer": "An IndexManager (the user expressed uncertainty)",
+  "expected_evidence_turns": [
+    { "session_id": "h1sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}
