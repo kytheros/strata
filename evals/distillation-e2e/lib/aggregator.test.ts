@@ -4,10 +4,10 @@ import type { FixtureResult } from "./aggregator.js";
 
 describe("aggregator", () => {
   const results: FixtureResult[] = [
-    { id: "f1", failure_mode: "compound", longmemeval_task_type: null, answerScore: 1, recallScore: 1 },
-    { id: "f2", failure_mode: "compound", longmemeval_task_type: null, answerScore: 0, recallScore: 1 },
-    { id: "f3", failure_mode: "hedge", longmemeval_task_type: null, answerScore: 1, recallScore: 0 },
-    { id: "f4", failure_mode: null, longmemeval_task_type: "ie", answerScore: 1, recallScore: 1 },
+    { id: "f1", failure_mode: "compound", longmemeval_task_type: null, retrieval_strategy: "turns", answerScore: 1, recallScore: 1 },
+    { id: "f2", failure_mode: "compound", longmemeval_task_type: null, retrieval_strategy: "turns", answerScore: 0, recallScore: 1 },
+    { id: "f3", failure_mode: "hedge", longmemeval_task_type: null, retrieval_strategy: "entries", answerScore: 1, recallScore: 0 },
+    { id: "f4", failure_mode: null, longmemeval_task_type: "ie", retrieval_strategy: "rrf-both", answerScore: 1, recallScore: 1 },
   ];
 
   test("computes overall answer accuracy", () => {

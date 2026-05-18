@@ -15,6 +15,13 @@
  *              ingestion runs; legacy reduces to the entries lane. The spec
  *              §4.2 still uses "legacy" as the temporal default; we treat
  *              that as "entries lane with no rerank/RRF" for harness purposes.)
+ *
+ * Convergence note: this 5-strategy enum (turns | entries | rrf-both | tirqdp |
+ * legacy) is the eval-side counterpart of the Intelligent Retrieval Router
+ * (kytheros/strata#13, spec 2026-05-12). Production `search_history` currently
+ * exposes a 3-value enum (auto | tirqdp | legacy); when the router lands
+ * Phase 1, the production strategy enum should converge with this one. Keep
+ * the strings here in lockstep with the router's strategy labels.
  */
 
 import { fuseCommunityLanes, type CommunityChunkResult } from "../../../src/search/recall-fusion-community.js";

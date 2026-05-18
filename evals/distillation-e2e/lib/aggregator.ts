@@ -1,9 +1,12 @@
 import type { FailureMode, LongMemEvalTaskType } from "./fixture-types.js";
+import type { RetrievalStrategy } from "./retrieval-strategies.js";
 
 export interface FixtureResult {
   id: string;
   failure_mode: FailureMode | null;
   longmemeval_task_type: LongMemEvalTaskType | null;
+  /** Strategy used for this fixture's retrieval (v2 Phase 7.2). */
+  retrieval_strategy: RetrievalStrategy;
   answerScore: number;
   recallScore: number;
 }

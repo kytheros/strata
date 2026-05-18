@@ -83,6 +83,7 @@ async function main(): Promise<number> {
       id: fx.id,
       failure_mode: fx.failure_mode,
       longmemeval_task_type: fx.longmemeval_task_type,
+      retrieval_strategy: strategy,
       answerScore: scored.answerScore,
       recallScore: scored.recallScore,
     });
