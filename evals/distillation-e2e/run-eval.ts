@@ -49,10 +49,20 @@ async function main(): Promise<number> {
   const startWall = Date.now();
   const results: FixtureResult[] = [];
 
-  await withIsolatedStrata(async (handle) => {
-    for (const fx of fixtures) {
-      await drivePipeline(handle, fx, { cacheRoot: values["cache-dir"] });
-      const scored = await withNAveraging(values.decision ? 3 : 1, async () => {
+  // Per-fixture isolation: each fixture gets a fresh isolated server so
+  // turns from one fixture don't contaminate another's retrieval set.
+  let idx = 0;
+  for (const fx of fixtures) {
+    idx += 1;
+    const fxStart = Date.now();
+    process.stdout.write(
+      `[${idx}/${fixtures.length}] ${fx.id} (${fx.failure_mode ?? fx.longmemeval_task_type ?? "?"}) starting...\n`
+    );
+    const scored = await withIsolatedStrata(async (handle) => {
+      await drivePipeline(handle, fx, {
+        cacheRoot: values["cache-dir"],
+      });
+      return withNAveraging(values.decision ? 3 : 1, async () => {
         const q = await runQuery(handle, fx.query, 10);
         const a = await generateAnswer({ query: fx.query, retrievedTurns: q.retrievedTurns });
         const j = await judgeAnswer({
@@ -66,15 +76,23 @@ async function main(): Promise<number> {
         );
         return { answerScore: j.score, recallScore: recall };
       });
-      results.push({
-        id: fx.id,
-        failure_mode: fx.failure_mode,
-        longmemeval_task_type: fx.longmemeval_task_type,
-        answerScore: scored.answerScore,
-        recallScore: scored.recallScore,
-      });
-    }
-  });
+    });
+    results.push({
+      id: fx.id,
+      failure_mode: fx.failure_mode,
+      longmemeval_task_type: fx.longmemeval_task_type,
+      answerScore: scored.answerScore,
+      recallScore: scored.recallScore,
+    });
+    const elapsedMs = Date.now() - fxStart;
+    const totalElapsedSec = ((Date.now() - startWall) / 1000).toFixed(0);
+    const etaSec = idx < fixtures.length
+      ? ((Date.now() - startWall) / idx * (fixtures.length - idx) / 1000).toFixed(0)
+      : "0";
+    process.stdout.write(
+      `[${idx}/${fixtures.length}] ${fx.id} done — answer=${scored.answerScore.toFixed(2)} recall=${scored.recallScore.toFixed(2)} (${(elapsedMs / 1000).toFixed(1)}s; total ${totalElapsedSec}s; ETA ${etaSec}s)\n`
+    );
+  }
 
   const agg = aggregate(results);
   const gitSha = execSync("git rev-parse --short HEAD").toString().trim();

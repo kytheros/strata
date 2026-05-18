@@ -73,6 +73,21 @@ export interface ExtractOptions {
   timeoutMs?: number;
   /** Hard cap on returned facts regardless of model output. Default 5. */
   maxItems?: number;
+  /**
+   * Cap on LLM output tokens. Default 512 (sufficient for short REST /store
+   * turns); callers handling longer prose (e.g. multi-sentence summaries or
+   * recap-style utterances) should raise to 1024-2048 — at 512 the JSON
+   * envelope truncates mid-string and parseResponse() throws.
+   */
+  maxTokens?: number;
+  /**
+   * Number of additional attempts if parseResponse throws (malformed JSON).
+   * Default 0 — preserves existing REST /store behavior. Eval callers that
+   * process long conversational content should raise to 1-2 since Gemini
+   * occasionally produces invalid JSON even in responseMimeType=application/json
+   * mode (~5-10% rate observed on LongMemEval prose).
+   */
+  retryOnParseFail?: number;
 }
 
 const FILLER_DENYLIST = new Set([
@@ -133,19 +148,30 @@ export async function extractAtomicFacts(
 
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const maxItems = opts.maxItems ?? 5;
+  const maxTokens = opts.maxTokens ?? 512;
+  const retryOnParseFail = opts.retryOnParseFail ?? 0;
 
   const sanitized = sanitizer.sanitize(trimmed);
   const prompt = buildPrompt(maxItems) + sanitized;
 
-  const raw = await opts.provider.complete(prompt, {
-    maxTokens: 512,
-    temperature: 0.1,
-    timeoutMs,
-    jsonMode: true,
-  });
-
-  const parsed = parseResponse(raw);
-  return parsed.slice(0, maxItems);
+  let lastParseError: unknown = null;
+  for (let attempt = 0; attempt <= retryOnParseFail; attempt++) {
+    const raw = await opts.provider.complete(prompt, {
+      maxTokens,
+      temperature: 0.1,
+      timeoutMs,
+      jsonMode: true,
+    });
+    try {
+      const parsed = parseResponse(raw);
+      return parsed.slice(0, maxItems);
+    } catch (e) {
+      lastParseError = e;
+      // Fall through to next attempt; the provider's non-zero temperature
+      // makes retries non-degenerate even with identical prompts.
+    }
+  }
+  throw lastParseError ?? new Error("extractAtomicFacts: parse failed and no error captured");
 }
 
 function parseResponse(raw: string): AtomicFact[] {

@@ -28,6 +28,12 @@ export interface PipelineResult {
   factsWritten: number;
   sessionsProcessed: number;
   cacheHits: number;
+  /**
+   * Number of raw turns written to knowledge_turns (T9.5). This is the
+   * source of truth for harness retrieval — extraction quality no longer
+   * gates whether the harness can measure recall/answer correctness.
+   */
+  turnsWritten: number;
 }
 
 export interface DrivePipelineOptions {
@@ -39,6 +45,14 @@ export interface DrivePipelineOptions {
    * automatically when the prompt changes. Defaults to "" (no prompt hash).
    */
   extractionPromptTemplate?: string;
+  /**
+   * If true, skip the extraction → knowledge_entries lane entirely. Turns are
+   * still written to knowledge_turns (T9.5), which is the harness's source of
+   * truth for retrieval. Use this when extraction quality is not what's being
+   * measured (e.g. T17 baseline runs) — saves an LLM call per turn.
+   * Default false to preserve existing test behavior.
+   */
+  skipExtraction?: boolean;
 }
 
 /**
@@ -51,19 +65,44 @@ export async function drivePipeline(
   fixture: Fixture,
   options: DrivePipelineOptions = {}
 ): Promise<PipelineResult> {
-  // Lazy imports — these are production extraction modules, not re-implementations.
-  const { getExtractionProvider } = await import("../../../src/extensions/llm-extraction/provider-factory.js");
-  const { extractAtomicFacts } = await import("../../../src/extensions/llm-extraction/utterance-extractor.js");
-  const { applyHedgeFilter } = await import("../../../src/extensions/llm-extraction/hedge-filter.js");
+  const skipExtraction = options.skipExtraction ?? false;
+  const resolvedProvider = resolveProvider();
 
-  const provider = await getExtractionProvider();
-  if (!provider) {
-    throw new Error(
-      "No extraction provider available — ensure GEMINI_API_KEY is set or STRATA_EXTRACTION_PROVIDER points to a running Ollama instance."
-    );
+  // Lazy imports — these are production extraction modules, not re-implementations.
+  // Skipped when skipExtraction=true since they're not needed for the turn lane.
+  const extractionModules = skipExtraction
+    ? null
+    : {
+        extractAtomicFacts: (await import("../../../src/extensions/llm-extraction/utterance-extractor.js")).extractAtomicFacts,
+        applyHedgeFilter: (await import("../../../src/extensions/llm-extraction/hedge-filter.js")).applyHedgeFilter,
+      };
+
+  // Build the extraction provider directly from resolveProvider() so the
+  // harness honors STRATA_EXTRACTION_PROVIDER (gemini | ollama:<model> | hybrid).
+  // getExtractionProvider() would auto-pick HybridProvider when distillation
+  // is configured in ~/.strata/config.json, contaminating "Gemini-only" runs.
+  let provider: import("../../../src/extensions/llm-extraction/llm-provider.js").LlmProvider | null = null;
+  if (!skipExtraction) {
+    if (resolvedProvider.kind === "gemini") {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY required for STRATA_EXTRACTION_PROVIDER=gemini");
+      const { GeminiProvider } = await import("../../../src/extensions/llm-extraction/gemini-provider.js");
+      provider = new GeminiProvider({ apiKey });
+    } else if (resolvedProvider.kind === "ollama") {
+      const { OllamaProvider } = await import("../../../src/extensions/llm-extraction/llm-provider.js");
+      provider = new OllamaProvider(resolvedProvider.model);
+    } else {
+      // hybrid — fall back to the auto-selected provider
+      const { getExtractionProvider } = await import("../../../src/extensions/llm-extraction/provider-factory.js");
+      provider = await getExtractionProvider();
+    }
+    if (!provider) {
+      throw new Error(
+        "No extraction provider available — ensure GEMINI_API_KEY is set or STRATA_EXTRACTION_PROVIDER points to a running Ollama instance."
+      );
+    }
   }
 
-  const resolvedProvider = resolveProvider();
   const providerKey = resolvedProvider.kind === "ollama"
     ? `ollama:${resolvedProvider.model}`
     : resolvedProvider.kind;
@@ -75,8 +114,29 @@ export async function drivePipeline(
 
   let factsWritten = 0;
   let cacheHits = 0;
+  let turnsWritten = 0;
 
   for (const session of fixture.sessions) {
+    // T9.5: write every turn to knowledge_turns FIRST, before extraction.
+    // This is the lane query-runner queries — extraction success is a
+    // separate quality concern, not a correctness gate.
+    for (let msgIdx = 0; msgIdx < session.turns.length; msgIdx++) {
+      const turn = session.turns[msgIdx];
+      const content = turn.content.trim();
+      if (!content) continue;
+      await handle.knowledgeTurn.insert({
+        sessionId: session.id,
+        project: `e2e-${fixture.id}`,
+        userId: null,
+        speaker: turn.role,
+        content,
+        messageIndex: msgIdx,
+      });
+      turnsWritten++;
+    }
+
+    if (skipExtraction) continue;
+
     const sessionContent = JSON.stringify(session);
 
     if (cacheRoot) {
@@ -109,7 +169,7 @@ export async function drivePipeline(
       }
 
       // Cache miss: run real extraction, then cache and store.
-      const extractedFacts = await extractSessionFacts(session, provider, extractAtomicFacts, applyHedgeFilter);
+      const extractedFacts = await extractSessionFacts(session, provider!, extractionModules!.extractAtomicFacts, extractionModules!.applyHedgeFilter);
       writeCache(cacheRoot, key, { facts: extractedFacts.map(f => ({ text: f.text, type: f.type })) });
 
       for (const f of extractedFacts) {
@@ -128,7 +188,7 @@ export async function drivePipeline(
       }
     } else {
       // No cache: run real extraction and store directly.
-      const extractedFacts = await extractSessionFacts(session, provider, extractAtomicFacts, applyHedgeFilter);
+      const extractedFacts = await extractSessionFacts(session, provider!, extractionModules!.extractAtomicFacts, extractionModules!.applyHedgeFilter);
 
       for (const f of extractedFacts) {
         await handle.server.storage.knowledge.addEntry({
@@ -147,7 +207,7 @@ export async function drivePipeline(
     }
   }
 
-  return { factsWritten, sessionsProcessed: fixture.sessions.length, cacheHits };
+  return { factsWritten, sessionsProcessed: fixture.sessions.length, cacheHits, turnsWritten };
 }
 
 /**
@@ -160,7 +220,7 @@ export async function drivePipeline(
 async function extractSessionFacts(
   session: FixtureSession,
   provider: import("../../../src/extensions/llm-extraction/llm-provider.js").LlmProvider,
-  extractAtomicFacts: (text: string, opts: { provider: typeof provider; timeoutMs?: number; maxItems?: number }) => Promise<import("../../../src/extensions/llm-extraction/utterance-extractor.js").AtomicFact[]>,
+  extractAtomicFacts: (text: string, opts: { provider: typeof provider; timeoutMs?: number; maxItems?: number; maxTokens?: number; retryOnParseFail?: number }) => Promise<import("../../../src/extensions/llm-extraction/utterance-extractor.js").AtomicFact[]>,
   applyHedgeFilter: (facts: import("../../../src/extensions/llm-extraction/utterance-extractor.js").AtomicFact[], source: string) => import("../../../src/extensions/llm-extraction/utterance-extractor.js").AtomicFact[]
 ): Promise<import("../../../src/extensions/llm-extraction/utterance-extractor.js").AtomicFact[]> {
   const allFacts: import("../../../src/extensions/llm-extraction/utterance-extractor.js").AtomicFact[] = [];
@@ -169,11 +229,26 @@ async function extractSessionFacts(
     const content = turn.content.trim();
     if (!content) continue;
     try {
-      const raw = await extractAtomicFacts(content, { provider, maxItems: 5 });
+      // Settings mirror benchmarks/longmemeval/extract-events.ts:240-246, which
+      // is the production LongMemEval ingestion path that already handles long
+      // conversational content reliably. 60s timeout + retry on parse fail
+      // brings the harness from 30-50% extraction failure on LME prose down
+      // to <5%.
+      const raw = await extractAtomicFacts(content, {
+        provider,
+        maxItems: 5,
+        maxTokens: 2048,
+        timeoutMs: 60_000,
+        retryOnParseFail: 1,
+      });
       const filtered = applyHedgeFilter(raw, content);
       allFacts.push(...filtered);
-    } catch {
-      // Tolerate per-turn extraction failures — the session continues.
+    } catch (e) {
+      // Tolerate per-turn extraction failures — the session continues — but
+      // log so silent zero-fact extraction doesn't masquerade as a healthy run.
+      process.stderr.write(
+        `[pipeline-driver] extraction failed for session=${session.id} turn-content="${content.slice(0, 80)}…": ${(e as Error).message}\n`
+      );
     }
   }
 

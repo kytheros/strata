@@ -16,16 +16,15 @@ const ANSWER_MODEL = "gpt-4o-2024-08-06";
  * pattern: present retrieved evidence as context, ask the model to answer
  * concisely with citations.
  *
- * Context format uses session_id only — RetrievedTurn has no turn_index field
- * (knowledge store search returns per-session entries, not per-turn).
- * See query-runner.ts note 2 and plan §Task 10 v1 SCOPE.
+ * Context includes both session_id and turn_index — knowledge_turns (T9.5)
+ * surfaces both so citations can be turn-level precise.
  */
 export async function generateAnswer(input: GenerateAnswerInput): Promise<GeneratedAnswer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY required for answer generation");
 
   const context = input.retrievedTurns
-    .map((t, i) => `[${i + 1}] (${t.session_id}): ${t.content}`)
+    .map((t, i) => `[${i + 1}] (session=${t.session_id}, turn=${t.turn_index}): ${t.content}`)
     .join("\n");
 
   const body = {
