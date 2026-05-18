@@ -45,6 +45,7 @@ import { getExtractionProvider } from "../extensions/llm-extraction/provider-fac
 import { ExtractionQueueStore } from "../extensions/extraction-queue/queue-store.js";
 import { ExtractionWorker } from "../extensions/extraction-queue/extraction-worker.js";
 import { CompositeTenantResolver } from "../extensions/extraction-queue/tenant-db-resolver.js";
+import { handleAdminCreateTenant } from "./admin-tenants.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -478,6 +479,43 @@ export async function startRestTransport(
         return;
       }
       json(res, 200, queueStore.getDepth());
+      return;
+    }
+
+    // Multi-tenant namespace provisioning (admin-only).
+    // Called by PointsPilot on user signup. The handler owns its own Bearer-
+    // token auth so it works independently of the game-engine auth flow.
+    // Idempotent: ensureTenantNamespace creates the directory if absent.
+    if (pathname === "/admin/tenants" && method === "POST") {
+      const adminToken = process.env.STRATA_ADMIN_TOKEN ?? "";
+      // Synthesise a Web-standard Request from the Node IncomingMessage so that
+      // handleAdminCreateTenant's req.headers.get() / req.json() interface works.
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        req.on("data", (c: Buffer) => chunks.push(c));
+        req.on("end", () => resolve());
+        req.on("error", reject);
+      });
+      const bodyText = Buffer.concat(chunks).toString("utf-8");
+      const webReq = new Request("http://localhost/admin/tenants", {
+        method: "POST",
+        headers: Object.fromEntries(
+          Object.entries(req.headers).flatMap(([k, v]) =>
+            v === undefined ? [] : Array.isArray(v) ? [[k, v.join(", ")]] : [[k, v]]
+          )
+        ),
+        body: bodyText || null,
+      });
+      const webRes = await handleAdminCreateTenant(webReq, {
+        adminToken,
+        ensureTenantNamespace: async (tenantToken: string) => {
+          // Ensure the per-tenant directory exists (idempotent via { recursive: true }).
+          mkdirSync(join(baseDir, "players", tenantToken), { recursive: true });
+        },
+      });
+      const respBody = await webRes.text();
+      res.writeHead(webRes.status, { "Content-Type": "application/json" });
+      res.end(respBody);
       return;
     }
 
