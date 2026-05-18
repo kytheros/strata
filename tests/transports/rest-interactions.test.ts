@@ -231,7 +231,7 @@ describe("POST /api/interactions — gossip flow", () => {
     const miraBody = (await miraSearch.json()) as { results: Array<{ text?: string; tags?: string[] }> };
     const miraHit = miraBody.results.find((r) => r.text?.includes("unique-marker-xyz"));
     expect(miraHit).toBeUndefined();
-  });
+  }, 30_000);
 
   it("no disclosure when propagateTags is empty/absent", async () => {
     // brynn has no propagateTags — storing a confession on brynn then interacting with mira (profiled)

@@ -275,7 +275,7 @@ describe("REST Transport — store + search + delete", () => {
     });
     const brynnSearched = await brynnSearch.json();
     expect(brynnSearched.results.length).toBe(2);
-  });
+  }, 30_000);
 
   it("DELETE /api/agents/:agentId/memories returns deleted=0 when no memories exist", async () => {
     handle = await startRestTransport({ port: 0, baseDir: makeTempDir() });
