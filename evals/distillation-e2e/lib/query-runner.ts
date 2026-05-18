@@ -1,59 +1,29 @@
 /**
- * query-runner.ts — Phase 7.2 T9 + T9.5
+ * query-runner.ts — Phase 7.2 T9 + T9.5 + v2 Phase 7.1
  *
- * Retrieves raw turns from knowledge_turns (FTS5 BM25, scoped to the
- * isolated db opened by withIsolatedStrata). drivePipeline (T9.5) writes
- * every fixture turn to this store, so retrieval matches against raw text
- * instead of summarized knowledge_entries.
+ * Thin wrapper around retrieve-strategies dispatch. Default strategy is
+ * "turns" — preserves the T17 baseline behavior (66.7% answer / 100% recall
+ * on the 36-fixture set as of 2026-05-17).
  *
- * Why turns and not knowledge_entries: the harness measures whether the
- * eval can find specific entities/values in the corpus. Extracted summaries
- * paraphrase those specifics away ("player is organizing coupons" loses
- * "redeemed $5 at Target"), making answer scoring impossible. The turn lane
- * preserves the original phrasing the query is asking about.
+ * Per-fixture strategy selection happens in run-eval.ts via
+ * failureModeToStrategy(). This file only knows how to dispatch.
  */
 
 import type { IsolatedHandle } from "./isolated-db.js";
+import { retrieveTurns, type RetrievalStrategy, type RetrievedTurn } from "./retrieval-strategies.js";
 
-export interface RetrievedTurn {
-  /** session_id from the fixture (set on knowledge_turns row). */
-  session_id: string;
-  /** Ordinal position of the turn within the session (0-indexed). */
-  turn_index: number;
-  /** Raw turn content. */
-  content: string;
-  /**
-   * Normalized rank score (1.0 = top, decreasing by rank). The underlying
-   * FTS5 BM25 is negated-bm25; we rank-normalize for stable downstream use.
-   */
-  score: number;
-}
+export type { RetrievedTurn, RetrievalStrategy };
 
 export interface QueryResult {
   retrievedTurns: RetrievedTurn[];
 }
 
-/**
- * Queries knowledge_turns FTS5 for raw turns matching the query.
- *
- * @param handle   Isolated server handle from withIsolatedStrata
- * @param query    The fixture query string
- * @param k        Top-K results to return (default 10)
- */
 export async function runQuery(
   handle: IsolatedHandle,
   query: string,
-  k: number = 10
+  k: number = 10,
+  strategy: RetrievalStrategy = "turns",
 ): Promise<QueryResult> {
-  const hits = await handle.knowledgeTurn.searchByQuery(query, { limit: k });
-
-  const total = hits.length;
-  const retrievedTurns: RetrievedTurn[] = hits.map((hit, idx) => ({
-    session_id: hit.row.sessionId,
-    turn_index: hit.row.messageIndex,
-    content: hit.row.content,
-    score: total > 1 ? 1 - idx / total : 1.0,
-  }));
-
+  const retrievedTurns = await retrieveTurns(handle, query, k, strategy);
   return { retrievedTurns };
 }

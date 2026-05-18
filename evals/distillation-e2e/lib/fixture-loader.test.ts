@@ -29,4 +29,25 @@ describe("fixture-loader", () => {
   test("validateFixture rejects missing required fields", () => {
     expect(() => validateFixture({ id: "x" })).toThrow(/sessions/);
   });
+
+  test("validateFixture accepts a valid retrieval_strategy", () => {
+    const valid = {
+      id: "x", source: "hand-annotated", failure_mode: null, longmemeval_task_type: null,
+      sessions: [], query: "?", expected_answer: "y",
+      expected_evidence_turns: [], min_recall_at_k: 0,
+      retrieval_strategy: "tirqdp",
+    };
+    const fx = validateFixture(valid);
+    expect(fx.retrieval_strategy).toBe("tirqdp");
+  });
+
+  test("validateFixture rejects an invalid retrieval_strategy", () => {
+    const bad = {
+      id: "x", source: "hand-annotated", failure_mode: null, longmemeval_task_type: null,
+      sessions: [], query: "?", expected_answer: "y",
+      expected_evidence_turns: [], min_recall_at_k: 0,
+      retrieval_strategy: "not-a-real-strategy",
+    };
+    expect(() => validateFixture(bad)).toThrow(/retrieval_strategy/);
+  });
 });

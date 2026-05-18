@@ -23,18 +23,24 @@ const sampleFixture: Fixture = {
 };
 
 describe("query-runner", () => {
-  test("returns retrieved turns with session_id metadata", async () => {
-    if (!process.env.GEMINI_API_KEY) return;
+  test("defaults to 'turns' strategy (T17 baseline reproducibility)", async () => {
     process.env.STRATA_EXTRACTION_PROVIDER = "gemini";
     await withIsolatedStrata(async (handle) => {
-      // Pre-seed: drive the fixture through real extraction first.
-      await drivePipeline(handle, sampleFixture);
-
-      const result = await runQuery(handle, "guitar cost");
+      await drivePipeline(handle, sampleFixture, { skipExtraction: true });
+      const result = await runQuery(handle, "guitar cost"); // no strategy arg
       expect(result.retrievedTurns.length).toBeGreaterThan(0);
-      expect(result.retrievedTurns[0]).toHaveProperty("session_id");
-      expect(result.retrievedTurns[0]).toHaveProperty("score");
-      expect(result.retrievedTurns[0]).toHaveProperty("content");
+      expect(result.retrievedTurns[0].session_id).toBe("s1");
+      expect(result.retrievedTurns[0].turn_index).toBe(0);
     });
-  }, 180_000);
+  }, 30_000);
+
+  test("accepts an explicit strategy and dispatches to retrieveTurns", async () => {
+    process.env.STRATA_EXTRACTION_PROVIDER = "gemini";
+    await withIsolatedStrata(async (handle) => {
+      await drivePipeline(handle, sampleFixture, { skipExtraction: true });
+      const result = await runQuery(handle, "guitar cost", 10, "turns");
+      expect(result.retrievedTurns.length).toBeGreaterThan(0);
+      expect(result.retrievedTurns[0].turn_index).toBe(0);
+    });
+  }, 30_000);
 });

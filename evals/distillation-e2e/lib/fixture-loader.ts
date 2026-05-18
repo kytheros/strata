@@ -7,6 +7,8 @@ const REQUIRED_FIELDS: ReadonlyArray<keyof Fixture> = [
   "expected_evidence_turns", "min_recall_at_k"
 ];
 
+const VALID_STRATEGIES = new Set(["turns", "entries", "rrf-both", "tirqdp", "legacy"]);
+
 export function validateFixture(obj: unknown): Fixture {
   if (!obj || typeof obj !== "object") throw new Error("fixture must be an object");
   const f = obj as Record<string, unknown>;
@@ -16,6 +18,13 @@ export function validateFixture(obj: unknown): Fixture {
   if (!Array.isArray(f.sessions)) throw new Error("fixture.sessions must be an array");
   if (!Array.isArray(f.expected_evidence_turns)) {
     throw new Error("fixture.expected_evidence_turns must be an array");
+  }
+  if (f.retrieval_strategy !== undefined) {
+    if (typeof f.retrieval_strategy !== "string" || !VALID_STRATEGIES.has(f.retrieval_strategy)) {
+      throw new Error(
+        `fixture.retrieval_strategy must be one of: turns, entries, rrf-both, tirqdp, legacy (got ${JSON.stringify(f.retrieval_strategy)})`
+      );
+    }
   }
   return f as unknown as Fixture;
 }

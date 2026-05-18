@@ -1,3 +1,7 @@
+import type { RetrievalStrategy } from "./retrieval-strategies.js";
+
+export type { RetrievalStrategy };
+
 export type FailureMode =
   | "compound"
   | "hedge"
@@ -35,4 +39,10 @@ export interface Fixture {
   expected_answer: string;
   expected_evidence_turns: ExpectedEvidenceTurn[];
   min_recall_at_k: number;
+  /**
+   * Optional per-fixture override. When absent, run-eval falls back to
+   * failureModeToStrategy(failure_mode, longmemeval_task_type).
+   * Spec: 2026-05-18-distillation-e2e-harness-v2-design.md §4.2.
+   */
+  retrieval_strategy?: RetrievalStrategy;
 }

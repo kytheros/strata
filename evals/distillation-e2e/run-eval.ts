@@ -10,6 +10,7 @@ import { scoreRecall } from "./lib/recall-scorer.js";
 import { aggregate, type FixtureResult } from "./lib/aggregator.js";
 import { withNAveraging } from "./lib/n-strategy.js";
 import { writeRunRecord, formatComparisonTable, type RunRecord } from "./lib/reporter.js";
+import { failureModeToStrategy } from "./lib/failure-mode-strategy.js";
 import { parseArgs } from "node:util";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -55,15 +56,16 @@ async function main(): Promise<number> {
   for (const fx of fixtures) {
     idx += 1;
     const fxStart = Date.now();
+    const strategy = fx.retrieval_strategy ?? failureModeToStrategy(fx.failure_mode, fx.longmemeval_task_type);
     process.stdout.write(
-      `[${idx}/${fixtures.length}] ${fx.id} (${fx.failure_mode ?? fx.longmemeval_task_type ?? "?"}) starting...\n`
+      `[${idx}/${fixtures.length}] ${fx.id} (${fx.failure_mode ?? fx.longmemeval_task_type ?? "?"}, strategy=${strategy}) starting...\n`
     );
     const scored = await withIsolatedStrata(async (handle) => {
       await drivePipeline(handle, fx, {
         cacheRoot: values["cache-dir"],
       });
       return withNAveraging(values.decision ? 3 : 1, async () => {
-        const q = await runQuery(handle, fx.query, 10);
+        const q = await runQuery(handle, fx.query, 10, strategy);
         const a = await generateAnswer({ query: fx.query, retrievedTurns: q.retrievedTurns });
         const j = await judgeAnswer({
           query: fx.query,
