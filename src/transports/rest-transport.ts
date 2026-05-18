@@ -46,6 +46,7 @@ import { ExtractionQueueStore } from "../extensions/extraction-queue/queue-store
 import { ExtractionWorker } from "../extensions/extraction-queue/extraction-worker.js";
 import { CompositeTenantResolver } from "../extensions/extraction-queue/tenant-db-resolver.js";
 import { handleAdminCreateTenant } from "./admin-tenants.js";
+import { checkTenantRateLimit } from "./middleware.js";
 
 const DEFAULT_PLAYER_ID = "default";
 const MIN_ADMIN_TOKEN_LEN = 32;
@@ -350,6 +351,11 @@ export async function startRestTransport(
         "`extract: true` store requests will be accepted but not processed.",
     );
   }
+
+  // Per-tenant request counters for rate limiting.
+  // Keyed by "<tenantId>:<windowIndex>" — naturally evicts as window rolls.
+  // Instantiated here (not at module scope) per D2 architectural constraint.
+  const rateLimitCounters = new Map<string, number>();
 
   // LRU cache of per-(player, npc) createServer() instances, keyed by "<playerId>:<npcId>".
   // Map iteration order = insertion order; re-inserting on access promotes to MRU.
@@ -823,6 +829,26 @@ export async function startRestTransport(
       }
       if (auth.kind === "player") registry.touch(auth.player!.playerId);
       if (auth.kind === "player-v2") registry.touch(auth.v2Claims!.playerId);
+
+      // Per-tenant rate limit — 60 req / 60 sec window (in-memory, single-instance).
+      // Applied to all data routes (memory + docs). Uses playerId as the tenant key
+      // so each authenticated player has their own quota.
+      {
+        const rl = await checkTenantRateLimit(playerId, {
+          counters: rateLimitCounters,
+          limit: 60,
+          windowSec: 60,
+          now: () => Date.now() / 1000,
+        });
+        if (!rl.allowed) {
+          res.writeHead(429, {
+            "Content-Type": "application/json",
+            "Retry-After": "60",
+          });
+          res.end(JSON.stringify({ error: "rate_limit_exceeded", retryAfter: 60, code: 429 }));
+          return;
+        }
+      }
 
       // v2 path: resolve world-scoped stores from token's worldId claim.
       // If the world was deleted after the token was issued → 403.
