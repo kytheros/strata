@@ -7,7 +7,8 @@ import type { DocumentChunk } from "../indexing/document-store.js";
 import type { QueryFilters } from "./query-processor.js";
 import { hasFeature } from "../extensions/feature-gate.js";
 import { computeImportance } from "../knowledge/importance.js";
-import { isCurrentStateQuery } from "./query-classifier.js";
+import { isCurrentStateQuery, isTemporalCurrentStateQuestion } from "./query-classifier.js";
+import type { KnowledgeTurnHit } from "../storage/interfaces/knowledge-turn-store.js";
 
 export interface RankedResult {
   docId: string;
@@ -327,4 +328,69 @@ export function applyFilters(
     }
     return true;
   });
+}
+
+/**
+ * Options for `applyTurnRecencyBoost`.
+ */
+export interface TurnRecencyBoostOpts {
+  /**
+   * Max multiplier applied to the newest turn (newest score gets ×(1 + boostMax),
+   * oldest gets ×1.0, intermediate hits are linearly interpolated by createdAt).
+   * Default: CONFIG.search.turnRecencyBoost.boostMax.
+   */
+  boostMax?: number;
+  /**
+   * If true, applies the boost unconditionally without consulting the classifier.
+   * Used by the harness's `recency-weighted` strategy. Default false (gated).
+   */
+  force?: boolean;
+}
+
+/**
+ * Apply a recency-proportional score boost to turn-lane hits when the query
+ * is a temporal-current-state question.
+ *
+ * Mirrors the existing `applySessionBoosts` recency-boost block but operates
+ * on `KnowledgeTurnHit[]`. Returns a NEW array sorted by boosted score
+ * descending. Stable for ties.
+ *
+ * No-op (returns input as-is) when:
+ *   - hits.length < 2
+ *   - all hits share the same createdAt
+ *   - !force && !isTemporalCurrentStateQuestion(query)
+ */
+export function applyTurnRecencyBoost(
+  hits: KnowledgeTurnHit[],
+  query: string,
+  opts: TurnRecencyBoostOpts = {},
+): KnowledgeTurnHit[] {
+  if (hits.length < 2) return hits;
+
+  if (!opts.force && !isTemporalCurrentStateQuestion(query)) {
+    // Classifier didn't fire — preserve input as-is (no sort, no rescore).
+    return hits;
+  }
+
+  const timestamps = hits.map((h) => h.row.createdAt);
+  const earliest = Math.min(...timestamps);
+  const latest = Math.max(...timestamps);
+  const span = latest - earliest;
+  if (span <= 0) return hits; // no relative recency signal
+
+  const boostMax = opts.boostMax ?? CONFIG.search.turnRecencyBoost.boostMax;
+
+  // Capture original indices so we can stable-sort ties.
+  const indexed = hits.map((h, i) => {
+    const frac = (h.row.createdAt - earliest) / span;
+    const multiplier = 1.0 + boostMax * frac;
+    return { hit: { ...h, score: h.score * multiplier }, originalIndex: i };
+  });
+
+  indexed.sort((a, b) => {
+    if (b.hit.score !== a.hit.score) return b.hit.score - a.hit.score;
+    return a.originalIndex - b.originalIndex; // stable tiebreak
+  });
+
+  return indexed.map((x) => x.hit);
 }

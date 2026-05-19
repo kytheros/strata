@@ -73,6 +73,19 @@ export const CONFIG = {
     quantizedSdcThreshold: 500,
     // TIR+QDP community port feature flag (Phase 4 flip after dogfooding)
     useTirQdp: false,
+    /**
+     * Turn-lane recency boost (spec 2026-05-18-temporal-retrieval-intervention).
+     * When enabled, the tirqdp path applies a recency-proportional score boost
+     * to knowledge_turns FTS hits before fusion, for queries that match the
+     * two-signal temporal-current-state classifier.
+     *
+     * Default false; flip to true only after AutoResearch frozen evals confirm
+     * no regression (Phase 2 of the spec, separate session).
+     */
+    turnRecencyBoost: {
+      enabled: false,
+      boostMax: 0.5, // matches existing session.recencyBoostMax for shape parity
+    },
   },
 
   // Indexing

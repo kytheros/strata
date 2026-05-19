@@ -285,3 +285,124 @@ describe("handleSearchHistory retrieval_strategy", () => {
     expect(result).toContain("note");
   });
 });
+
+// ── turn recency boost tests ─────────────────────────────────────────────────
+
+describe("handleSearchHistory — tirqdp + turn recency boost", () => {
+  let db: Database.Database;
+  let docStore: SqliteDocumentStore;
+  let knowledgeStore: SqliteKnowledgeStore;
+  let turnStore: SqliteKnowledgeTurnStore;
+  let engine: SqliteSearchEngine;
+
+  // Fixed timestamps with large delta so recency boost is decisive
+  const OLDER_CREATED_AT = 1700000000000; // far past
+  const NEWER_CREATED_AT = 1700604800000; // 7 days later
+
+  // Shared content: both turns use the same tokens so BM25 scores are equal.
+  // The ONLY difference between the turns is sessionId (for identification
+  // in the result string) and createdAt. Equal BM25 → insertion order is the
+  // tiebreak when boost is off; recency order wins when boost is on.
+  const OLDER_CONTENT = "strata-nodeversion older session turn content";
+  const NEWER_CONTENT = "strata-nodeversion newer session turn content";
+
+  const originalBoostEnabled = CONFIG.search.turnRecencyBoost.enabled;
+
+  beforeEach(async () => {
+    db = openDatabase(":memory:");
+    docStore = new SqliteDocumentStore(db);
+    knowledgeStore = new SqliteKnowledgeStore(db);
+    turnStore = new SqliteKnowledgeTurnStore(db);
+    engine = new SqliteSearchEngine(docStore, null, null, null, knowledgeStore);
+
+    // Insert older turn first so it has the lower rowid → tie-breaks to first in BM25
+    await turnStore.insert({
+      userId: null,
+      project: "test-project",
+      sessionId: "session-older",
+      speaker: "user",
+      content: OLDER_CONTENT,
+      messageIndex: 0,
+      createdAt: OLDER_CREATED_AT,
+    });
+
+    await turnStore.insert({
+      userId: null,
+      project: "test-project",
+      sessionId: "session-newer",
+      speaker: "user",
+      content: NEWER_CONTENT,
+      messageIndex: 0,
+      createdAt: NEWER_CREATED_AT,
+    });
+  });
+
+  afterEach(() => {
+    // Restore boost flag to avoid cross-test pollution
+    (CONFIG.search.turnRecencyBoost as { enabled: boolean }).enabled = originalBoostEnabled;
+    db.close();
+  });
+
+  it("flag off: turn lane order follows BM25 insertion order (regression guard)", async () => {
+    (CONFIG.search.turnRecencyBoost as { enabled: boolean }).enabled = false;
+
+    const result = await handleSearchHistory(
+      engine,
+      { query: "strata-nodeversion", retrieval_strategy: "tirqdp" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+
+    // Both should appear in results
+    const olderPos = result.indexOf("older session");
+    const newerPos = result.indexOf("newer session");
+    expect(olderPos).toBeGreaterThanOrEqual(0);
+    expect(newerPos).toBeGreaterThanOrEqual(0);
+    // With boost off: older turn inserted first → lower rowid → comes first in BM25 ties
+    expect(olderPos).toBeLessThan(newerPos);
+  });
+
+  it("flag on + classifier fires: newer turn ranks higher", async () => {
+    (CONFIG.search.turnRecencyBoost as { enabled: boolean }).enabled = true;
+
+    const result = await handleSearchHistory(
+      engine,
+      // Query fires isTemporalCurrentStateQuestion: has "version"+"node"+"now"
+      { query: "What strata-nodeversion is the user on now?", retrieval_strategy: "tirqdp" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+
+    // With flag on + classifier match: newer (higher createdAt) should appear first
+    const olderPos = result.indexOf("older session");
+    const newerPos = result.indexOf("newer session");
+    expect(olderPos).toBeGreaterThanOrEqual(0);
+    expect(newerPos).toBeGreaterThanOrEqual(0);
+    expect(newerPos).toBeLessThan(olderPos);
+  });
+
+  it("flag on + historical query: classifier vetoes, no reorder", async () => {
+    (CONFIG.search.turnRecencyBoost as { enabled: boolean }).enabled = true;
+
+    const result = await handleSearchHistory(
+      engine,
+      // Historical query: "last year" fires hasHistoricalMarker → classifier vetoes
+      { query: "What strata-nodeversion did I see last year?", retrieval_strategy: "tirqdp" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+
+    // Historical query → classifier vetoes → insertion order: older first
+    const olderPos = result.indexOf("older session");
+    const newerPos = result.indexOf("newer session");
+    expect(olderPos).toBeGreaterThanOrEqual(0);
+    expect(newerPos).toBeGreaterThanOrEqual(0);
+    expect(olderPos).toBeLessThan(newerPos);
+  });
+});

@@ -9,14 +9,14 @@ describe("failureModeToStrategy", () => {
     expect(failureModeToStrategy("hedge", null)).toBe("entries");
     expect(failureModeToStrategy("long_context", null)).toBe("tirqdp");
     expect(failureModeToStrategy("negation", null)).toBe("entries");
-    expect(failureModeToStrategy("temporal", null)).toBe("legacy");
+    expect(failureModeToStrategy("temporal", null)).toBe("recency-weighted");
     expect(failureModeToStrategy("tool_output_buried", null)).toBe("turns");
   });
 
   test("returns the spec §4.2 default for every longmemeval_task_type when failure_mode is null", () => {
     expect(failureModeToStrategy(null, "ie")).toBe("rrf-both");
     expect(failureModeToStrategy(null, "ku")).toBe("tirqdp");
-    expect(failureModeToStrategy(null, "temporal")).toBe("legacy");
+    expect(failureModeToStrategy(null, "temporal")).toBe("recency-weighted");
     expect(failureModeToStrategy(null, "multi_session")).toBe("tirqdp");
   });
 

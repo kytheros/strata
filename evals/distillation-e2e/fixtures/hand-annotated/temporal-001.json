@@ -6,6 +6,7 @@
   "sessions": [
     {
       "id": "t1sess001",
+      "created_at": 1700000000000,
       "turns": [
         {
           "role": "user",
@@ -19,6 +20,7 @@
     },
     {
       "id": "t1sess002",
+      "created_at": 1700604800000,
       "turns": [
         {
           "role": "user",

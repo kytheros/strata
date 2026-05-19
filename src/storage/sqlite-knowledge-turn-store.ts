@@ -114,7 +114,7 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
       speaker: turn.speaker,
       content: turn.content,
       message_index: turn.messageIndex,
-      created_at: Date.now(),
+      created_at: turn.createdAt ?? Date.now(),
     });
     return turnId;
   }
@@ -134,7 +134,7 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
           speaker: turn.speaker,
           content: turn.content,
           message_index: turn.messageIndex,
-          created_at: Date.now(),
+          created_at: turn.createdAt ?? Date.now(),
         });
         ids.push(turnId);
       }

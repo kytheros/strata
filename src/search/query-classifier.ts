@@ -29,3 +29,41 @@ export function isTemporalQuestion(q: string): boolean {
 export function isCurrentStateQuery(q: string): boolean {
   return /currently|current|still|now|latest|most recent|at this point|these days/i.test(q);
 }
+
+/**
+ * Two-signal temporal-current-state classifier (spec 2026-05-18-temporal-retrieval-intervention).
+ *
+ * Gates the turn-lane recency boost. Returns true only when:
+ *   (temporal-marker OR version-keyword) AND current-state-marker AND NOT historical-marker
+ *
+ * The historical-marker veto prevents false-positives on queries like
+ * "What Node version did I see last year?" where the user wants older evidence.
+ */
+
+/** Topical markers that suggest the query is about a versioned / configurable thing. */
+export function hasTemporalMarker(q: string): boolean {
+  return /\bversion\b|\bnode\b|\busing\b|\binstalled\b|\brunning\b|\bsetup\b|\bbranch\b|\bmodel\b|\bprovider\b/i.test(q);
+}
+
+/** Markers that suggest the user wants the CURRENT state, not historical. */
+export function hasCurrentStateMarker(q: string): boolean {
+  return /\bnow\b|\bcurrently\b|\bcurrent\b|\btoday\b|\bright now\b|\bam i on\b|\bis the user on\b|\bdo i have\b|\bwhat's my\b|\bwhat is the user on\b/i.test(q);
+}
+
+/** Markers that explicitly anchor the query to a past state — veto signal. */
+export function hasHistoricalMarker(q: string): boolean {
+  return /\blast (?:year|month|week|quarter)\b|\bpreviously\b|\boriginally\b|\bused to\b|\bback when\b|\bbefore the\b|\bago\b|\bprior to\b/i.test(q);
+}
+
+/**
+ * Composite classifier. Returns true iff:
+ *   (hasTemporalMarker(q) OR isCurrentStateQuery(q)) AND hasCurrentStateMarker(q) AND NOT hasHistoricalMarker(q)
+ *
+ * `isCurrentStateQuery` is OR'd in so existing "currently/still/latest" phrasings
+ * still qualify even without a topical marker.
+ */
+export function isTemporalCurrentStateQuestion(q: string): boolean {
+  if (hasHistoricalMarker(q)) return false;
+  if (!hasCurrentStateMarker(q)) return false;
+  return hasTemporalMarker(q) || isCurrentStateQuery(q);
+}

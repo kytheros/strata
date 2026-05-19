@@ -103,7 +103,7 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
         turn.speaker,
         turn.content,
         turn.messageIndex,
-        Date.now(),
+        turn.createdAt ?? Date.now(),
       ],
     );
     return turnId;
@@ -132,7 +132,7 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
             turn.speaker,
             turn.content,
             turn.messageIndex,
-            Date.now(),
+            turn.createdAt ?? Date.now(),
           ],
         );
         ids.push(turnId);

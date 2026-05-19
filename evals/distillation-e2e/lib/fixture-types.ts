@@ -21,6 +21,18 @@ export interface FixtureTurn {
 
 export interface FixtureSession {
   id: string;
+  /**
+   * Optional epoch-ms timestamp. Used by recency-aware retrieval strategies.
+   * When absent, the harness synthesizes a value based on the session's index
+   * in Fixture.sessions[] (see pipeline-driver SYNTHETIC_BASE_MS +
+   * SYNTHETIC_SESSION_GAP_MS).
+   *
+   * Turn-level granularity: all turns in the session share this base
+   * createdAt + msgIdx * 1ms so turn order is a stable secondary sort.
+   *
+   * Spec: 2026-05-18-temporal-retrieval-intervention §6a.
+   */
+  created_at?: number;
   turns: FixtureTurn[];
 }
 

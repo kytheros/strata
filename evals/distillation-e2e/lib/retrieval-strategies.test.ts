@@ -4,7 +4,7 @@ import { retrieveTurns, type RetrievalStrategy } from "./retrieval-strategies.js
 import { drivePipeline } from "./pipeline-driver.js";
 import type { Fixture } from "./fixture-types.js";
 
-const STRATEGIES: RetrievalStrategy[] = ["turns", "entries", "rrf-both", "tirqdp", "legacy"];
+const STRATEGIES: RetrievalStrategy[] = ["turns", "entries", "rrf-both", "tirqdp", "legacy", "recency-weighted"];
 
 const guitarFixture: Fixture = {
   id: "rs-guitar-001",
@@ -114,4 +114,40 @@ describe("retrieval-strategies — legacy lane", () => {
       expect(out[0].turn_index).toBe(-1);
     });
   }, 180_000);
+});
+
+// ── recency-weighted lane ────────────────────────────────────────────────────
+
+import type { Fixture } from "./fixture-types.js";
+
+const recencyFixture: Fixture = {
+  id: "rs-recency-001",
+  source: "hand-annotated",
+  failure_mode: "temporal",
+  longmemeval_task_type: null,
+  sessions: [
+    { id: "older", created_at: 1700000000000, turns: [
+      { role: "user", content: "I'm on Node 20 right now." },
+    ]},
+    { id: "newer", created_at: 1700604800000, turns: [
+      { role: "user", content: "I bumped to Node 22 last week." },
+    ]},
+  ],
+  query: "Node",
+  expected_answer: "Node 22",
+  expected_evidence_turns: [{ session_id: "newer", turn_index: 0 }],
+  min_recall_at_k: 1,
+};
+
+describe("retrieval-strategies — recency-weighted lane", () => {
+  test("force-applied boost ranks newer turns first when timestamps differ", async () => {
+    process.env.STRATA_EXTRACTION_PROVIDER = "gemini";
+    await withIsolatedStrata(async (handle) => {
+      await drivePipeline(handle, recencyFixture, { skipExtraction: true });
+      const out = await retrieveTurns(handle, "Node", 5, "recency-weighted");
+      expect(out.length).toBe(2);
+      expect(out[0].session_id).toBe("newer");
+      expect(out[1].session_id).toBe("older");
+    });
+  }, 30_000);
 });

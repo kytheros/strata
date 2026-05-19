@@ -21,6 +21,13 @@ export interface KnowledgeTurnInput {
   speaker: string;           // 'user' | 'assistant' | 'system'
   content: string;           // raw turn text, verbatim
   messageIndex: number;      // ordinal within session (for ±1 expansion)
+  /**
+   * Optional epoch-ms timestamp. When absent, the store defaults to
+   * `Date.now()`. Used by eval harnesses and replay tooling to write turns
+   * with deterministic, narrative-aligned timestamps so recency-aware
+   * retrieval strategies can be measured.
+   */
+  createdAt?: number;
 }
 
 /** A persisted row from the `knowledge_turns` table. */

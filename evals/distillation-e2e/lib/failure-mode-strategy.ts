@@ -20,14 +20,14 @@ const BY_FAILURE_MODE: Record<FailureMode, RetrievalStrategy> = {
   hedge:              "entries",
   long_context:       "tirqdp",
   negation:           "entries",
-  temporal:           "legacy",
+  temporal:           "recency-weighted",   // was "legacy" — spec 2026-05-18-temporal-retrieval-intervention
   tool_output_buried: "turns",
 };
 
 const BY_TASK_TYPE: Record<LongMemEvalTaskType, RetrievalStrategy> = {
   ie:            "rrf-both",
   ku:            "tirqdp",
-  temporal:      "legacy",
+  temporal:      "recency-weighted",        // was "legacy"
   multi_session: "tirqdp",
 };
 

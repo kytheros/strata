@@ -24,6 +24,15 @@ import type { Fixture, FixtureSession, FixtureTurn } from "./fixture-types.js";
 import { cacheKeyFor, readCache, writeCache } from "./cache.js";
 import { resolveProvider } from "./integrity-gate.js";
 
+/** Far-past anchor (2023-11-14T22:13:20Z) used by the synthetic createdAt fallback. */
+export const SYNTHETIC_BASE_MS = 1_700_000_000_000;
+/** Per-session gap (7 days) for the synthetic createdAt fallback. */
+export const SYNTHETIC_SESSION_GAP_MS = 7 * 24 * 60 * 60 * 1000;
+
+function resolveSessionCreatedAt(session: FixtureSession, sessionIndex: number): number {
+  return session.created_at ?? SYNTHETIC_BASE_MS + sessionIndex * SYNTHETIC_SESSION_GAP_MS;
+}
+
 export interface PipelineResult {
   factsWritten: number;
   sessionsProcessed: number;
@@ -116,7 +125,10 @@ export async function drivePipeline(
   let cacheHits = 0;
   let turnsWritten = 0;
 
-  for (const session of fixture.sessions) {
+  for (let sessionIndex = 0; sessionIndex < fixture.sessions.length; sessionIndex++) {
+    const session = fixture.sessions[sessionIndex];
+    const sessionCreatedAt = resolveSessionCreatedAt(session, sessionIndex);
+
     // T9.5: write every turn to knowledge_turns FIRST, before extraction.
     // This is the lane query-runner queries — extraction success is a
     // separate quality concern, not a correctness gate.
@@ -131,6 +143,7 @@ export async function drivePipeline(
         speaker: turn.role,
         content,
         messageIndex: msgIdx,
+        createdAt: sessionCreatedAt + msgIdx,
       });
       turnsWritten++;
     }

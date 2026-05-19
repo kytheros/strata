@@ -6,26 +6,32 @@
  * downstream answer-generator + recall-scorer don't need strategy-aware code.
  *
  * Strategy → underlying primitive(s):
- *   turns    → handle.knowledgeTurn.searchByQuery
- *   entries  → handle.server.storage.knowledge.search
- *   rrf-both → fuseCommunityLanes(entries-as-chunks, turn-hits)
- *   tirqdp   → fuseCommunityLanes + recallQdpCommunity
- *   legacy   → handle.server.storage.knowledge.search only
- *              (in the harness, the FTS-chunk lane is empty because no session
- *              ingestion runs; legacy reduces to the entries lane. The spec
- *              §4.2 still uses "legacy" as the temporal default; we treat
- *              that as "entries lane with no rerank/RRF" for harness purposes.)
+ *   turns            → handle.knowledgeTurn.searchByQuery
+ *   entries          → handle.server.storage.knowledge.search
+ *   rrf-both         → fuseCommunityLanes(entries-as-chunks, turn-hits)
+ *   tirqdp           → fuseCommunityLanes + recallQdpCommunity
+ *   legacy           → handle.server.storage.knowledge.search only
+ *                      (in the harness, the FTS-chunk lane is empty because no session
+ *                      ingestion runs; legacy reduces to the entries lane. The spec
+ *                      §4.2 still uses "legacy" as the temporal default; we treat
+ *                      that as "entries lane with no rerank/RRF" for harness purposes.)
+ *   recency-weighted → knowledgeTurn.searchByQuery + applyTurnRecencyBoost
+ *                      (force=true; matches the production turn-lane boost
+ *                      gated by the temporal-current-state classifier; spec
+ *                      2026-05-18-temporal-retrieval-intervention)
  *
- * Convergence note: this 5-strategy enum (turns | entries | rrf-both | tirqdp |
- * legacy) is the eval-side counterpart of the Intelligent Retrieval Router
- * (kytheros/strata#13, spec 2026-05-12). Production `search_history` currently
- * exposes a 3-value enum (auto | tirqdp | legacy); when the router lands
- * Phase 1, the production strategy enum should converge with this one. Keep
- * the strings here in lockstep with the router's strategy labels.
+ * Convergence note: this 6-strategy enum (turns | entries | rrf-both | tirqdp |
+ * legacy | recency-weighted) is the eval-side counterpart of the Intelligent
+ * Retrieval Router (kytheros/strata#13, spec 2026-05-12). Production
+ * `search_history` currently exposes a 3-value enum (auto | tirqdp | legacy);
+ * when the router lands Phase 1, the production strategy enum should converge
+ * with this 6-value one. Keep the strings here in lockstep with the router's
+ * strategy labels.
  */
 
 import { fuseCommunityLanes, type CommunityChunkResult } from "../../../src/search/recall-fusion-community.js";
 import { recallQdpCommunity } from "../../../src/search/recall-qdp-community.js";
+import { applyTurnRecencyBoost } from "../../../src/search/result-ranker.js";
 import type { IsolatedHandle } from "./isolated-db.js";
 
 export type RetrievalStrategy =
@@ -33,7 +39,8 @@ export type RetrievalStrategy =
   | "entries"
   | "rrf-both"
   | "tirqdp"
-  | "legacy";
+  | "legacy"
+  | "recency-weighted";   // NEW (spec 2026-05-18-temporal-retrieval-intervention)
 
 export interface RetrievedTurn {
   session_id: string;
@@ -54,11 +61,12 @@ export async function retrieveTurns(
   strategy: RetrievalStrategy,
 ): Promise<RetrievedTurn[]> {
   switch (strategy) {
-    case "turns":     return retrieveTurnsLane(handle, query, k);
-    case "entries":   return retrieveEntriesLane(handle, query, k);
-    case "rrf-both":  return retrieveRrfBoth(handle, query, k, /* withQdp */ false);
-    case "tirqdp":    return retrieveRrfBoth(handle, query, k, /* withQdp */ true);
-    case "legacy":    return retrieveLegacyLane(handle, query, k);
+    case "turns":             return retrieveTurnsLane(handle, query, k);
+    case "entries":           return retrieveEntriesLane(handle, query, k);
+    case "rrf-both":          return retrieveRrfBoth(handle, query, k, /* withQdp */ false);
+    case "tirqdp":            return retrieveRrfBoth(handle, query, k, /* withQdp */ true);
+    case "legacy":            return retrieveLegacyLane(handle, query, k);
+    case "recency-weighted":  return retrieveRecencyWeighted(handle, query, k);
   }
 }
 
@@ -143,4 +151,22 @@ async function retrieveLegacyLane(handle: IsolatedHandle, query: string, k: numb
   // here that reduces to storage.knowledge.search alone. This is documented
   // as a known limitation in the v2 spec §9 "Risks".
   return retrieveEntriesLane(handle, query, k);
+}
+
+async function retrieveRecencyWeighted(
+  handle: IsolatedHandle,
+  query: string,
+  k: number,
+): Promise<RetrievedTurn[]> {
+  const hits = await handle.knowledgeTurn.searchByQuery(query, { userId: undefined, limit: k });
+  // force=true: harness opts in regardless of classifier; we want the boost
+  // to apply on every fixture routed to this strategy.
+  const boosted = applyTurnRecencyBoost(hits, query, { force: true });
+  const total = boosted.length;
+  return boosted.map((hit, idx) => ({
+    session_id: hit.row.sessionId,
+    turn_index: hit.row.messageIndex,
+    content: hit.row.content,
+    score: total > 1 ? 1 - idx / total : 1.0,
+  }));
 }
