@@ -18,6 +18,7 @@ import { runQuery } from "../lib/query-runner.js";
 import { generateAnswer } from "../lib/answer-generator.js";
 import { judgeAnswer } from "../lib/judge.js";
 import { scoreRecall } from "../lib/recall-scorer.js";
+import { failureModeToStrategy } from "../lib/failure-mode-strategy.js";
 
 async function main(): Promise<number> {
   const fixtureId = process.argv[2];
@@ -60,12 +61,22 @@ async function main(): Promise<number> {
     }
     if (allEntries.length > 10) console.log(`  ...and ${allEntries.length - 10} more`);
 
+    console.log("\n--- STAGE 2b: knowledge_turns createdAt audit ---");
+    for (const session of fx.sessions) {
+      const rows = await handle.knowledgeTurn.getBySessionId(session.id);
+      for (const r of rows) {
+        console.log(`  session=${r.sessionId} msgIdx=${r.messageIndex} createdAt=${r.createdAt} content="${r.content.slice(0, 60)}"`);
+      }
+    }
+
     console.log("\n--- STAGE 3: runQuery ---");
-    const q = await runQuery(handle, fx.query, 10);
+    const strategy = fx.retrieval_strategy ?? failureModeToStrategy(fx.failure_mode, fx.longmemeval_task_type);
+    console.log(`strategy: ${strategy} (from ${fx.retrieval_strategy ? "fixture override" : "failureModeToStrategy lookup"})`);
+    const q = await runQuery(handle, fx.query, 10, strategy);
     console.log(`retrieved ${q.retrievedTurns.length} turns`);
     for (let i = 0; i < q.retrievedTurns.length; i++) {
       const t = q.retrievedTurns[i];
-      console.log(`  [${i}] session=${t.session_id} score=${t.score.toFixed(2)} content="${t.content.slice(0, 100)}"`);
+      console.log(`  [${i}] session=${t.session_id} turn=${t.turn_index} score=${t.score.toFixed(2)} content="${t.content.slice(0, 140)}"`);
     }
 
     console.log("\n--- STAGE 4: scoreRecall ---");

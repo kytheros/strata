@@ -335,30 +335,34 @@ export function applyFilters(
  */
 export interface TurnRecencyBoostOpts {
   /**
-   * Max multiplier applied to the newest turn (newest score gets ×(1 + boostMax),
-   * oldest gets ×1.0, intermediate hits are linearly interpolated by createdAt).
-   * Default: CONFIG.search.turnRecencyBoost.boostMax.
-   */
-  boostMax?: number;
-  /**
-   * If true, applies the boost unconditionally without consulting the classifier.
-   * Used by the harness's `recency-weighted` strategy. Default false (gated).
+   * If true, applies the reordering unconditionally without consulting the
+   * classifier. Used by the harness's `recency-weighted` strategy.
+   * Default false (gated by `isTemporalCurrentStateQuestion`).
    */
   force?: boolean;
 }
 
 /**
- * Apply a recency-proportional score boost to turn-lane hits when the query
- * is a temporal-current-state question.
+ * Apply session-bucketed recency-dominant ordering to turn-lane hits.
  *
- * Mirrors the existing `applySessionBoosts` recency-boost block but operates
- * on `KnowledgeTurnHit[]`. Returns a NEW array sorted by boosted score
- * descending. Stable for ties.
+ * When the strategy engages (classifier fires OR opts.force=true), reorders
+ * hits so that turns from the newest session appear first, with BM25 order
+ * preserved within each session. Scores are not modified — the signal is
+ * order only.
+ *
+ * Replaces the original multiplicative boost (spec 2026-05-18). Diagnostics
+ * on 2026-05-19 showed BM25 scores span 5+ orders of magnitude on real
+ * fixture content, making multiplicative tuning mathematically unfeasible
+ * (a 226,000× boost would have been needed to flip temporal-001).
+ * Spec: 2026-05-19-recency-dominant-ranking-design.md.
  *
  * No-op (returns input as-is) when:
  *   - hits.length < 2
- *   - all hits share the same createdAt
- *   - !force && !isTemporalCurrentStateQuestion(query)
+ *   - !opts.force && !isTemporalCurrentStateQuestion(query)
+ *   - all session createdAt timestamps are identical (no relative recency signal)
+ *
+ * Stable: sessions with equal createdAt preserve insertion order; turns
+ * within a session preserve input (BM25) order.
  */
 export function applyTurnRecencyBoost(
   hits: KnowledgeTurnHit[],
@@ -366,31 +370,36 @@ export function applyTurnRecencyBoost(
   opts: TurnRecencyBoostOpts = {},
 ): KnowledgeTurnHit[] {
   if (hits.length < 2) return hits;
+  if (!opts.force && !isTemporalCurrentStateQuestion(query)) return hits;
 
-  if (!opts.force && !isTemporalCurrentStateQuestion(query)) {
-    // Classifier didn't fire — preserve input as-is (no sort, no rescore).
-    return hits;
+  // 1. Group hits by sessionId, preserving input order (which is BM25 order
+  //    from KnowledgeTurnStore.searchByQuery).
+  const bySession = new Map<string, KnowledgeTurnHit[]>();
+  for (const h of hits) {
+    const arr = bySession.get(h.row.sessionId);
+    if (arr) arr.push(h);
+    else bySession.set(h.row.sessionId, [h]);
   }
 
-  const timestamps = hits.map((h) => h.row.createdAt);
-  const earliest = Math.min(...timestamps);
-  const latest = Math.max(...timestamps);
-  const span = latest - earliest;
-  if (span <= 0) return hits; // no relative recency signal
+  // 2. Compute representative createdAt per session = min createdAt of hits
+  //    in that session. Since pipeline-driver writes turns with createdAt =
+  //    sessionCreatedAt + msgIdx, this is essentially sessionCreatedAt.
+  const sessionsByRecency = [...bySession.entries()].map(([sessionId, sessionHits]) => ({
+    sessionId,
+    sessionCreatedAt: Math.min(...sessionHits.map((h) => h.row.createdAt)),
+    hits: sessionHits, // already in BM25 order from input
+  }));
 
-  const boostMax = opts.boostMax ?? CONFIG.search.turnRecencyBoost.boostMax;
+  // 3. No-op when all hits share the same session OR all sessions share the
+  //    same createdAt (no relative recency signal).
+  const distinctCreatedAts = new Set(sessionsByRecency.map((s) => s.sessionCreatedAt));
+  if (distinctCreatedAts.size < 2) return hits;
 
-  // Capture original indices so we can stable-sort ties.
-  const indexed = hits.map((h, i) => {
-    const frac = (h.row.createdAt - earliest) / span;
-    const multiplier = 1.0 + boostMax * frac;
-    return { hit: { ...h, score: h.score * multiplier }, originalIndex: i };
-  });
+  // 4. Sort sessions by recency DESC (newest first). Array.sort is stable in
+  //    ECMAScript 2019+, so equal createdAt preserves insertion order.
+  sessionsByRecency.sort((a, b) => b.sessionCreatedAt - a.sessionCreatedAt);
 
-  indexed.sort((a, b) => {
-    if (b.hit.score !== a.hit.score) return b.hit.score - a.hit.score;
-    return a.originalIndex - b.originalIndex; // stable tiebreak
-  });
-
-  return indexed.map((x) => x.hit);
+  // 5. Flatten: newest session's BM25-ordered hits first. Returns original
+  //    KnowledgeTurnHit objects unchanged (scores intact).
+  return sessionsByRecency.flatMap((s) => s.hits);
 }

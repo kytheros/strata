@@ -84,7 +84,8 @@ export const CONFIG = {
      */
     turnRecencyBoost: {
       enabled: false,
-      boostMax: 0.5, // matches existing session.recencyBoostMax for shape parity
+      // boostMax field removed 2026-05-19 — recency-dominant ranking has no
+      // magnitude knob. Spec: 2026-05-19-recency-dominant-ranking-design.md.
     },
   },
 
