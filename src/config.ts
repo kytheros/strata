@@ -83,7 +83,7 @@ export const CONFIG = {
      * no regression (Phase 2 of the spec, separate session).
      */
     turnRecencyBoost: {
-      enabled: false,
+      enabled: true,
       // boostMax field removed 2026-05-19 — recency-dominant ranking has no
       // magnitude knob. Spec: 2026-05-19-recency-dominant-ranking-design.md.
     },
