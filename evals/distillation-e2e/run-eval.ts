@@ -66,7 +66,7 @@ async function main(): Promise<number> {
       });
       return withNAveraging(values.decision ? 3 : 1, async () => {
         const q = await runQuery(handle, fx.query, 10, strategy);
-        const a = await generateAnswer({ query: fx.query, retrievedTurns: q.retrievedTurns });
+        const a = await generateAnswer({ query: fx.query, retrievedTurns: q.retrievedTurns, strategy });
         const j = await judgeAnswer({
           query: fx.query,
           expected: fx.expected_answer,

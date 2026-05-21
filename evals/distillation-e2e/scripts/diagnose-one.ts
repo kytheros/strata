@@ -87,7 +87,7 @@ async function main(): Promise<number> {
     console.log(`recall score: ${recall}`);
 
     console.log("\n--- STAGE 5: generateAnswer ---");
-    const a = await generateAnswer({ query: fx.query, retrievedTurns: q.retrievedTurns });
+    const a = await generateAnswer({ query: fx.query, retrievedTurns: q.retrievedTurns, strategy });
     console.log(`generated answer: "${a.text}"`);
 
     console.log("\n--- STAGE 6: judgeAnswer ---");
