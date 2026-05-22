@@ -15,26 +15,38 @@ function runCli(args: string[], options?: { timeout?: number }): {
   exitCode: number;
 } {
   const cmd = `npx tsx "${cliPath}" ${args.map((a) => `"${a}"`).join(" ")}`;
-  try {
-    const stdout = execSync(cmd, {
-      cwd: projectRoot,
-      timeout: options?.timeout ?? 15_000,
-      encoding: "utf-8",
-      env: {
-        ...process.env,
-        STRATA_DATA_DIR: join(projectRoot, "tests", ".test-strata-data"),
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    return { stdout: stdout.trim(), exitCode: 0 };
-  } catch (error: unknown) {
-    const err = error as { stdout?: string; stderr?: string; status?: number };
-    const output = [err.stdout ?? "", err.stderr ?? ""].join("\n").trim();
-    return {
-      stdout: output,
-      exitCode: err.status ?? 1,
-    };
+  const execOpts = {
+    cwd: projectRoot,
+    timeout: options?.timeout ?? 60_000,
+    encoding: "utf-8" as const,
+    env: {
+      ...process.env,
+      STRATA_DATA_DIR: join(projectRoot, "tests", ".test-strata-data"),
+    },
+    stdio: ["pipe", "pipe", "pipe"] as const,
+  };
+
+  const tryOnce = (): { stdout: string; exitCode: number; transientWindowsCrash: boolean } => {
+    try {
+      const stdout = execSync(cmd, execOpts);
+      return { stdout: stdout.trim(), exitCode: 0, transientWindowsCrash: false };
+    } catch (error: unknown) {
+      const err = error as { stdout?: string; stderr?: string; status?: number };
+      const output = [err.stdout ?? "", err.stderr ?? ""].join("\n").trim();
+      // 3221225794 = 0xC0000002 = Windows STATUS_NOT_IMPLEMENTED.
+      // Transient native-binary mmap failure from tsx/esbuild under heavy
+      // late-suite process churn. Single retry; if it fails again it's real.
+      const transientWindowsCrash = err.status === 3221225794;
+      return { stdout: output, exitCode: err.status ?? 1, transientWindowsCrash };
+    }
+  };
+
+  const first = tryOnce();
+  if (first.transientWindowsCrash) {
+    const second = tryOnce();
+    return { stdout: second.stdout, exitCode: second.exitCode };
   }
+  return { stdout: first.stdout, exitCode: first.exitCode };
 }
 
 describe("CLI: package.json bin alias", () => {
