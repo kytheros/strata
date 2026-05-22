@@ -1,0 +1,38 @@
+{
+  "id": "ranking-007",
+  "source": "hand-annotated",
+  "failure_mode": "three-session-gradient",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "r7sess001",
+      "created_at": 1700000000000,
+      "turns": [
+        { "role": "user", "content": "Standing up the strata-pg adapter against Postgres 15 — that's the version on RDS we provisioned." },
+        { "role": "assistant", "content": "Postgres 15 is fine. tsvector + GIN works the same as 16." }
+      ]
+    },
+    {
+      "id": "r7sess002",
+      "created_at": 1700604800000,
+      "turns": [
+        { "role": "user", "content": "We bumped the Postgres instance to 16 over the weekend. The new MERGE syntax is nicer for the upserts in pipeline-driver." },
+        { "role": "assistant", "content": "Good move. PG 16 is current and the MERGE statement does clean up that path." }
+      ]
+    },
+    {
+      "id": "r7sess003",
+      "created_at": 1701209600000,
+      "turns": [
+        { "role": "user", "content": "Heads up — moved to Postgres 17 today. ICU collation handling is meaningfully better and we needed it for the per-user pg_trgm indexes." },
+        { "role": "assistant", "content": "Postgres 17 is fresh but stable. ICU was the right call." }
+      ]
+    }
+  ],
+  "query": "What Postgres version are we on right now?",
+  "expected_answer": "Postgres 17 (upgraded today)",
+  "expected_evidence_turns": [
+    { "session_id": "r7sess003", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

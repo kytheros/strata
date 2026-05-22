@@ -1,0 +1,38 @@
+{
+  "id": "ranking-008",
+  "source": "hand-annotated",
+  "failure_mode": "three-session-gradient-tight",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "r8sess001",
+      "created_at": 1700000000000,
+      "turns": [
+        { "role": "user", "content": "Set up CI on GitHub Actions ubuntu-22.04 runners for strata-pro." },
+        { "role": "assistant", "content": "22.04 is a sensible default. Make sure the cache key includes the npm-lock hash." }
+      ]
+    },
+    {
+      "id": "r8sess002",
+      "created_at": 1700086400000,
+      "turns": [
+        { "role": "user", "content": "Switched the runners to ubuntu-24.04 — apt sources for the newer libsqlite were a hassle on 22.04." },
+        { "role": "assistant", "content": "24.04 LTS is the better target. Less drift from production." }
+      ]
+    },
+    {
+      "id": "r8sess003",
+      "created_at": 1700172800000,
+      "turns": [
+        { "role": "user", "content": "Moved to ubuntu-latest yesterday — pinning to 24.04 was causing churn whenever GitHub bumped the patch. ubuntu-latest is the most reliable label now." },
+        { "role": "assistant", "content": "ubuntu-latest is fine since GHA versions the underlying image carefully." }
+      ]
+    }
+  ],
+  "query": "What runner image is strata-pro CI currently using?",
+  "expected_answer": "ubuntu-latest",
+  "expected_evidence_turns": [
+    { "session_id": "r8sess003", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

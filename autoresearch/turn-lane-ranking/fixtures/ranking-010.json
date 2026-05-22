@@ -1,0 +1,26 @@
+{
+  "id": "ranking-010",
+  "source": "hand-annotated",
+  "failure_mode": "same-session-correction",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "r10sess001",
+      "created_at": 1700000000000,
+      "turns": [
+        { "role": "user", "content": "I'm thinking we use Redis for the rate-limit token bucket. It's the obvious pick." },
+        { "role": "assistant", "content": "Redis works. Standard pattern." },
+        { "role": "user", "content": "Wait actually — for this we should use SQLite. The rate limits are per-tenant and the SQLite is already there. No new infra." },
+        { "role": "assistant", "content": "Right, SQLite makes more sense given the per-tenant scoping. One less moving piece." },
+        { "role": "user", "content": "Yeah, SQLite it is. Just confirming for the record so the next session has it." }
+      ]
+    }
+  ],
+  "query": "What's the storage layer for the per-tenant rate limit token bucket?",
+  "expected_answer": "SQLite",
+  "expected_evidence_turns": [
+    { "session_id": "r10sess001", "turn_index": 2 },
+    { "session_id": "r10sess001", "turn_index": 4 }
+  ],
+  "min_recall_at_k": 1
+}

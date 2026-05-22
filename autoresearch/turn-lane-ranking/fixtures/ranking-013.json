@@ -1,0 +1,30 @@
+{
+  "id": "ranking-013",
+  "source": "hand-annotated",
+  "failure_mode": "classifier-negative-historical-phrasing",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "r13sess001",
+      "created_at": 1700000000000,
+      "turns": [
+        { "role": "user", "content": "Picked Cloudflare Workers for the AI Readiness Toolkit MCP server. Cheap, edge-resident, scales to zero. Don't need a VPS." },
+        { "role": "assistant", "content": "Workers is a clean fit for an MCP server that just routes requests." }
+      ]
+    },
+    {
+      "id": "r13sess002",
+      "created_at": 1700604800000,
+      "turns": [
+        { "role": "user", "content": "Tightened the worker observability — added tail logs and a usage analytics endpoint." },
+        { "role": "assistant", "content": "Good idea. Helpful for billing later." }
+      ]
+    }
+  ],
+  "query": "Tell me about the time we discussed picking the MCP server runtime for the toolkit.",
+  "expected_answer": "Cloudflare Workers",
+  "expected_evidence_turns": [
+    { "session_id": "r13sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

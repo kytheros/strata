@@ -1,0 +1,30 @@
+{
+  "id": "ranking-014",
+  "source": "hand-annotated",
+  "failure_mode": "classifier-negative-history-keyword",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "r14sess001",
+      "created_at": 1700000000000,
+      "turns": [
+        { "role": "user", "content": "Originally we tried Mongo for the strata cache because it was lying around. The query patterns are key-value so Mongo was overkill." },
+        { "role": "assistant", "content": "Mongo for a KV workload is overhead, yes." }
+      ]
+    },
+    {
+      "id": "r14sess002",
+      "created_at": 1700604800000,
+      "turns": [
+        { "role": "user", "content": "Cache is now Redis. Per-tenant TTL, in-memory eviction, simple." },
+        { "role": "assistant", "content": "Right tool for the job. Migration done?" }
+      ]
+    }
+  ],
+  "query": "What's the history of the strata cache backend?",
+  "expected_answer": "Originally Mongo, then Redis",
+  "expected_evidence_turns": [
+    { "session_id": "r14sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

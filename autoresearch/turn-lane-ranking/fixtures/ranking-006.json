@@ -1,0 +1,23 @@
+{
+  "id": "ranking-006",
+  "source": "hand-annotated",
+  "failure_mode": "single-session-fallthrough",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "r6sess001",
+      "created_at": 1700000000000,
+      "turns": [
+        { "role": "user", "content": "Let's pin the strata-mcp Docker image to alpine 3.19 for the next release." },
+        { "role": "assistant", "content": "Alpine 3.19 is a solid pick — current stable, well-supported. I'll update the Dockerfile." },
+        { "role": "user", "content": "Actually wait, on second thought let's use debian-slim instead. We had glibc issues with alpine on the onnxruntime native bindings last quarter." }
+      ]
+    }
+  ],
+  "query": "What base image are we using for the strata-mcp Docker image now?",
+  "expected_answer": "debian-slim (switched after alpine glibc issues)",
+  "expected_evidence_turns": [
+    { "session_id": "r6sess001", "turn_index": 2 }
+  ],
+  "min_recall_at_k": 1
+}

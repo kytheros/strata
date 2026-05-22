@@ -1,0 +1,30 @@
+{
+  "id": "ranking-015",
+  "source": "hand-annotated",
+  "failure_mode": "classifier-negative-first-decided",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "r15sess001",
+      "created_at": 1700000000000,
+      "turns": [
+        { "role": "user", "content": "First call on the Strata tier model: Community is free, Pro is the licensed enterprise tier, Team adds shared knowledge. Three tiers." },
+        { "role": "assistant", "content": "Tier model is clear. Pro and Team both wrap Community." }
+      ]
+    },
+    {
+      "id": "r15sess002",
+      "created_at": 1700604800000,
+      "turns": [
+        { "role": "user", "content": "Locked in semantic search as a Community feature, not Pro. Mem0 parity argument carried the day." },
+        { "role": "assistant", "content": "Good move — keeps the free tier competitive." }
+      ]
+    }
+  ],
+  "query": "When did we first decide on the three-tier Strata model?",
+  "expected_answer": "First call: Community / Pro / Team three-tier model",
+  "expected_evidence_turns": [
+    { "session_id": "r15sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}

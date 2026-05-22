@@ -1,0 +1,38 @@
+{
+  "id": "ranking-011",
+  "source": "hand-annotated",
+  "failure_mode": "cross-topic-noise",
+  "longmemeval_task_type": null,
+  "sessions": [
+    {
+      "id": "r11sess001",
+      "created_at": 1700000000000,
+      "turns": [
+        { "role": "user", "content": "Decided the answer-model is GPT-4o for the distillation-e2e harness. Cheapest model that still hits the right answer on temporal questions." },
+        { "role": "assistant", "content": "GPT-4o is a sensible budget choice." }
+      ]
+    },
+    {
+      "id": "r11sess002",
+      "created_at": 1700604800000,
+      "turns": [
+        { "role": "user", "content": "Working on the Remotion diagrams today. The ArchitectureDiagram component needs tighter alignment." },
+        { "role": "assistant", "content": "Remotion absolute positioning can be picky. Make sure the rems are consistent." }
+      ]
+    },
+    {
+      "id": "r11sess003",
+      "created_at": 1701209600000,
+      "turns": [
+        { "role": "user", "content": "Pushed the AdminTopBar refactor for the toolkit dashboard." },
+        { "role": "assistant", "content": "Nice — the toolkit admin nav was overdue for that cleanup." }
+      ]
+    }
+  ],
+  "query": "What answer model does the harness use currently?",
+  "expected_answer": "GPT-4o",
+  "expected_evidence_turns": [
+    { "session_id": "r11sess001", "turn_index": 0 }
+  ],
+  "min_recall_at_k": 1
+}
