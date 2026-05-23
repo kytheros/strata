@@ -4,7 +4,7 @@
 **Variable changed:** Added `isExistentialQuestion` sub-classifier matching `^\s*Is\s+.+?\s+(a|an|the)\s+\S+` pattern (lazy multi-word subject to handle "Is semantic search a Pro feature?"), and restructured `isTemporalCurrentStateQuestion` to short-circuit when it fires (historical veto still wins). In `src/search/query-classifier.ts`.
 **Score:** 27/30
 **Delta from prior:** +1 (from 26/30)
-**Commit:** <SHA>
+**Commit:** f470daf
 
 ## Variable description
 
