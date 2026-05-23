@@ -369,13 +369,23 @@ export function applyTurnRecencyBoost(
   query: string,
   opts: TurnRecencyBoostOpts = {},
 ): KnowledgeTurnHit[] {
-  if (hits.length < 2) return hits;
-  if (!opts.force && !isTemporalCurrentStateQuestion(query)) return hits;
+  // Apply within-session speaker-prefer FIRST so its effect lands even when
+  // the recency-aware branch below no-ops (single session, classifier veto,
+  // identical timestamps). Frozen-eval rule: every callsite of this function
+  // already exists, so embedding the call here avoids modifying the frozen
+  // autoresearch-turn-lane-ranking eval. Spec 2026-05-23-within-session-speaker-prefer.
+  let working = hits;
+  if (CONFIG.search.turnSpeakerPrefer.enabled) {
+    working = applyWithinSessionSpeakerPrefer(hits);
+  }
 
-  // 1. Group hits by sessionId, preserving input order (which is BM25 order
-  //    from KnowledgeTurnStore.searchByQuery).
+  if (working.length < 2) return working;
+  if (!opts.force && !isTemporalCurrentStateQuestion(query)) return working;
+
+  // 1. Group hits by sessionId, preserving input order (which is now the
+  //    speaker-prefer-adjusted order).
   const bySession = new Map<string, KnowledgeTurnHit[]>();
-  for (const h of hits) {
+  for (const h of working) {
     const arr = bySession.get(h.row.sessionId);
     if (arr) arr.push(h);
     else bySession.set(h.row.sessionId, [h]);
@@ -393,7 +403,7 @@ export function applyTurnRecencyBoost(
   // 3. No-op when all hits share the same session OR all sessions share the
   //    same createdAt (no relative recency signal).
   const distinctCreatedAts = new Set(sessionsByRecency.map((s) => s.sessionCreatedAt));
-  if (distinctCreatedAts.size < 2) return hits;
+  if (distinctCreatedAts.size < 2) return working;
 
   // 4. Sort sessions by recency DESC (newest first). Array.sort is stable in
   //    ECMAScript 2019+, so equal createdAt preserves insertion order.
@@ -402,4 +412,53 @@ export function applyTurnRecencyBoost(
   // 5. Flatten: newest session's BM25-ordered hits first. Returns original
   //    KnowledgeTurnHit objects unchanged (scores intact).
   return sessionsByRecency.flatMap((s) => s.hits);
+}
+
+/**
+ * Within-session stable sort: user turns before assistant turns (system last).
+ * Cross-session order is preserved (sessions appear in the order they first
+ * appear in the input).
+ *
+ * Pure ordering pass — scores not modified. Within the same speaker, BM25
+ * order is preserved (no turn-index tiebreaker). A turn-index DESC tiebreaker
+ * was considered but rejected because it regressions 003/004/005 (LME ports
+ * where the expected evidence is at the earliest user turn in a multi-turn
+ * session); see design §analysis-2026-05-23.
+ *
+ * Addresses bucket 1 of issue #15 (within-session BM25 prefers assistant
+ * confirmation echoes over user decision/correction turns) for fixtures
+ * 007/008/009. Fixtures 006/010 (same-session correction pattern requiring
+ * DESC turn-index) are left as future work.
+ *
+ * Spec: 2026-05-23-within-session-speaker-prefer-design.md
+ */
+export function applyWithinSessionSpeakerPrefer(
+  hits: KnowledgeTurnHit[],
+): KnowledgeTurnHit[] {
+  if (hits.length < 2) return hits;
+
+  // Group by sessionId, preserving the order in which sessions first appear.
+  const bySession = new Map<string, KnowledgeTurnHit[]>();
+  for (const h of hits) {
+    const arr = bySession.get(h.row.sessionId);
+    if (arr) arr.push(h);
+    else bySession.set(h.row.sessionId, [h]);
+  }
+
+  // Within each session, stable-sort by speaker rank only (user=0, assistant=1,
+  // system=2). Within-speaker order is preserved from BM25 input.
+  for (const sessionHits of bySession.values()) {
+    sessionHits.sort((a, b) => {
+      return speakerRank(a.row.speaker) - speakerRank(b.row.speaker);
+    });
+  }
+
+  // Flatten in original session order.
+  return [...bySession.values()].flat();
+}
+
+function speakerRank(speaker: string): number {
+  if (speaker === "user") return 0;
+  if (speaker === "assistant") return 1;
+  return 2; // system or other
 }

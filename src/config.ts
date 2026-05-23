@@ -87,6 +87,19 @@ export const CONFIG = {
       // boostMax field removed 2026-05-19 — recency-dominant ranking has no
       // magnitude knob. Spec: 2026-05-19-recency-dominant-ranking-design.md.
     },
+    /**
+     * Within-session speaker-prefer ranking (spec 2026-05-23-within-session-speaker-prefer).
+     * After turn-lane retrieval, reorder hits within each session so user turns
+     * come before assistant turns, with turn-index DESC as the within-speaker
+     * tiebreaker. Pure ordering pass — scores not modified.
+     *
+     * Default true; addresses 5 fixtures on autoresearch-turn-lane-ranking
+     * (006/007/008/009/010) where assistant confirmation echoes outrank user
+     * decision/correction turns in BM25.
+     */
+    turnSpeakerPrefer: {
+      enabled: true,
+    },
   },
 
   // Indexing
