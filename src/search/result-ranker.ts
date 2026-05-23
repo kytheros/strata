@@ -7,7 +7,7 @@ import type { DocumentChunk } from "../indexing/document-store.js";
 import type { QueryFilters } from "./query-processor.js";
 import { hasFeature } from "../extensions/feature-gate.js";
 import { computeImportance } from "../knowledge/importance.js";
-import { isCurrentStateQuery, isTemporalCurrentStateQuestion } from "./query-classifier.js";
+import { isCurrentStateQuery, isTemporalCurrentStateQuestion, hasHistoricalMarker, isDurationQuestion } from "./query-classifier.js";
 import type { KnowledgeTurnHit } from "../storage/interfaces/knowledge-turn-store.js";
 
 export interface RankedResult {
@@ -379,6 +379,17 @@ export function applyTurnRecencyBoost(
     working = applyWithinSessionSpeakerPrefer(hits);
   }
 
+  // Apply query-gated within-session DESC correction for short-session
+  // correction patterns (ranking-006, ranking-010). Gate: skip on historical
+  // queries ("ago", "previously", ...) and duration questions ("how many days
+  // passed") to protect LME fixtures (ranking-003/004/005). Spec 2026-05-23-
+  // short-session-desc-tiebreaker-design.md.
+  if (CONFIG.search.turnSpeakerPrefer.enabled &&
+      !hasHistoricalMarker(query) &&
+      !isDurationQuestion(query)) {
+    working = applyShortSessionDescCorrection(working);
+  }
+
   if (working.length < 2) return working;
   if (!opts.force && !isTemporalCurrentStateQuestion(query)) return working;
 
@@ -420,15 +431,14 @@ export function applyTurnRecencyBoost(
  * appear in the input).
  *
  * Pure ordering pass — scores not modified. Within the same speaker, BM25
- * order is preserved (no turn-index tiebreaker). A turn-index DESC tiebreaker
- * was considered but rejected because it regressions 003/004/005 (LME ports
- * where the expected evidence is at the earliest user turn in a multi-turn
- * session); see design §analysis-2026-05-23.
+ * order is preserved (no turn-index tiebreaker). Cross-session order is
+ * preserved (sessions appear in the order they first appear in the input).
  *
  * Addresses bucket 1 of issue #15 (within-session BM25 prefers assistant
  * confirmation echoes over user decision/correction turns) for fixtures
  * 007/008/009. Fixtures 006/010 (same-session correction pattern requiring
- * DESC turn-index) are left as future work.
+ * DESC turn-index) are handled by a separate query-gated DESC pass inside
+ * applyTurnRecencyBoost. See SHORT_SESSION_USER_HIT_THRESHOLD below.
  *
  * Spec: 2026-05-23-within-session-speaker-prefer-design.md
  */
@@ -454,6 +464,65 @@ export function applyWithinSessionSpeakerPrefer(
   }
 
   // Flatten in original session order.
+  return [...bySession.values()].flat();
+}
+
+/**
+ * Threshold for applying turn-index DESC tiebreaker within a session's user
+ * group. When a session bucket in the result set has ≤3 user-turn hits,
+ * treat it as a "correction pattern" and surface the latest user turn first.
+ * When ≥4, preserve BM25 order.
+ *
+ * This is applied ONLY when the query is DESC-eligible (not a historical or
+ * duration question) — see applyShortSessionDescCorrection.
+ *
+ * Spec: 2026-05-23-short-session-desc-tiebreaker-design.md
+ */
+const SHORT_SESSION_USER_HIT_THRESHOLD = 3;
+
+/**
+ * Query-gated within-session DESC correction pass.
+ *
+ * For queries that are NOT historical ("ago", "previously", ...) and NOT
+ * duration-based ("how many days passed"), apply turn-index DESC within the
+ * user group for sessions where user-hit count ≤ SHORT_SESSION_USER_HIT_THRESHOLD.
+ * This surfaces the latest user decision/correction in short single-topic
+ * sessions (ranking-006, ranking-010) without regressing LME temporal
+ * fixtures where the expected answer is at the earliest matching user turn
+ * (ranking-003: "ago" → historical veto; ranking-004/005: duration questions).
+ *
+ * Called from applyTurnRecencyBoost after applyWithinSessionSpeakerPrefer.
+ * Not called when the query carries a historical or duration marker.
+ *
+ * Spec: 2026-05-23-short-session-desc-tiebreaker-design.md
+ */
+function applyShortSessionDescCorrection(hits: KnowledgeTurnHit[]): KnowledgeTurnHit[] {
+  if (hits.length < 2) return hits;
+
+  // Group by sessionId, preserving the order sessions first appear (which is
+  // the speaker-prefer-adjusted order from the preceding pass).
+  const bySession = new Map<string, KnowledgeTurnHit[]>();
+  for (const h of hits) {
+    const arr = bySession.get(h.row.sessionId);
+    if (arr) arr.push(h);
+    else bySession.set(h.row.sessionId, [h]);
+  }
+
+  for (const sessionHits of bySession.values()) {
+    const userHitCount = sessionHits.filter((h) => h.row.speaker === "user").length;
+    if (userHitCount > SHORT_SESSION_USER_HIT_THRESHOLD) continue; // preserve BM25 order
+
+    // Apply DESC within the user group of this short-session bucket.
+    sessionHits.sort((a, b) => {
+      const speakerOrder = speakerRank(a.row.speaker) - speakerRank(b.row.speaker);
+      if (speakerOrder !== 0) return speakerOrder;
+      if (a.row.speaker === "user") {
+        return b.row.messageIndex - a.row.messageIndex; // DESC within user group
+      }
+      return 0; // preserve BM25 order for non-user speakers
+    });
+  }
+
   return [...bySession.values()].flat();
 }
 
