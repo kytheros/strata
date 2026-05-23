@@ -56,14 +56,32 @@ export function hasHistoricalMarker(q: string): boolean {
 }
 
 /**
- * Composite classifier. Returns true iff:
- *   (hasTemporalMarker(q) OR isCurrentStateQuery(q)) AND hasCurrentStateMarker(q) AND NOT hasHistoricalMarker(q)
+ * Existential question pattern: "Is X a/an/the Y" at the start of the query.
+ * Grammatically present-tense; treated as a sufficient signal for current-state
+ * intent. Lifts queries that lack explicit temporal markers but are clearly
+ * asking about current classification (e.g., "Is semantic search a Pro feature?").
+ *
+ * Spec: 2026-05-23-existential-question-classifier-design.md
+ */
+export function isExistentialQuestion(q: string): boolean {
+  return /^\s*Is\s+.+?\s+(?:a|an|the)\s+\S+/i.test(q);
+}
+
+/**
+ * Composite classifier. Returns true when EITHER:
+ *   isExistentialQuestion(q) (present-tense "Is X a/an/the Y" pattern), OR
+ *   (hasTemporalMarker(q) OR isCurrentStateQuery(q)) AND hasCurrentStateMarker(q)
+ *
+ * In all cases, returns false if hasHistoricalMarker(q) (the veto wins).
  *
  * `isCurrentStateQuery` is OR'd in so existing "currently/still/latest" phrasings
- * still qualify even without a topical marker.
+ * still qualify even without a topical marker. `isExistentialQuestion` short-circuits
+ * to true on grammatically present-tense yes/no questions about classification
+ * (spec 2026-05-23-existential-question-classifier).
  */
 export function isTemporalCurrentStateQuestion(q: string): boolean {
   if (hasHistoricalMarker(q)) return false;
+  if (isExistentialQuestion(q)) return true;
   if (!hasCurrentStateMarker(q)) return false;
   return hasTemporalMarker(q) || isCurrentStateQuery(q);
 }

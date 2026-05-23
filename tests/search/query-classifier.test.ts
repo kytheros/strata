@@ -4,6 +4,7 @@ import {
   hasCurrentStateMarker,
   hasHistoricalMarker,
   isTemporalCurrentStateQuestion,
+  isExistentialQuestion,
 } from "../../src/search/query-classifier.js";
 
 describe("query-classifier — two-signal temporal-current-state", () => {
@@ -74,5 +75,60 @@ describe("query-classifier — two-signal temporal-current-state", () => {
       "What Node version is in the docs?",
       "Tell me about Node 20",
     ])("no current-state marker: %s", (q) => expect(isTemporalCurrentStateQuestion(q)).toBe(false));
+  });
+});
+
+describe("isExistentialQuestion", () => {
+  it('matches "Is X a Y" pattern (target: ranking-002 query)', () => {
+    expect(isExistentialQuestion("Is semantic search a Pro feature?")).toBe(true);
+  });
+
+  it('matches "Is X the Y" pattern', () => {
+    expect(isExistentialQuestion("Is React the framework we use?")).toBe(true);
+  });
+
+  it('matches "Is X an Y" pattern', () => {
+    expect(isExistentialQuestion("Is SQLite an option?")).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isExistentialQuestion("is x a y")).toBe(true);
+    expect(isExistentialQuestion("IS X A Y")).toBe(true);
+  });
+
+  it('does not match "Was X a Y" (past tense)', () => {
+    expect(isExistentialQuestion("Was X a Y?")).toBe(false);
+  });
+
+  it('does not match "What is X" (no article + noun after subject)', () => {
+    expect(isExistentialQuestion("What is X?")).toBe(false);
+  });
+
+  it("does not match queries that don't start with Is", () => {
+    expect(isExistentialQuestion("Tell me, is X a Y?")).toBe(false);
+    expect(isExistentialQuestion("X is a Y, right?")).toBe(false);
+  });
+
+  it("does not match when there's no second token after the article", () => {
+    // "Is X a?" — incomplete; should not fire.
+    expect(isExistentialQuestion("Is X a?")).toBe(false);
+  });
+});
+
+describe("isTemporalCurrentStateQuestion — composite with existential short-circuit", () => {
+  it('fires on existential question lacking other markers (target: ranking-002)', () => {
+    expect(isTemporalCurrentStateQuestion("Is semantic search a Pro feature?")).toBe(true);
+  });
+
+  it("historical veto still wins even on existential phrasing", () => {
+    expect(isTemporalCurrentStateQuestion("Is X previously a Y?")).toBe(false);
+  });
+
+  it("existing temporal+current-state path still works (no regression)", () => {
+    expect(isTemporalCurrentStateQuestion("What Node version is the user on now?")).toBe(true);
+  });
+
+  it("non-existential query without temporal/current markers still does not fire", () => {
+    expect(isTemporalCurrentStateQuestion("What's the storage layer?")).toBe(false);
   });
 });
