@@ -2,7 +2,7 @@
 
 **Current best:** 26/30
 **As of:** 2026-05-23 (experiment 002 — short-session DESC tiebreaker)
-**Commit:** <SHA>
+**Commit:** 7984b7a
 
 ## History
 
@@ -10,7 +10,7 @@
 |------|-------|----------|--------|
 | 2026-05-22 | 22/30 | (baseline) | dfd79a3 |
 | 2026-05-23 | 24/30 | within-session speaker-prefer | 5052715 |
-| 2026-05-23 | 26/30 | short-session DESC tiebreaker | <SHA> |
+| 2026-05-23 | 26/30 | short-session DESC tiebreaker | 7984b7a |
 
 This file is updated only when an optimization run produces a higher score.
 History of improvements is tracked in experiments/.
