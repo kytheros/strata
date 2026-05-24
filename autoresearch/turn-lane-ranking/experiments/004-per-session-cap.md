@@ -2,6 +2,7 @@
 
 **Date:** 2026-05-24
 **Variable changed:** Added `applyPerSessionCap` (exported) in `src/search/result-ranker.ts` using overflow demotion at cap = 2 (MAX_HITS_PER_SESSION), gated by `CONFIG.search.turnPerSessionCap.enabled` (default true). Refactored `applyTurnRecencyBoost` to single exit point so the cap pass wraps both no-op and engaged paths.
+**Commit:** 3ebe541
 **Score:** 28/30
 **Delta from prior:** +1 (from 27/30)
 
