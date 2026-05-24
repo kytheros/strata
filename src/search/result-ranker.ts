@@ -390,39 +390,92 @@ export function applyTurnRecencyBoost(
     working = applyShortSessionDescCorrection(working);
   }
 
-  if (working.length < 2) return working;
-  if (!opts.force && !isTemporalCurrentStateQuestion(query)) return working;
+  // Recency reorder pass. Only engages when length ≥ 2 AND (force OR
+  // classifier fires) AND there are ≥ 2 distinct session timestamps.
+  if (working.length >= 2 && (opts.force || isTemporalCurrentStateQuestion(query))) {
+    // 1. Group hits by sessionId, preserving input order (which is now the
+    //    speaker-prefer-adjusted order).
+    const bySession = new Map<string, KnowledgeTurnHit[]>();
+    for (const h of working) {
+      const arr = bySession.get(h.row.sessionId);
+      if (arr) arr.push(h);
+      else bySession.set(h.row.sessionId, [h]);
+    }
 
-  // 1. Group hits by sessionId, preserving input order (which is now the
-  //    speaker-prefer-adjusted order).
-  const bySession = new Map<string, KnowledgeTurnHit[]>();
-  for (const h of working) {
-    const arr = bySession.get(h.row.sessionId);
-    if (arr) arr.push(h);
-    else bySession.set(h.row.sessionId, [h]);
+    // 2. Compute representative createdAt per session = min createdAt of hits
+    //    in that session. Since pipeline-driver writes turns with createdAt =
+    //    sessionCreatedAt + msgIdx, this is essentially sessionCreatedAt.
+    const sessionsByRecency = [...bySession.entries()].map(([sessionId, sessionHits]) => ({
+      sessionId,
+      sessionCreatedAt: Math.min(...sessionHits.map((h) => h.row.createdAt)),
+      hits: sessionHits, // already in BM25 order from input
+    }));
+
+    // 3. Engage reorder only when sessions have ≥ 2 distinct timestamps.
+    const distinctCreatedAts = new Set(sessionsByRecency.map((s) => s.sessionCreatedAt));
+    if (distinctCreatedAts.size >= 2) {
+      // 4. Sort sessions by recency DESC (newest first). Array.sort is stable
+      //    in ECMAScript 2019+, so equal createdAt preserves insertion order.
+      sessionsByRecency.sort((a, b) => b.sessionCreatedAt - a.sessionCreatedAt);
+      // 5. Flatten: newest session's BM25-ordered hits first. Returns original
+      //    KnowledgeTurnHit objects unchanged (scores intact).
+      working = sessionsByRecency.flatMap((s) => s.hits);
+    }
   }
 
-  // 2. Compute representative createdAt per session = min createdAt of hits
-  //    in that session. Since pipeline-driver writes turns with createdAt =
-  //    sessionCreatedAt + msgIdx, this is essentially sessionCreatedAt.
-  const sessionsByRecency = [...bySession.entries()].map(([sessionId, sessionHits]) => ({
-    sessionId,
-    sessionCreatedAt: Math.min(...sessionHits.map((h) => h.row.createdAt)),
-    hits: sessionHits, // already in BM25 order from input
-  }));
+  // Apply per-session cap as the final pass (regardless of which path above
+  // ran). Spec 2026-05-23-per-session-top5-cap-design.md.
+  if (CONFIG.search.turnPerSessionCap.enabled) {
+    working = applyPerSessionCap(working);
+  }
+  return working;
+}
 
-  // 3. No-op when all hits share the same session OR all sessions share the
-  //    same createdAt (no relative recency signal).
-  const distinctCreatedAts = new Set(sessionsByRecency.map((s) => s.sessionCreatedAt));
-  if (distinctCreatedAts.size < 2) return working;
+/**
+ * Per-session hit cap. When a session has more hits than this constant in
+ * the ranked output, the excess is demoted to the end of the list.
+ * Empirically validated against the 15-fixture turn-lane eval. Cap=2 frees
+ * enough top-5 slots to surface ranking-004's under-represented sibling
+ * session.
+ *
+ * Spec: 2026-05-23-per-session-top5-cap-design.md
+ */
+const MAX_HITS_PER_SESSION = 2;
 
-  // 4. Sort sessions by recency DESC (newest first). Array.sort is stable in
-  //    ECMAScript 2019+, so equal createdAt preserves insertion order.
-  sessionsByRecency.sort((a, b) => b.sessionCreatedAt - a.sessionCreatedAt);
+/**
+ * Per-session top-K cap using overflow demotion.
+ *
+ * Walks the ranked list in order. Hits whose session-count is ≤
+ * MAX_HITS_PER_SESSION are kept in their original position. Hits exceeding
+ * the cap are demoted to the end of the list, preserving their relative
+ * order among themselves.
+ *
+ * Top-1 preservation: the first hit in the input always has count=1, which
+ * is ≤ cap, so it stays at index 0. No fixture currently passing top-1 can
+ * regress.
+ *
+ * Spec: 2026-05-23-per-session-top5-cap-design.md
+ */
+export function applyPerSessionCap(
+  hits: KnowledgeTurnHit[],
+): KnowledgeTurnHit[] {
+  if (hits.length < 2) return hits;
 
-  // 5. Flatten: newest session's BM25-ordered hits first. Returns original
-  //    KnowledgeTurnHit objects unchanged (scores intact).
-  return sessionsByRecency.flatMap((s) => s.hits);
+  const counts = new Map<string, number>();
+  const kept: KnowledgeTurnHit[] = [];
+  const overflow: KnowledgeTurnHit[] = [];
+
+  for (const h of hits) {
+    const c = (counts.get(h.row.sessionId) ?? 0) + 1;
+    counts.set(h.row.sessionId, c);
+    if (c <= MAX_HITS_PER_SESSION) {
+      kept.push(h);
+    } else {
+      overflow.push(h);
+    }
+  }
+
+  return [...kept, ...overflow];
 }
 
 /**

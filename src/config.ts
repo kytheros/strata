@@ -100,6 +100,19 @@ export const CONFIG = {
     turnSpeakerPrefer: {
       enabled: true,
     },
+    /**
+     * Per-session top-K cap (spec 2026-05-23-per-session-top5-cap-design).
+     * After all upstream ranking (speaker-prefer, recency reorder), walks the
+     * ranked list keeping a per-session counter. Hits whose session-count
+     * exceeds MAX_HITS_PER_SESSION (3) are demoted to the end of the list,
+     * preserving the rank order of all other hits.
+     *
+     * Recovers ranking-004 recall@5 regression introduced by speaker-prefer.
+     * Default true.
+     */
+    turnPerSessionCap: {
+      enabled: true,
+    },
   },
 
   // Indexing
