@@ -76,6 +76,36 @@ Browser  ←  /chat  ←  /api/auth/callback  ←  Cognito redirect (code)
 
 Without `approved`: 403 from `/api/chat`, redirect to `/?error=not_approved` from `/chat`. See `infrastructure/README.md` for the full ASCII sequence diagram.
 
+## Before deploying — supply-chain hygiene
+
+The bundled `app/package-lock.json` is pinned at the time `strata-mcp` shipped, so transitive advisories disclosed after that publish may not be reflected. **On a fresh scaffold, run an audit pass in each of the four template subdirectories that have a lockfile** before deploying to anything that matters:
+
+```powershell
+# From the scaffold root
+foreach ($dir in @(
+  ".",
+  "services\example-agent\app",
+  "services\example-agent\lambdas\pre-signup",
+  "services\example-agent\lambdas\post-confirmation"
+)) {
+  Push-Location $dir
+  npm audit                  # report
+  # npm audit fix            # non-breaking patches
+  # npm audit fix --force    # accept majors (read CHANGELOG for each pkg first)
+  Pop-Location
+}
+```
+
+Bash:
+
+```bash
+for dir in . services/example-agent/app services/example-agent/lambdas/pre-signup services/example-agent/lambdas/post-confirmation; do
+  (cd "$dir" && npm audit)
+done
+```
+
+A couple of moderate `postcss` advisories typically linger in the Next.js chain and clear when Next.js 16.3.0+ lands — those don't block the strata-mcp HIGH+ publish gate but you should know they're there.
+
 ## Dev iteration
 
 The Next.js app can run locally against a Cognito pool deployed to dev — useful when iterating on the auth flow without rebuilding + pushing the container image on every change.

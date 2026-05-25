@@ -35,6 +35,11 @@ for (let i = 0; i < process.argv.length; i++) {
   }
 }
 
+// `listLockfiles` uses execFileSync (throws on non-zero exit) because it's
+// called exactly once at startup and a missing/broken `git` should abort
+// before any audit work begins. `auditOne` below uses spawnSync (non-throwing)
+// because per-file audit failures are the normal failure mode and we collect
+// them all before exiting.
 function listLockfiles(): string[] {
   const out = execFileSync("git", ["ls-files", "**/package-lock.json", "package-lock.json"], {
     cwd: REPO_ROOT,
@@ -88,6 +93,18 @@ function main(): void {
     return;
   }
 
+  // Validate --skip paths against the discovered lockfile set so a typo
+  // surfaces loud instead of silently allowlisting nothing.
+  const unknownSkips = [...skips].filter((s) => !lockfiles.includes(s));
+  if (unknownSkips.length > 0) {
+    console.error(
+      `[audit-all-lockfiles] --skip path(s) not in tracked lockfile list:\n  ${unknownSkips.join(
+        "\n  ",
+      )}\n\nTracked lockfiles:\n  ${lockfiles.join("\n  ")}`,
+    );
+    process.exit(2);
+  }
+
   const targets = lockfiles.filter((lf) => {
     if (skips.has(lf)) {
       console.log(`[audit-all-lockfiles] skipping ${lf} (--skip)`);
@@ -116,9 +133,9 @@ function main(): void {
       console.error(f.output);
       console.error("");
     }
-    console.error(
-      `[audit-all-lockfiles] fix with: cd <dir> && npm audit fix`,
-    );
+    console.error(`[audit-all-lockfiles] fix with:`);
+    console.error(`  bash/zsh:    cd <dir> && npm audit fix`);
+    console.error(`  PowerShell:  cd <dir>; npm audit fix`);
     console.error(
       `[audit-all-lockfiles] if a CVE is intentionally accepted, add 'tsx scripts/audit-all-lockfiles.ts --skip <path>' to the calling script.`,
     );
