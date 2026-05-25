@@ -24,6 +24,11 @@ benchmarks/longmemeval/*
 !benchmarks/longmemeval/benchmark-schema.ts
 !benchmarks/longmemeval/types.ts
 !benchmarks/longmemeval/extract-events.ts
+# A6 spec (2026-05-25-unified-turn-lane-surface): turn-lane retrieval surface.
+# retrieve.ts and run-benchmark.ts gain turnRecallAtK diagnostic; committing
+# them allows the side-by-side turn-lane result to appear in CI and code review.
+!benchmarks/longmemeval/retrieve.ts
+!benchmarks/longmemeval/run-benchmark.ts
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
