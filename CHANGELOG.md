@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Turn-lane retrieval now lives in `SqliteSearchEngine`.** `engine.searchTurns(query, opts)` composes `KnowledgeTurnStore.searchByQuery` with the classifier-gated `applyTurnRecencyBoost`, mirroring how `searchAsync` / `searchSessionLevel` compose chunk-lane retrieval. `setKnowledgeTurnStore(store)` lazy-injects the turn store (same pattern as `setEventStore`). Production callers (`src/tools/search-history.ts`, the recency-weighted strategy in `evals/distillation-e2e/lib/retrieval-strategies.ts`) migrated to the new API; the inline `applyTurnRecencyBoost` block in `search-history.ts` is gone. Spec: `specs/2026-05-25-unified-turn-lane-surface-design.md`.
+- **`KnowledgeTurnSearchOptions.forceBoost?: boolean`** (new optional field). When set, the engine applies the boost unconditionally (still gated by `CONFIG.search.turnRecencyBoost.enabled`). Replaces the old in-code `applyTurnRecencyBoost(..., { force: true })` callsite.
+- **`LongMemEval benchmark` retrieves through the turn lane too.** `benchmarks/longmemeval/retrieve.ts` now calls `engine.searchTurns(...)` alongside the existing session-level retrieval (B3 — side-by-side). The new `RetrievalResult.turnRecallAtK?: number` field surfaces in the summary table when populated. The headline 81.08% scoring path is unchanged.
+
 ### Security
 
 - **Refreshed all 4 `templates/aws/**/package-lock.json` files** to clear HIGH and CRITICAL upstream advisories that were shipping inside the `strata-mcp` tarball (Socket.dev visibility). Affected chains: `fast-xml-parser` (`GHSA-m7jm-9gc2-mpf2` + DoS variants, via `@aws-sdk/core`), Next.js middleware auth bypass (`CVE-2025-29927`), Vitest WebSocket CSWSH RCE (`CVE-2025-24964`), Playwright SSL bypass (`GHSA-7mvr-c777-76hp`), `@smithy/config-resolver` region-defense fix. AWS SDK clients bumped `3.682.0 → ^3.1053.0`.
