@@ -94,6 +94,13 @@ export interface RetrievalResult {
   evidenceRecall20: number;
   mrr: number;
   latencyMs: number;
+  /**
+   * Recall@K computed against the turn-lane retrieval pass (engine.searchTurns).
+   * Populated only when the harness ran the side-by-side turn-lane retrieval
+   * (spec 2026-05-25-unified-turn-lane-surface §3.3). Undefined for older
+   * results or for harness runs that skipped the turn lane.
+   */
+  turnRecallAtK?: number;
 }
 
 /** Answer + judge result for a single question */
