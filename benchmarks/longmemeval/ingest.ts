@@ -114,6 +114,10 @@ export async function ingestQuestion(
   // Turn store for TIR+QDP lane: stores raw turns verbatim for FTS5 retrieval.
   const turnStore = new SqliteKnowledgeTurnStore(db);
   const searchEngine = new SqliteSearchEngine(docStore, embedder, vectorSearch, entityStore, knowledgeStore);
+  // A6 (spec 2026-05-25-unified-turn-lane-surface §3.3): wire the turn store
+  // into the engine so retrieve.ts can call engine.searchTurns() and get the
+  // classifier-gated applyTurnRecencyBoost for free.
+  searchEngine.setKnowledgeTurnStore(turnStore);
 
   // Prepare embedding storage statement
   const upsertEmbedding = embedder
