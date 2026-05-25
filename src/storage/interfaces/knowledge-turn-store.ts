@@ -56,6 +56,17 @@ export interface KnowledgeTurnSearchOptions {
   project?: string | null;
   /** Maximum number of results to return. */
   limit: number;
+  /**
+   * If true, the search engine's `searchTurns` will apply
+   * `applyTurnRecencyBoost` even when `isTemporalCurrentStateQuestion(query)`
+   * would not have fired. Always gated by
+   * `CONFIG.search.turnRecencyBoost.enabled`. Used by callers (e.g.
+   * `evals/distillation-e2e` recency-weighted strategy) that want
+   * recency-dominant ordering unconditionally. The storage layer ignores
+   * this field — it is read in `SqliteSearchEngine.searchTurns` only.
+   * Default: false.
+   */
+  forceBoost?: boolean;
 }
 
 export interface IKnowledgeTurnStore {
