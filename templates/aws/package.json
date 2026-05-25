@@ -12,10 +12,10 @@
     "test:smoke": "playwright test --grep @smoke"
   },
   "devDependencies": {
-    "@playwright/test": "1.49.0",
+    "@aws-sdk/client-cognito-identity-provider": "^3.1053.0",
+    "@aws-sdk/client-secrets-manager": "^3.1053.0",
+    "@playwright/test": "^1.60.0",
     "@types/node": "22.7.5",
-    "typescript": "5.6.3",
-    "@aws-sdk/client-cognito-identity-provider": "3.682.0",
-    "@aws-sdk/client-secrets-manager": "3.682.0"
+    "typescript": "5.6.3"
   }
 }

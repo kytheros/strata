@@ -29,8 +29,8 @@ npm test
 echo "→ gitleaks (full history)"
 gitleaks detect --source . --config .gitleaks.toml --no-banner
 
-echo "→ npm audit (HIGH+)"
-npm audit --audit-level=high
+echo "→ npm audit (HIGH+) across all tracked lockfiles"
+npx tsx scripts/audit-all-lockfiles.ts
 
 # Heavy gate: count commits being pushed; over the threshold runs Docker
 # tools. `@{upstream}..HEAD` is the about-to-push range; if no upstream
