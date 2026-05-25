@@ -8,6 +8,7 @@
 
 import type { IDocumentStore } from "../storage/interfaces/document-store.js";
 import type { FtsSearchResult } from "../storage/interfaces/document-store.js";
+import type { IKnowledgeTurnStore } from "../storage/interfaces/knowledge-turn-store.js";
 import { parseQuery, type QueryFilters } from "./query-processor.js";
 import type { DocumentChunk } from "../indexing/document-store.js";
 import { applyBoosts, applyFilters, reciprocalRankFusion, aggregateToSessionScores, applySessionBoosts, type RankedResult, type SessionScore } from "./result-ranker.js";
@@ -89,6 +90,7 @@ export class SqliteSearchEngine {
   private eventStore: IEventStore | null = null;
   private reranker: IReranker | null = null;
   private docChunkStore: DocumentChunkStore | null = null;
+  private knowledgeTurnStore: IKnowledgeTurnStore | null = null;
 
   constructor(
     private documentStore: IDocumentStore,
@@ -116,6 +118,11 @@ export class SqliteSearchEngine {
   /** Inject a document chunk store after construction (lazy initialization pattern). */
   setDocumentChunkStore(store: DocumentChunkStore): void {
     this.docChunkStore = store;
+  }
+
+  /** Inject a knowledge turn store after construction (lazy initialization pattern). */
+  setKnowledgeTurnStore(store: IKnowledgeTurnStore): void {
+    this.knowledgeTurnStore = store;
   }
 
   /**
