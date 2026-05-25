@@ -705,6 +705,18 @@ function initSchema(db: Database.Database): void {
     `);
   }
 
+  // ── Migration 0005: projects canonical-slug lookup table ──────────────────
+  // Additive. No FK migration of content tables.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      canonical_slug TEXT PRIMARY KEY NOT NULL,
+      display_name   TEXT NOT NULL,
+      aliases        TEXT NOT NULL,
+      first_seen     INTEGER NOT NULL,
+      last_seen      INTEGER NOT NULL
+    );
+  `);
+
   // Backfill knowledge_fts if it exists but is empty while knowledge has rows
   backfillKnowledgeFts(db);
 }
