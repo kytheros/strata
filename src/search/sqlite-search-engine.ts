@@ -8,10 +8,10 @@
 
 import type { IDocumentStore } from "../storage/interfaces/document-store.js";
 import type { FtsSearchResult } from "../storage/interfaces/document-store.js";
-import type { IKnowledgeTurnStore } from "../storage/interfaces/knowledge-turn-store.js";
+import type { IKnowledgeTurnStore, KnowledgeTurnHit, KnowledgeTurnSearchOptions } from "../storage/interfaces/knowledge-turn-store.js";
 import { parseQuery, type QueryFilters } from "./query-processor.js";
 import type { DocumentChunk } from "../indexing/document-store.js";
-import { applyBoosts, applyFilters, reciprocalRankFusion, aggregateToSessionScores, applySessionBoosts, type RankedResult, type SessionScore } from "./result-ranker.js";
+import { applyBoosts, applyFilters, reciprocalRankFusion, aggregateToSessionScores, applySessionBoosts, applyTurnRecencyBoost, type RankedResult, type SessionScore } from "./result-ranker.js";
 import { CONFIG } from "../config.js";
 import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js";
 import type { VectorSearch, VectorSearchResult } from "../extensions/embeddings/vector-search.js";
@@ -20,7 +20,7 @@ import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 import type { IEventStore } from "../storage/interfaces/event-store.js";
 import { extractEntities } from "../knowledge/entity-extractor.js";
 import type { IReranker } from "./reranker/types.js";
-import { isCountingQuestion, isTemporalQuestion } from "./query-classifier.js";
+import { isCountingQuestion, isTemporalQuestion, isTemporalCurrentStateQuestion } from "./query-classifier.js";
 import { resolveModelRouting } from "./model-router.js";
 import type { DocumentChunkStore } from "../storage/document-chunk-store.js";
 import type { ProvenanceHandle } from "../types/provenance.js";
@@ -123,6 +123,35 @@ export class SqliteSearchEngine {
   /** Inject a knowledge turn store after construction (lazy initialization pattern). */
   setKnowledgeTurnStore(store: IKnowledgeTurnStore): void {
     this.knowledgeTurnStore = store;
+  }
+
+  /**
+   * Turn-lane retrieval. Composes `turnStore.searchByQuery` with the
+   * classifier-gated `applyTurnRecencyBoost` so every production caller
+   * gets the four turn-lane experiments (speaker-prefer, short-session
+   * DESC, existential classifier, per-session cap) without remembering
+   * to invoke the ranker themselves.
+   *
+   * Returns `[]` if no turn store is attached — callers that legitimately
+   * have no turn data can ignore the return value.
+   *
+   * Spec: 2026-05-25-unified-turn-lane-surface §3.1.
+   */
+  async searchTurns(
+    query: string,
+    opts: KnowledgeTurnSearchOptions,
+  ): Promise<KnowledgeTurnHit[]> {
+    if (!this.knowledgeTurnStore) return [];
+    const hits = await this.knowledgeTurnStore.searchByQuery(query, opts);
+    if (
+      CONFIG.search.turnRecencyBoost.enabled &&
+      (opts.forceBoost === true || isTemporalCurrentStateQuestion(query))
+    ) {
+      // Pass force:true when the engine-level forceBoost flag is set, so that
+      // applyTurnRecencyBoost's internal classifier gate is also bypassed.
+      return applyTurnRecencyBoost(hits, query, { force: opts.forceBoost === true });
+    }
+    return hits;
   }
 
   /**
