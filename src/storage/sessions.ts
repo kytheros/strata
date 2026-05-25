@@ -26,24 +26,46 @@ export function listCanonicalSessions(
 ): { rows: CanonicalSession[]; total: number } {
   const limit = filters.limit ?? 100;
   const offset = filters.offset ?? 0;
-  const sinceClause = filters.sinceMs ? `AND ts >= ${Number(filters.sinceMs)}` : "";
+
+  // Fix 1: treat sinceMs=0 as genuine epoch anchor (0 is a valid timestamp).
+  // The old `filters.sinceMs ?` check was falsy for 0, silently dropping the filter.
+  const sinceClause = filters.sinceMs != null && isFinite(filters.sinceMs) && filters.sinceMs > 0
+    ? `AND ts >= ${filters.sinceMs}`
+    : "";
+
+  // Fix 3: expand canonical project slug → all raw aliases so the SQL filter
+  // matches every raw project string that maps to the same canonical slug.
+  // Falls back to [filters.project] when no projects row exists (e.g., in tests
+  // that seed raw strings without going through canonicalProject()).
+  let projectAliases: string[] | null = null;
+  if (filters.project) {
+    const row = db.prepare(
+      "SELECT aliases FROM projects WHERE canonical_slug = ?"
+    ).get(filters.project) as { aliases: string } | undefined;
+    projectAliases = row ? JSON.parse(row.aliases) as string[] : [filters.project];
+    // Always include the canonical slug itself in case it's stored raw.
+    if (!projectAliases.includes(filters.project)) projectAliases.push(filters.project);
+  }
+
+  const projectClause = projectAliases
+    ? `AND project IN (${projectAliases.map(() => "?").join(",")})`
+    : "";
 
   // Step 1: collect distinct (session_id, project, min_ts, max_ts) across all 4 sources
   // Each source emits rows shaped (sid, project, ts) so we aggregate uniformly.
   const sql = `
     WITH all_session_rows AS (
-      SELECT session_id AS sid, project, timestamp AS ts FROM knowledge WHERE session_id IS NOT NULL AND session_id != ''
+      SELECT session_id AS sid, project, timestamp AS ts FROM knowledge WHERE session_id IS NOT NULL AND session_id != '' ${sinceClause} ${projectClause}
       UNION ALL
-      SELECT session_id AS sid, project, timestamp AS ts FROM documents WHERE session_id IS NOT NULL AND session_id != ''
+      SELECT session_id AS sid, project, timestamp AS ts FROM documents WHERE session_id IS NOT NULL AND session_id != '' ${sinceClause} ${projectClause}
       UNION ALL
-      SELECT session_id AS sid, project, timestamp AS ts FROM events WHERE session_id IS NOT NULL AND session_id != ''
+      SELECT session_id AS sid, project, timestamp AS ts FROM events WHERE session_id IS NOT NULL AND session_id != '' ${sinceClause} ${projectClause}
       UNION ALL
-      SELECT session_id AS sid, project, start_time AS ts FROM summaries WHERE session_id IS NOT NULL AND session_id != ''
+      SELECT session_id AS sid, project, start_time AS ts FROM summaries WHERE session_id IS NOT NULL AND session_id != '' ${sinceClause} ${projectClause}
     ),
     distinct_sessions AS (
       SELECT sid, MAX(project) AS project, MIN(ts) AS start_time, MAX(ts) AS end_time
       FROM all_session_rows
-      WHERE 1=1 ${sinceClause}
       GROUP BY sid
     )
     SELECT
@@ -61,39 +83,37 @@ export function listCanonicalSessions(
     LIMIT ? OFFSET ?
   `;
 
-  // Project filter is applied post-query against the canonicalized value because
-  // the source columns hold raw slugs. Callers should pass an already-canonical
-  // slug; we match against ALL the project strings (one canonical may have
-  // multiple aliases). Caller's responsibility to expand if needed; this helper
-  // matches the canonical slug literally for simplicity.
-  let allRows = db.prepare(sql).all(limit, offset) as Array<{
+  // Build the bound params: for each of the 4 UNION branches, supply projectAliases (if set).
+  const unionParams: unknown[] = projectAliases
+    ? [
+        ...projectAliases, // knowledge branch
+        ...projectAliases, // documents branch
+        ...projectAliases, // events branch
+        ...projectAliases, // summaries branch
+      ]
+    : [];
+
+  const allRows = db.prepare(sql).all(...unionParams, limit, offset) as Array<{
     session_id: string; project: string; start_time: number; end_time: number;
     message_count: number; knowledge_count: number; event_count: number;
     topic: string | null; tools_used: string | null;
   }>;
 
-  if (filters.project) {
-    // Match by raw or canonical project string.
-    const want = filters.project;
-    allRows = allRows.filter(r => r.project === want);
-  }
-
   // Total count (same filters, no limit)
   const totalSql = `
     WITH all_session_rows AS (
-      SELECT session_id AS sid, project, timestamp AS ts FROM knowledge WHERE session_id IS NOT NULL AND session_id != ''
+      SELECT session_id AS sid, project, timestamp AS ts FROM knowledge WHERE session_id IS NOT NULL AND session_id != '' ${sinceClause} ${projectClause}
       UNION ALL
-      SELECT session_id AS sid, project, timestamp AS ts FROM documents WHERE session_id IS NOT NULL AND session_id != ''
+      SELECT session_id AS sid, project, timestamp AS ts FROM documents WHERE session_id IS NOT NULL AND session_id != '' ${sinceClause} ${projectClause}
       UNION ALL
-      SELECT session_id AS sid, project, timestamp AS ts FROM events WHERE session_id IS NOT NULL AND session_id != ''
+      SELECT session_id AS sid, project, timestamp AS ts FROM events WHERE session_id IS NOT NULL AND session_id != '' ${sinceClause} ${projectClause}
       UNION ALL
-      SELECT session_id AS sid, project, start_time AS ts FROM summaries WHERE session_id IS NOT NULL AND session_id != ''
+      SELECT session_id AS sid, project, start_time AS ts FROM summaries WHERE session_id IS NOT NULL AND session_id != '' ${sinceClause} ${projectClause}
     )
-    SELECT COUNT(DISTINCT sid) AS c FROM all_session_rows WHERE 1=1 ${sinceClause}
+    SELECT COUNT(DISTINCT sid) AS c FROM all_session_rows
   `;
-  const totalRow = db.prepare(totalSql).get() as { c: number };
-  let total = totalRow.c;
-  if (filters.project) total = allRows.length;  // filter is post-query
+  const totalRow = db.prepare(totalSql).get(...unionParams) as { c: number };
+  const total = totalRow.c;
 
   const rows: CanonicalSession[] = allRows.map(r => ({
     sessionId: r.session_id,

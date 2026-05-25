@@ -54,6 +54,12 @@ export function openDatabase(dbPath?: string): Database.Database {
   // Backfill importance scores for existing entries (one-time on upgrade)
   backfillImportance(db);
 
+  // Backfill projects lookup table (peer call — must not be nested inside
+  // backfillImportance, which has unrelated semantics and could be refactored away).
+  try { backfillProjects(db); } catch (err) {
+    console.warn("[storage] projects backfill skipped:", err instanceof Error ? err.message : err);
+  }
+
   return db;
 }
 
@@ -836,10 +842,5 @@ function backfillImportance(db: Database.Database): void {
       tx();
       offset += BATCH_SIZE;
     }
-  }
-
-  // Backfill projects lookup table from existing content tables (one-time on upgrade)
-  try { backfillProjects(db); } catch (err) {
-    console.warn("[storage] projects backfill skipped:", err instanceof Error ? err.message : err);
   }
 }
