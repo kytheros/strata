@@ -15,10 +15,10 @@
  *                      ingestion runs; legacy reduces to the entries lane. The spec
  *                      §4.2 still uses "legacy" as the temporal default; we treat
  *                      that as "entries lane with no rerank/RRF" for harness purposes.)
- *   recency-weighted → knowledgeTurn.searchByQuery + applyTurnRecencyBoost
- *                      (force=true; matches the production turn-lane boost
- *                      gated by the temporal-current-state classifier; spec
- *                      2026-05-18-temporal-retrieval-intervention)
+ *   recency-weighted → engine.searchTurns({ forceBoost: true })
+ *                      (matches the production turn-lane boost gated by the
+ *                      temporal-current-state classifier; spec
+ *                      2026-05-25-unified-turn-lane-surface §3.2)
  *
  * Convergence note: this 6-strategy enum (turns | entries | rrf-both | tirqdp |
  * legacy | recency-weighted) is the eval-side counterpart of the Intelligent
@@ -31,7 +31,6 @@
 
 import { fuseCommunityLanes, type CommunityChunkResult } from "../../../src/search/recall-fusion-community.js";
 import { recallQdpCommunity } from "../../../src/search/recall-qdp-community.js";
-import { applyTurnRecencyBoost } from "../../../src/search/result-ranker.js";
 import type { IsolatedHandle } from "./isolated-db.js";
 
 export type RetrievalStrategy =
@@ -158,10 +157,14 @@ async function retrieveRecencyWeighted(
   query: string,
   k: number,
 ): Promise<RetrievedTurn[]> {
-  const hits = await handle.knowledgeTurn.searchByQuery(query, { userId: undefined, limit: k });
-  // force=true: harness opts in regardless of classifier; we want the boost
-  // to apply on every fixture routed to this strategy.
-  const boosted = applyTurnRecencyBoost(hits, query, { force: true });
+  // forceBoost=true: harness opts in regardless of classifier; we want the
+  // boost on every fixture routed to this strategy. The engine now owns the
+  // boost invocation per spec 2026-05-25-unified-turn-lane-surface §3.2.
+  const boosted = await handle.searchEngine.searchTurns(query, {
+    userId: undefined,
+    limit: k,
+    forceBoost: true,
+  });
   const total = boosted.length;
   return boosted.map((hit, idx) => ({
     session_id: hit.row.sessionId,
