@@ -14,8 +14,6 @@ import { formatProvenanceHandle } from "../utils/format-provenance.js";
 import { fuseCommunityLanes } from "../search/recall-fusion-community.js";
 import type { CommunityChunkResult } from "../search/recall-fusion-community.js";
 import { recallQdpCommunity } from "../search/recall-qdp-community.js";
-import { applyTurnRecencyBoost } from "../search/result-ranker.js";
-import { isTemporalCurrentStateQuestion } from "../search/query-classifier.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -288,21 +286,19 @@ export async function handleSearchHistory(
       }
     }
 
-    // Turn lane: knowledge_turns FTS hits
+    // Turn lane: knowledge_turns FTS hits via engine.searchTurns. The engine
+    // owns the classifier-gated `applyTurnRecencyBoost` invocation per spec
+    // 2026-05-25-unified-turn-lane-surface §3.2 — the inline boost block
+    // that used to live here was removed.
+    // Wire the turn store into the engine so searchTurns can use it.
+    // setKnowledgeTurnStore is idempotent when called with the same store.
+    engine.setKnowledgeTurnStore(turnStore);
     const limit = Math.min(searchOptions.limit ?? 20, 100);
-    let turnHits = await turnStore.searchByQuery(args.query, {
+    const turnHits = await engine.searchTurns(args.query, {
       userId: searchOptions.user ?? undefined,
       project: searchOptions.project,
       limit,
     });
-
-    // Spec 2026-05-18-temporal-retrieval-intervention §5d: apply recency boost
-    // on the turn lane when the query is a temporal-current-state question.
-    // Behind a config flag; the flag short-circuits the classifier when off,
-    // so the classifier doesn't run unless boost is enabled.
-    if (CONFIG.search.turnRecencyBoost.enabled && isTemporalCurrentStateQuestion(args.query)) {
-      turnHits = applyTurnRecencyBoost(turnHits, args.query);
-    }
 
     // Adapt chunkLane → CommunityChunkResult[] for fuseCommunityLanes
     const chunkInputs: CommunityChunkResult[] = chunkLane.map((r, idx) => ({
