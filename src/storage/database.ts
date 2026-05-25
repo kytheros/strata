@@ -8,6 +8,7 @@ import { dirname, join } from "path";
 import { homedir } from "os";
 import Database from "better-sqlite3";
 import { computeImportance } from "../knowledge/importance.js";
+import { backfillProjects } from "./projects.js";
 
 /** Default data directory */
 const DEFAULT_DATA_DIR = join(homedir(), ".strata");
@@ -835,5 +836,10 @@ function backfillImportance(db: Database.Database): void {
       tx();
       offset += BATCH_SIZE;
     }
+  }
+
+  // Backfill projects lookup table from existing content tables (one-time on upgrade)
+  try { backfillProjects(db); } catch (err) {
+    console.warn("[storage] projects backfill skipped:", err instanceof Error ? err.message : err);
   }
 }
