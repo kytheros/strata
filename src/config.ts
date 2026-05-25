@@ -260,6 +260,17 @@ export const CONFIG = {
     pruneAfterDays: 90,
   },
 
+  health: {
+    /** Per-check threshold cutoffs (value above = the status). */
+    thresholds: {
+      embedding_coverage: { ok: 0.95, warn: 0.70 },
+      summary_coverage:   { ok: 0.50, warn: 0.20 },
+      extraction_success: { ok: 0.95, warn: 0.80 },
+      entity_quality:     { ok: 0.85, warn: 0.60 },
+      gap_close_rate:     { ok: 0.50, warn: 0.20 },
+    },
+  },
+
   // Spec 2026-04-28 — atomic-fact extraction conflict resolution.
   extraction: {
     /**
