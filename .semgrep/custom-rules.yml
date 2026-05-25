@@ -31,6 +31,40 @@ rules:
       category: secrets
       confidence: HIGH
 
+  - id: hardcoded-secret-in-cli-args
+    patterns:
+      - pattern-regex: >
+          ["']--(?:access[_-]?token|api[_-]?key|auth[_-]?token|secret|password|client[_-]?secret|private[_-]?key)=[A-Za-z0-9_][A-Za-z0-9_\-/.+]{15,}["']
+      - pattern-not-regex: >
+          ["']--[a-z][a-z\-]+=(?:\$\{[A-Z_]+\}|%[A-Z_]+%|env:[A-Z_]+)["']
+    paths:
+      include:
+        - "*.json"
+        - "*.yaml"
+        - "*.yml"
+      exclude:
+        - "*.example"
+        - "*.template"
+        - "*test*"
+        - "node_modules"
+    message: >
+      Hardcoded secret detected as a CLI argument inside a JSON array.
+      This is the coverage gap that let an sbp_... PAT slip past
+      `hardcoded-secret-in-config` in `.mcp.json` (Supabase MCP entries shell
+      out via `cmd /c npx ... --access-token=<value>`).
+      Reference the secret via an env-var placeholder instead:
+        - Windows cmd:  "--access-token=%SUPABASE_ACCESS_TOKEN%"
+        - POSIX shells: "--access-token=${SUPABASE_ACCESS_TOKEN}"
+        - Generic:      "--access-token=env:SUPABASE_ACCESS_TOKEN"
+      Then set the env var at the OS/user level (`setx` on Windows, shell rc on Unix).
+    severity: ERROR
+    languages: [json]
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A07:2021 - Identification and Authentication Failures"
+      category: secrets
+      confidence: HIGH
+
   - id: hardcoded-secret-in-env-file
     patterns:
       - pattern-regex: >
