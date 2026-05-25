@@ -5,6 +5,19 @@ All notable changes to the Strata Community Edition will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Refreshed all 4 `templates/aws/**/package-lock.json` files** to clear HIGH and CRITICAL upstream advisories that were shipping inside the `strata-mcp` tarball (Socket.dev visibility). Affected chains: `fast-xml-parser` (`GHSA-m7jm-9gc2-mpf2` + DoS variants, via `@aws-sdk/core`), Next.js middleware auth bypass (`CVE-2025-29927`), Vitest WebSocket CSWSH RCE (`CVE-2025-24964`), Playwright SSL bypass (`GHSA-7mvr-c777-76hp`), `@smithy/config-resolver` region-defense fix. AWS SDK clients bumped `3.682.0 → ^3.1053.0`.
+- **`templates/aws/services/example-agent/app/` now resolves `next@^16.2.6`.** Scaffold users coming from Next.js 14 should review the 14→15 and 15→16 upgrade guides before deploying. Accompanying transitive bumps: `eslint 8 → ^9.39.4`, `vitest 2 → ^4.1.7`. (Two `postcss` moderate advisories remain in the chain; they clear when Next.js 16.3.0+ lands and do not trigger the HIGH+ gate.)
+- **Refreshed root `package-lock.json`** to bump `qs 6.15.0 → 6.15.2` (`GHSA-q8mj-m7cp-5q26` stringify DoS), `ws 8.18.0 → 8.20.1` (`GHSA-58qx-3vcg-4xpx` uninit memory disclosure, via `miniflare`). Dev transitives only.
+
+### Added
+
+- **`scripts/audit-all-lockfiles.ts`** — runs `npm audit --audit-level=high` against every tracked `package-lock.json` in the repo (root + `templates/**`), exits non-zero on any HIGH+ advisory. Defends against the failure mode where `npm audit` only sees the root lockfile and lets vulnerable transitives ship inside `templates/`. Supports `--skip <path>` for explicitly allowlisted lockfiles.
+- **Lockfile gate wired into `prepublishOnly` (`audit:all-lockfiles` script) and `.husky/pre-push`.** Replaces the prior single-project `npm audit` invocation. Pre-push and publish now block on any HIGH+ advisory in any tracked lockfile, not just the root project's.
+
 ## [2.2.2] - 2026-05-11
 
 ### Fixed

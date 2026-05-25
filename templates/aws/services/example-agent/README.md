@@ -1,6 +1,16 @@
 # `services/example-agent` — AWS-introspection chat surface
 
-A small Next.js 14 app deployed on Fargate behind Cognito federation. The agent's tools are read-only `@aws-sdk/client-*` calls (wired in AWS-3.3), so anyone evaluating the Strata-on-AWS deploy can ask the agent about itself and watch the full stack respond. Strata-on-AWS is the conversational memory backend (wired in AWS-3.2).
+A small Next.js app deployed on Fargate behind Cognito federation. The agent's tools are read-only `@aws-sdk/client-*` calls (wired in AWS-3.3), so anyone evaluating the Strata-on-AWS deploy can ask the agent about itself and watch the full stack respond. Strata-on-AWS is the conversational memory backend (wired in AWS-3.2).
+
+> **Next.js 16 in the lockfile (since `strata-mcp@2.2.4`).** The bundled
+> `app/package-lock.json` resolves `next@^16.2.6` to clear several HIGH/CRITICAL
+> upstream CVEs (`fast-xml-parser` chain, Next.js middleware-auth bypass
+> CVE-2025-29927, etc.). Scaffold users coming from Next.js 14 should skim the
+> Next.js [14 → 15](https://nextjs.org/docs/app/building-your-application/upgrading/version-15)
+> and [15 → 16](https://nextjs.org/docs/app/building-your-application/upgrading/version-16)
+> upgrade guides before deploying — the App Router contracts are stable, but
+> caching defaults, RSC boundaries, and middleware behavior changed. ESLint is
+> bumped to `^9.39.4` and `vitest` to `^4.1.7` along the way.
 
 ## Layout
 
