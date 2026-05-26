@@ -21,7 +21,7 @@
  * Wall time: 30–60 min per run, Gemini-quota-bound.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,31 +80,22 @@ function main() {
     stdio: "inherit",
     env: { ...process.env, STRATA_KU_FUSION_MODE: mode },
     cwd: join(__dirname, "../.."),
+    shell: process.platform === "win32" ? "cmd.exe" : true,
   });
 
-  // Find the newest results file the benchmark wrote.
+  // Find the newest results file the benchmark wrote (pure Node.js — cross-platform).
   const resultsDir = join(__dirname, "../../benchmarks/longmemeval/data");
-  let newestFile: string;
-  try {
-    newestFile = execSync(
-      `npx tsx -e "const fs=require('fs');const p='${resultsDir.replace(/\\/g, "/")}';const f=fs.readdirSync(p).filter(x=>x.startsWith('results-')&&x.endsWith('.json')).map(x=>({n:x,t:fs.statSync(p+'/'+x).mtimeMs})).sort((a,b)=>b.t-a.t);console.log(f[0].n)"`,
-      { encoding: "utf-8", cwd: join(__dirname, "../..") }
-    ).trim();
-  } catch {
-    // Fallback: use a simpler approach
-    const files = execSync(`dir /b /o:-d "${resultsDir}\\results-*.json" 2>nul`, {
-      encoding: "utf-8",
-      shell: "cmd",
-    }).trim().split("\n");
-    newestFile = files[0]?.trim() ?? "";
-  }
+  const allResultFiles = readdirSync(resultsDir)
+    .filter((f) => f.startsWith("results-") && f.endsWith(".json"))
+    .map((f) => ({ name: f, mtime: statSync(join(resultsDir, f)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
 
-  if (!newestFile) {
+  if (allResultFiles.length === 0) {
     console.error("No results file produced.");
     process.exit(1);
   }
 
-  const newestPath = join(resultsDir, newestFile);
+  const newestPath = join(resultsDir, allResultFiles[0].name);
   const result = JSON.parse(readFileSync(newestPath, "utf-8"));
 
   // Normalize: handle both {accuracy: {byAbility: [...]}} and {byAbility: [...]} shapes
@@ -113,20 +104,21 @@ function main() {
 
   const ku = byAbility.find((a) => a.ability === "knowledge_update");
   if (!ku) {
-    console.error(`No knowledge_update slice found in ${newestFile}`);
+    console.error(`No knowledge_update slice found in ${allResultFiles[0].name}`);
     console.error("byAbility keys:", byAbility.map((a) => a.ability));
     process.exit(1);
   }
 
-  const accuracy = ku.accuracy;
+  // accuracy field is 0–100 (integer) in the results file format
+  const accuracyPct = ku.accuracy <= 1 ? ku.accuracy * 100 : ku.accuracy;
   console.log(`\n=== KU fusion eval result (mode=${mode}) ===`);
-  console.log(`  Slice: ${ku.correct}/${ku.total}  =  ${(accuracy * 100).toFixed(2)}%`);
+  console.log(`  Slice: ${ku.correct}/${ku.total}  =  ${accuracyPct.toFixed(2)}%`);
   console.log(`  Result file: ${newestPath}`);
 
   // Write a summary stub the experiment ledger can be filled in from.
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const stubPath = join(__dirname, `experiments/run-${mode}-${timestamp}.md`);
-  const pct = (accuracy * 100).toFixed(2);
+  const pct = accuracyPct.toFixed(2);
   writeFileSync(
     stubPath,
     `# KU fusion run — mode=${mode}\n\nAccuracy: ${ku.correct}/${ku.total} = ${pct}%\n\nResult file: \`${newestPath}\`\n\nDate: ${new Date().toISOString()}\n`,
