@@ -17,6 +17,7 @@ import { strataSessionIdToIndex } from "./ingest.js";
 import type { LongMemQuestion, RetrievalResult } from "./types.js";
 import { questionTypeToAbility } from "./types.js";
 import { CONFIG } from "../../src/config.js";
+import { appendUniqueByLane, rrfFuse } from "./ku-fusion.js";
 
 // ---------------------------------------------------------------------------
 // Date-range search for temporal reasoning (benchmark-only)
@@ -196,6 +197,15 @@ export async function retrieveQuestion(
 ): Promise<RetrievalResult & { searchResults: SearchResult[] }> {
   const start = performance.now();
 
+  // Run turn-lane retrieval up-front so the B2 KU fusion path can use it
+  // without a second searchTurns call. This also feeds the diagnostic
+  // turnRecallAtK that A6 introduced (unchanged behavior when mode=off).
+  const turnHits = await ingested.searchEngine.searchTurns(question.question, {
+    userId: undefined,
+    project: undefined,
+    limit: 20,
+  });
+
   // Use precomputed results if provided, otherwise run search
   let results: SearchResult[];
   if (precomputedResults) {
@@ -219,17 +229,43 @@ export async function retrieveQuestion(
   // narrow windows interactively. Our blanket prepend doesn't help. Left as dead code
   // for future reference — needs narrower windows or agent-driven date filtering.
 
+  // B2 KU-gated turn-lane fusion (spec 2026-05-26-b2-ku-fusion-design §3.2).
+  // Production-default off; the autoresearch/ku-fusion eval flips this via
+  // STRATA_KU_FUSION_MODE env var or by toggling CONFIG.benchmark.kuFusion.mode.
+  // Behavior is byte-identical to 2.3.0 when mode === "off".
+  const kuMode = CONFIG.benchmark.kuFusion.mode;
+  const isKu = question.question_type === "knowledge-update";
+  if (isKu && kuMode !== "off" && !precomputedResults) {
+    // Fetch a wider chunk-lane net so we can fill in chunks for any turn-lane
+    // session that wasn't in the top-20.
+    const widerNet = await ingested.searchEngine.searchAsync(
+      question.question,
+      { limit: CONFIG.benchmark.kuFusion.widerNetLimit }
+    );
+
+    if (kuMode === "append") {
+      results = appendUniqueByLane(
+        results,
+        turnHits,
+        widerNet,
+        ingested,
+        CONFIG.benchmark.kuFusion.maxAppend,
+      );
+    } else if (kuMode === "rrf") {
+      results = rrfFuse(
+        results,
+        turnHits,
+        widerNet,
+        ingested,
+        CONFIG.benchmark.kuFusion.maxAppend,
+        CONFIG.benchmark.kuFusion.rrfK,
+      );
+    }
+  }
+
   // A6 (spec 2026-05-25-unified-turn-lane-surface §3.3): side-by-side
-  // turn-lane retrieval. The engine knows how to do this now; the boost
-  // fires automatically inside searchTurns when the classifier matches.
-  // Populates the turnRecallAtK diagnostic on RetrievalResult; the session-
-  // level result (above) is still the primary scoring path so the 81.08%
-  // headline stays comparable.
-  const turnHits = await ingested.searchEngine.searchTurns(question.question, {
-    userId: undefined,
-    project: undefined,
-    limit: 20,
-  });
+  // turn-lane retrieval diagnostic. The turnHits are already computed
+  // above; the diagnostic code below is unchanged.
 
   // Compute turn-lane recall@K against the gold session IDs.
   // Turn hits reference strata internal session IDs; map back to LongMemEval IDs.
