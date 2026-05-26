@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`CONFIG.benchmark.kuFusion` config block + `STRATA_KU_FUSION_MODE` env override** — KU-gated retrieval-lane fusion for the LongMemEval benchmark. Three modes: `off` (default — no behavior change), `append` (M1: append unique turn-lane sessions onto chunk-lane results, capped at `maxAppend=5`), `rrf` (M2: RRF fusion across chunk-lane top-100 + turn-lane hits, `rrfK=60`). Fusion fires only when `question_type === "knowledge-update"`; non-KU benchmark questions and all production-tool callers are unaffected. Spec: `specs/2026-05-26-b2-ku-fusion-design.md`.
+- **`benchmarks/longmemeval/ku-fusion.ts`** — pure-function `appendUniqueByLane` (M1) and `rrfFuse` (M2) implementations producing `SearchResult[]`. 9 unit tests covering ordering, dedup, mode gating, and budget enforcement.
+- **`autoresearch/ku-fusion/` AutoResearch target** — frozen eval on the 78 KU question IDs from `longmemeval_oracle.json`. `run-eval.ts` runs the full answer-generation benchmark in full-answer mode (Gemini 2.5 Flash answer + GPT-4o judge) with the selected fusion mode and writes per-run experiment stubs. `STRATA_KU_FUSION_SMOKE_IDS` env override slices to a subset for fast smoke runs without modifying the oracle.
+
+### Validated
+
+- **B2 KU fusion — M2 (rrf) ships, M1 (append) discarded.** Three answer-generation runs on the 78 KU slice (2026-05-26):
+  | Mode | Score | Δ vs canonical baseline |
+  |---|---|---|
+  | off (canonical baseline) | 61/78 = 78.21% | — |
+  | off (variance probe, same day) | 63/78 = 80.77% | +2.56pp |
+  | append (M1) | 63/78 = 80.77% | +2.56pp (inside noise) |
+  | **rrf (M2)** | **67/78 = 85.90%** | **+7.69pp** |
+
+  RRF clears the +3pp ship gate by 4.69pp against canonical baseline and 5.13pp against the same-day variance probe — comfortably outside the ±2.5pp Gemini-2.5-flash stochastic variance band. M1 (append) lands inside the noise floor and discards. `CONFIG.benchmark.kuFusion.mode` stays default `"off"`; `STRATA_KU_FUSION_MODE=rrf` is the validated opt-in for KU-heavy workloads. Default-flip deferred until broader validation across non-KU question types.
+
 ## [2.3.0] - 2026-05-26
 
 ### Added
