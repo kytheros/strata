@@ -50,3 +50,13 @@ else
 fi
 
 echo "→ all pre-push gates passed"
+
+# Informational only — non-blocking. Reports whether the Understand-Anything
+# knowledge graph at .understand-anything/knowledge-graph.json has drifted
+# from HEAD, and recommends a /understand refresh sized to the change.
+# Tiered output:
+#   silent  → 0 changed files since graph commit
+#   nudge   → 1-20 changed files, 1-line reminder
+#   strong  → >20 files OR ≥10 commits behind, multi-line reminder
+# Always exits 0 so a stale graph never blocks a push.
+node scripts/graph-status.mjs || true

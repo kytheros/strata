@@ -39,3 +39,10 @@ evals/local-inference-quality/sweep-*.ts
 # Distillation E2E harness — run artifacts and extraction cache (never commit)
 evals/distillation-e2e/runs/
 evals/distillation-e2e/.cache/
+
+# Understand-Anything knowledge graph: commit the durable artifacts
+# (knowledge-graph.json, fingerprints.json, meta.json) so teammates skip
+# the pipeline; ignore ephemeral pipeline state.
+# See: https://github.com/Lum1104/Understand-Anything
+.understand-anything/intermediate/
+.understand-anything/tmp/

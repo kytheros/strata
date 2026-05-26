@@ -1,0 +1,33 @@
+# .understandignore — patterns for files/dirs to exclude from analysis
+# Scope: everything except massive data directories and cached run output.
+
+# --- Massive data directories ---
+templates/aws/
+benchmarks/locomo/
+benchmarks/longmemeval/
+
+# --- Eval fixtures / cached runs (data, not code) ---
+evals/distillation-e2e/fixtures/
+evals/distillation-e2e/runs/
+evals/distillation-e2e/.cache/
+evals/local-inference-quality/probe-*.ts
+evals/local-inference-quality/sweep-*.ts
+evals/local-inference-quality/runs/
+evals/local-inference-quality/.cache/
+evals/community-recall-tir-qdp/runs/
+evals/npc-narrative-integrity/runs/
+evals/npc-recall-tir-qdp/runs/
+
+# --- Autoresearch run output ---
+autoresearch/**/runs/
+autoresearch/**/.cache/
+
+# --- Generated / cached files ---
+*.tsbuildinfo
+.env
+.work/
+*.db
+
+# --- Claude/plugin metadata (not source) ---
+.claude/
+.claude-plugin/
