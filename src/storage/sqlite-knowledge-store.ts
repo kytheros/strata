@@ -866,6 +866,16 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
       params.push(escapeLike(options.search));
     }
 
+    if (options.sinceMs !== undefined && isFinite(options.sinceMs) && options.sinceMs > 0) {
+      conditions.push("k.timestamp >= ?");
+      params.push(options.sinceMs);
+    }
+
+    if (options.sessionId) {
+      conditions.push("k.session_id = ?");
+      params.push(options.sessionId);
+    }
+
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     let orderBy: string;

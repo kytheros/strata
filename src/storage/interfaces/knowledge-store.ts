@@ -32,6 +32,10 @@ export interface KnowledgeListOptions {
   type?: string;
   project?: string;
   search?: string;
+  /** Filter to entries whose timestamp is >= sinceMs (epoch ms). Set 0 or omit to disable. */
+  sinceMs?: number;
+  /** Filter to entries whose session_id matches exactly. */
+  sessionId?: string;
   sort?: "newest" | "oldest" | "importance";
   limit: number;
   offset: number;
