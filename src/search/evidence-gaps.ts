@@ -166,6 +166,8 @@ export function listGaps(db: Database.Database, args: {
   user?: string;
   status?: "open" | "resolved" | "all";
   minOccurrences?: number;
+  /** Filter to gaps whose occurred_at is >= sinceMs (epoch ms). 0 or omitted disables. */
+  sinceMs?: number;
   limit?: number;
 }): EvidenceGap[] {
   const conditions: string[] = [];
@@ -192,6 +194,11 @@ export function listGaps(db: Database.Database, args: {
   if (args.minOccurrences && args.minOccurrences > 1) {
     conditions.push("occurrence_count >= ?");
     params.push(args.minOccurrences);
+  }
+
+  if (args.sinceMs !== undefined && isFinite(args.sinceMs) && args.sinceMs > 0) {
+    conditions.push("occurred_at >= ?");
+    params.push(args.sinceMs);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
