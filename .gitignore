@@ -29,6 +29,8 @@ benchmarks/longmemeval/*
 # them allows the side-by-side turn-lane result to appear in CI and code review.
 !benchmarks/longmemeval/retrieve.ts
 !benchmarks/longmemeval/run-benchmark.ts
+# B2 KU-gated turn-lane fusion (spec 2026-05-26-b2-ku-fusion-design).
+!benchmarks/longmemeval/ku-fusion.ts
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
