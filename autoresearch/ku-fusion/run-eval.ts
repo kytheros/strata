@@ -78,7 +78,13 @@ function main() {
   console.log(`\nRunning: ${cmd}\n`);
   execSync(cmd, {
     stdio: "inherit",
-    env: { ...process.env, STRATA_KU_FUSION_MODE: mode },
+    env: {
+      ...process.env,
+      STRATA_KU_FUSION_MODE: mode,
+      // Use gemini-2.5-flash as the answer model (spec §6.3) unless overridden.
+      // Matches the 2026-03-27 500Q baseline model selection.
+      LONGMEMEVAL_ANSWER_MODEL: process.env.LONGMEMEVAL_ANSWER_MODEL ?? "gemini-2.5-flash",
+    },
     cwd: join(__dirname, "../.."),
     shell: process.platform === "win32" ? "cmd.exe" : true,
   });
