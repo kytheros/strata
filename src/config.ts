@@ -328,6 +328,30 @@ export const CONFIG = {
     migrationVerifyThreshold: 0.99,
   },
 
+  // Benchmark-only fusion experiments. Default off everywhere — these
+  // settings only matter when the LongMemEval benchmark / autoresearch
+  // eval explicitly opts in. Production search paths never read them.
+  benchmark: {
+    /**
+     * KU-gated turn-lane fusion (spec 2026-05-26-b2-ku-fusion-design).
+     *
+     *   "off"    — no fusion. Chunk-lane SearchResult[] returned as-is.
+     *              Production-equivalent default.
+     *   "append" — M1: turn-lane sessions not in chunk-lane top-20 get
+     *              their chunks appended (up to `maxAppend` extras).
+     *   "rrf"    — M2: RRF-fuse chunk-lane and turn-lane ranks; re-sort
+     *              the combined SearchResult[]; keep top (20 + maxAppend).
+     *
+     * Override via STRATA_KU_FUSION_MODE env var for one-off eval runs.
+     */
+    kuFusion: {
+      mode: (process.env.STRATA_KU_FUSION_MODE as "off" | "append" | "rrf") ?? "off",
+      maxAppend: 5,
+      widerNetLimit: 100,
+      rrfK: 60,
+    },
+  },
+
   // Embeddings model configuration
   embeddings: {
     /** Model for text embeddings (conversation chunks, knowledge entries) */
