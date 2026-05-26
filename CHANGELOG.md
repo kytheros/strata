@@ -7,22 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **Turn-lane retrieval now lives in `SqliteSearchEngine`.** `engine.searchTurns(query, opts)` composes `KnowledgeTurnStore.searchByQuery` with the classifier-gated `applyTurnRecencyBoost`, mirroring how `searchAsync` / `searchSessionLevel` compose chunk-lane retrieval. `setKnowledgeTurnStore(store)` lazy-injects the turn store (same pattern as `setEventStore`). Production callers (`src/tools/search-history.ts`, the recency-weighted strategy in `evals/distillation-e2e/lib/retrieval-strategies.ts`) migrated to the new API; the inline `applyTurnRecencyBoost` block in `search-history.ts` is gone. Spec: `specs/2026-05-25-unified-turn-lane-surface-design.md`.
-- **`KnowledgeTurnSearchOptions.forceBoost?: boolean`** (new optional field). When set, the engine applies the boost unconditionally (still gated by `CONFIG.search.turnRecencyBoost.enabled`). Replaces the old in-code `applyTurnRecencyBoost(..., { force: true })` callsite.
-- **`LongMemEval benchmark` retrieves through the turn lane too.** `benchmarks/longmemeval/retrieve.ts` now calls `engine.searchTurns(...)` alongside the existing session-level retrieval (B3 — side-by-side). The new `RetrievalResult.turnRecallAtK?: number` field surfaces in the summary table when populated. The headline 81.08% scoring path is unchanged.
-
-### Security
-
-- **Refreshed all 4 `templates/aws/**/package-lock.json` files** to clear HIGH and CRITICAL upstream advisories that were shipping inside the `strata-mcp` tarball (Socket.dev visibility). Affected chains: `fast-xml-parser` (`GHSA-m7jm-9gc2-mpf2` + DoS variants, via `@aws-sdk/core`), Next.js middleware auth bypass (`CVE-2025-29927`), Vitest WebSocket CSWSH RCE (`CVE-2025-24964`), Playwright SSL bypass (`GHSA-7mvr-c777-76hp`), `@smithy/config-resolver` region-defense fix. AWS SDK clients bumped `3.682.0 → ^3.1053.0`.
-- **`templates/aws/services/example-agent/app/` now resolves `next@^16.2.6`.** Scaffold users coming from Next.js 14 should review the 14→15 and 15→16 upgrade guides before deploying. Accompanying transitive bumps: `eslint 8 → ^9.39.4`, `vitest 2 → ^4.1.7`. (Two `postcss` moderate advisories remain in the chain; they clear when Next.js 16.3.0+ lands and do not trigger the HIGH+ gate.)
-- **Refreshed root `package-lock.json`** to bump `qs 6.15.0 → 6.15.2` (`GHSA-q8mj-m7cp-5q26` stringify DoS), `ws 8.18.0 → 8.20.1` (`GHSA-58qx-3vcg-4xpx` uninit memory disclosure, via `miniflare`). Dev transitives only.
+## [2.3.0] - 2026-05-26
 
 ### Added
 
+- **Multi-tenant admin endpoint `/admin/tenants`** for programmatic user provisioning on the multi-tenant HTTP transport. Token-gated via `STRATA_ADMIN_TOKEN`; supports list/create/delete operations.
+- **Per-tenant rate limiting** on the multi-tenant HTTP transport — 60 requests per 60-second window per tenant by default, configurable. Returns 429 with `Retry-After` when exceeded.
+- **Canonical project slug normalization** in storage. New `projects` table holds canonical slugs; `canonicalProject(name)` normalizes display-name → slug deterministically; `listCanonicalSessions` UNION helper enumerates sessions across legacy + canonical slugs; backfill migration runs once on existing databases. Eliminates duplicate project rows that previously cropped up from minor display-name variants ("My Repo" vs "my-repo").
+- **`deriveHealth` composite health checks** in storage — five thresholded probes (sessions present, knowledge populated, recent activity, gap rate, embedding coverage). Returns an overall status (`ok` / `warn` / `err`) plus per-check breakdown for dashboard/CLI display.
+- **`engine.searchTurns(query, opts)` and `setKnowledgeTurnStore(store)`** on `SqliteSearchEngine`. Turn-lane retrieval now lives in the search engine, mirroring how `searchAsync` / `searchSessionLevel` / `setEventStore` work for chunk-lane. `engine.searchTurns` composes `KnowledgeTurnStore.searchByQuery` with the classifier-gated `applyTurnRecencyBoost` so every production caller exercises the boost from one place. Spec: `specs/2026-05-25-unified-turn-lane-surface-design.md`.
+- **`KnowledgeTurnSearchOptions.forceBoost?: boolean`** (new optional field). When set, the engine applies the boost unconditionally (still gated by `CONFIG.search.turnRecencyBoost.enabled`). Replaces the old in-code `applyTurnRecencyBoost(..., { force: true })` callsite in `evals/distillation-e2e`.
+- **Existential question classifier** — `isExistentialQuestion(q)` matches `"Is X a/an/the Y?"` shapes and feeds into the composite `isTemporalCurrentStateQuestion`. Triggers recency-dominant ordering on grammatically-present-tense factual queries that don't have explicit temporal markers.
+- **Turn-lane search ranker improvements** — within-session speaker-prefer (user > assistant > system), short-session DESC tiebreaker when ≤3 user hits and the query isn't historical/duration, per-session top-5 cap with overflow demotion. Lifted `autoresearch-turn-lane-ranking` from 22/30 → 28/30.
+- **`autoresearch-turn-lane-ranking`** AutoResearch target — 15-fixture frozen eval gating the four ranker experiments above. Drives one-variable-at-a-time tuning.
+- **Temporal answer-prompt with `NEWEST`/`older` markers** in the LongMemEval benchmark answer-generation path. Annotates retrieved context so the answer model can distinguish "current state" from earlier mentions; system-prompt addendum codifies the rule.
+- **LongMemEval turn-lane retrieval (side-by-side, B3)**. `benchmarks/longmemeval/retrieve.ts` now calls `engine.searchTurns(...)` alongside the existing session-level retrieval; new `RetrievalResult.turnRecallAtK?: number` field surfaces in the summary table when populated. The 81.08% headline scoring path is unchanged.
 - **`scripts/audit-all-lockfiles.ts`** — runs `npm audit --audit-level=high` against every tracked `package-lock.json` in the repo (root + `templates/**`), exits non-zero on any HIGH+ advisory. Defends against the failure mode where `npm audit` only sees the root lockfile and lets vulnerable transitives ship inside `templates/`. Supports `--skip <path>` for explicitly allowlisted lockfiles.
 - **Lockfile gate wired into `prepublishOnly` (`audit:all-lockfiles` script) and `.husky/pre-push`.** Replaces the prior single-project `npm audit` invocation. Pre-push and publish now block on any HIGH+ advisory in any tracked lockfile, not just the root project's.
+- **Semgrep rule `hardcoded-secret-in-cli-args`** in `.semgrep/custom-rules.yml`. Closes the coverage gap where the existing `hardcoded-secret-in-config` rule misses credentials embedded as CLI arguments inside JSON arrays (the `"--access-token=sbp_..."` shape used by `.mcp.json` MCP server entries).
+
+### Changed
+
+- **`CONFIG.search.turnRecencyBoost.enabled` defaults to `true`.** The four turn-lane experiments (speaker-prefer, short-session DESC, existential classifier, per-session cap) now fire on current-state temporal queries by default. Set to `false` to revert to pre-2.3.0 ordering.
+- **Production callers migrated to `engine.searchTurns`.** `src/tools/search-history.ts` no longer calls `turnStore.searchByQuery` + `applyTurnRecencyBoost` inline — single `engine.searchTurns(...)` call. The recency-weighted strategy in `evals/distillation-e2e/lib/retrieval-strategies.ts` uses `engine.searchTurns({ forceBoost: true })` instead of the direct `applyTurnRecencyBoost(..., { force: true })` call.
+- **`templates/aws/services/example-agent/app/` now resolves `next@^16.2.6`** (was 14.2.18). Scaffold users coming from Next.js 14 should review the 14→15 and 15→16 upgrade guides before deploying. Accompanying transitive bumps: `eslint 8 → ^9.39.4`, `vitest 2 → ^4.1.7`. (Two `postcss` moderate advisories remain in the chain; they clear when Next.js 16.3.0+ lands and do not trigger the HIGH+ gate.)
+
+### Security
+
+- **Refreshed all 4 `templates/aws/**/package-lock.json` files** to clear HIGH and CRITICAL upstream advisories that were shipping inside the `strata-mcp` tarball (Socket.dev visibility). Affected chains: `fast-xml-parser` (`GHSA-m7jm-9gc2-mpf2` + DoS variants, via `@aws-sdk/core`), Next.js middleware auth bypass (`CVE-2025-29927`), Vitest WebSocket CSWSH RCE (`CVE-2025-24964`), Playwright SSL bypass (`GHSA-7mvr-c777-76hp`), `@smithy/config-resolver` region-defense fix. AWS SDK clients bumped `3.682.0 → ^3.1053.0`. Spec: `specs/2026-05-25-unified-turn-lane-surface-design.md`.
+- **Refreshed root `package-lock.json`** to bump `qs 6.15.0 → 6.15.2` (`GHSA-q8mj-m7cp-5q26` stringify DoS), `ws 8.18.0 → 8.20.1` (`GHSA-58qx-3vcg-4xpx` uninit memory disclosure, via `miniflare`). Dev transitives only.
+
+### Fixed
+
+- **`autoresearch/search-retrieval/run-eval-hybrid.ts` now actually runs end-to-end.** Unawaited `store.add()` Promise had been crashing SQLite since 2026-03-29; hybrid eval reports 30/30 verified for the first time. Use this script (not `run-eval.ts`) as the canonical hybrid ceiling.
+- **`runCli` test helper hardened** against late-suite Windows process churn — default subprocess timeout bumped 15s → 60s, single retry on exit code `0xC0000002` (STATUS_NOT_IMPLEMENTED). Addresses occasional CLI test flake on the Windows runner.
 
 ## [2.2.2] - 2026-05-11
 
