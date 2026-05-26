@@ -130,5 +130,76 @@ export function rrfFuse(
   maxAppend: number,
   rrfK: number,
 ): SearchResult[] {
-  throw new Error("not implemented");
+  // Build session-level ranks for both lanes
+  const chunkSessionsOrdered = chunkLaneSessions(chunkTop20, ingested);
+  const turnSessionsOrdered = turnLaneSessions(turnHits, ingested);
+
+  const chunkRankByLme = new Map<string, number>();
+  chunkSessionsOrdered.forEach((s, i) => chunkRankByLme.set(s, i + 1));
+  const turnRankByLme = new Map<string, number>();
+  turnSessionsOrdered.forEach((s, i) => turnRankByLme.set(s, i + 1));
+
+  // Union of LongMemEval session IDs from both lanes
+  const allLmeSessions = new Set<string>([
+    ...chunkSessionsOrdered,
+    ...turnSessionsOrdered,
+  ]);
+
+  // RRF score per session
+  const rrfByLme = new Map<string, number>();
+  for (const lme of allLmeSessions) {
+    const cr = chunkRankByLme.get(lme);
+    const tr = turnRankByLme.get(lme);
+    let s = 0;
+    if (cr !== undefined) s += 1 / (rrfK + cr);
+    if (tr !== undefined) s += 1 / (rrfK + tr);
+    rrfByLme.set(lme, s);
+  }
+
+  // Order sessions by RRF score desc, tiebreak by chunk-lane rank asc
+  // (sessions only in turn-lane get effectively-infinite chunk rank → fall to back of ties).
+  const orderedLme = [...allLmeSessions].sort((a, b) => {
+    const sa = rrfByLme.get(a)!;
+    const sb = rrfByLme.get(b)!;
+    if (sa !== sb) return sb - sa;
+    const ca = chunkRankByLme.get(a) ?? Number.POSITIVE_INFINITY;
+    const cb = chunkRankByLme.get(b) ?? Number.POSITIVE_INFINITY;
+    return ca - cb;
+  });
+
+  // Pick the best chunk per session from the wider net (or synth from turn hit)
+  const chunksByLmeSession = new Map<string, SearchResult[]>();
+  for (const c of widerNetChunks) {
+    const lme = toLmeSessionId(c.sessionId, ingested);
+    if (!lme) continue;
+    const arr = chunksByLmeSession.get(lme) ?? [];
+    arr.push(c);
+    chunksByLmeSession.set(lme, arr);
+  }
+
+  const out: SearchResult[] = [];
+  const cap = 20 + maxAppend;
+  for (const lme of orderedLme) {
+    if (out.length >= cap) break;
+    const chunks = chunksByLmeSession.get(lme);
+    if (chunks && chunks.length > 0) {
+      const best = chunks.reduce((a, b) => (a.score >= b.score ? a : b));
+      out.push(best);
+    } else {
+      const hit = turnHits.find(
+        (h) => toLmeSessionId(h.row.sessionId, ingested) === lme,
+      );
+      if (!hit) continue;
+      out.push({
+        sessionId: hit.row.sessionId,
+        project: hit.row.project ?? "",
+        text: hit.row.content,
+        score: hit.score,
+        confidence: Math.min(hit.score, 1),
+        timestamp: hit.row.createdAt,
+      } as SearchResult);
+    }
+  }
+
+  return out;
 }
