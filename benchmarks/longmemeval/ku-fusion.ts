@@ -67,7 +67,51 @@ export function appendUniqueByLane(
   ingested: IngestedQuestion,
   maxAppend: number,
 ): SearchResult[] {
-  throw new Error("not implemented");
+  const chunkSessions = new Set(chunkLaneSessions(chunkTop20, ingested));
+  const turnSessions = turnLaneSessions(turnHits, ingested);
+
+  // Build a quick lookup: LME session ID → list of chunks from widerNet
+  const chunksByLmeSession = new Map<string, SearchResult[]>();
+  for (const c of widerNetChunks) {
+    const lme = toLmeSessionId(c.sessionId, ingested);
+    if (!lme) continue;
+    const arr = chunksByLmeSession.get(lme) ?? [];
+    arr.push(c);
+    chunksByLmeSession.set(lme, arr);
+  }
+
+  const appended: SearchResult[] = [];
+  const extrasUsed = new Set<string>();
+  for (const lme of turnSessions) {
+    if (chunkSessions.has(lme) || extrasUsed.has(lme)) continue;
+    if (appended.length >= maxAppend) break;
+    extrasUsed.add(lme);
+
+    const chunksForSession = chunksByLmeSession.get(lme);
+    if (chunksForSession && chunksForSession.length > 0) {
+      // Use the highest-scored chunk from the wider net for this session.
+      const best = chunksForSession.reduce((a, b) => (a.score >= b.score ? a : b));
+      appended.push(best);
+    } else {
+      // Fallback: synthesize a SearchResult from the matching turn hit so
+      // the session enters the answer context even when chunk-lane has no
+      // representation for it.
+      const hit = turnHits.find(
+        (h) => toLmeSessionId(h.row.sessionId, ingested) === lme,
+      );
+      if (!hit) continue; // defensive — turnSessions came from turnHits, so this shouldn't happen
+      appended.push({
+        sessionId: hit.row.sessionId,
+        project: hit.row.project ?? "",
+        text: hit.row.content,
+        score: hit.score,
+        confidence: Math.min(hit.score, 1),
+        timestamp: hit.row.createdAt,
+      } as SearchResult);
+    }
+  }
+
+  return [...chunkTop20, ...appended];
 }
 
 /**
