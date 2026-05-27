@@ -42,6 +42,7 @@ benchmarks/longmemeval/providers/*
 !benchmarks/longmemeval/providers/provider-registry.ts
 !benchmarks/longmemeval/providers/oai-compatible.ts
 !benchmarks/longmemeval/providers/ollama-bench.ts
+!benchmarks/longmemeval/answer.ts
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
