@@ -31,6 +31,17 @@ benchmarks/longmemeval/*
 !benchmarks/longmemeval/run-benchmark.ts
 # B2 KU-gated turn-lane fusion (spec 2026-05-26-b2-ku-fusion-design).
 !benchmarks/longmemeval/ku-fusion.ts
+# Multi-model provider abstraction (spec 2026-05-27-benchmark-multi-model-provider-design).
+# provider-factory.ts, openai.ts, anthropic.ts already live here; committing the full
+# providers/ directory so new provider classes land in version control.
+!benchmarks/longmemeval/providers/
+benchmarks/longmemeval/providers/*
+!benchmarks/longmemeval/providers/provider-factory.ts
+!benchmarks/longmemeval/providers/openai.ts
+!benchmarks/longmemeval/providers/anthropic.ts
+!benchmarks/longmemeval/providers/provider-registry.ts
+!benchmarks/longmemeval/providers/oai-compatible.ts
+!benchmarks/longmemeval/providers/ollama-bench.ts
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
