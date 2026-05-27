@@ -54,6 +54,13 @@ export interface SearchOptions {
   user?: string;
   /** Consuming model name for retrieval routing (e.g., 'gemini-2.0-flash', 'gpt-4o') */
   model?: string;
+  /**
+   * When true, skip the vector-similarity channel entirely (do not call
+   * embedder.embed). Used by the LongMemEval benchmark's `--no-vector`
+   * flag to run FTS5-only without incurring embedding API costs.
+   * Default: false (vector lane runs when embedder + vectorSearch present).
+   */
+  skipVector?: boolean;
 }
 
 /** Attach normalized confidence (0-1) to ranked results. Top result = 1.0. */
@@ -284,7 +291,7 @@ export class SqliteSearchEngine {
     }
 
     // Channel 2: Vector similarity (optional)
-    if (this.embedder && this.vectorSearch) {
+    if (this.embedder && this.vectorSearch && !options.skipVector) {
       try {
         const queryVec = await this.embedder.embed(text, "CODE_RETRIEVAL_QUERY");
         const project = filters.project || options.currentProject || "";
