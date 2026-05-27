@@ -886,10 +886,17 @@ export async function generateAnswer(
   // Build completion options. For providers that support system/user split
   // (benchmark OpenAI/Anthropic providers), pass the system prompt via options.
   // The production LlmProvider.complete() ignores unknown options gracefully.
+  //
+  // Timeout is provider-aware: local Ollama models (and some OAI-compat
+  // endpoints like vLLM/LMStudio) need significantly more time than
+  // frontier APIs. A 14B model cold-start + 20-40k input tokens + 500
+  // output tokens can run 2-5 minutes on Q1. Frontier providers respond
+  // in <30s even on long contexts.
+  const isLocalOrCompat = provider.name === "ollama" || provider.name === "oai-compatible";
   const completionOptions: Record<string, unknown> = {
     maxTokens,
     temperature,
-    timeoutMs: 60000,
+    timeoutMs: isLocalOrCompat ? 600000 : 60000,
   };
 
   if (structured.system) {
