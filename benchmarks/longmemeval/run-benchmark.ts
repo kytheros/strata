@@ -97,6 +97,7 @@ function parseArgs(): {
   agentLoop: boolean;
   maxIterations: number;
   plannedSearch: boolean;
+  noVector: boolean;
 } {
   const args = process.argv.slice(2);
 
@@ -140,11 +141,12 @@ function parseArgs(): {
   const twoPass = args.includes("--two-pass");
   const agentLoop = args.includes("--agent-loop");
   const plannedSearch = args.includes("--planned-search");
+  const noVector = args.includes("--no-vector");
 
   const maxIterationsArg = args.find((a) => a.startsWith("--max-iterations="));
   const maxIterations = maxIterationsArg ? parseInt(maxIterationsArg.split("=")[1], 10) : 8;
 
-  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch };
+  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector };
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +272,8 @@ function printAccuracyReport(
 
 async function main() {
   loadEnv();
-  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch } = parseArgs();
+  const args = parseArgs();
+  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector } = args;
 
   const thinkingTag = thinkingBudget ? `, thinking=${thinkingBudget}` : "";
   const proTag = pro ? `, pro, knowledgeLimit=${knowledgeLimit}` : "";
@@ -331,6 +334,11 @@ async function main() {
   }
 
   // Phase 1: Retrieval
+  if (noVector) {
+    console.log(
+      "\n*** --no-vector: FTS5-only retrieval — not directly comparable to the published 81.08% baseline (which used hybrid FTS5+vector).\n"
+    );
+  }
   console.log("\n--- Phase 1: Retrieval ---\n");
   const retrievalResults: RetrievalResult[] = [];
   const answerResults: AnswerResult[] = [];
@@ -383,7 +391,7 @@ async function main() {
     }
 
     // Run retrieval (session-level DCG scoring when --session-scoring flag is set)
-    const retrieval = await retrieveQuestion(question, ingested, undefined, sessionScoring);
+    const retrieval = await retrieveQuestion(question, ingested, undefined, { sessionScoring, noVector });
     retrievalResults.push(retrieval);
 
     const recallStr = `R@5=${retrieval.evidenceRecall5.toFixed(2)} R@10=${retrieval.evidenceRecall10.toFixed(2)} MRR=${retrieval.mrr.toFixed(2)}`;

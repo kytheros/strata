@@ -193,9 +193,12 @@ export async function retrieveQuestion(
   question: LongMemQuestion,
   ingested: IngestedQuestion,
   precomputedResults?: SearchResult[],
-  sessionScoring = false
+  opts: { sessionScoring?: boolean; noVector?: boolean } | boolean = {}
 ): Promise<RetrievalResult & { searchResults: SearchResult[] }> {
   const start = performance.now();
+  // Back-compat: accept legacy positional boolean sessionScoring
+  const sessionScoring = typeof opts === "boolean" ? opts : (opts.sessionScoring ?? false);
+  const noVector = typeof opts === "boolean" ? false : (opts.noVector ?? false);
 
   // Run turn-lane retrieval up-front so the B2 KU fusion path can use it
   // without a second searchTurns call. This also feeds the diagnostic
@@ -220,7 +223,7 @@ export async function retrieveQuestion(
   } else {
     results = await ingested.searchEngine.searchAsync(
       question.question,
-      { limit: 20 }
+      { limit: 20, skipVector: noVector }
     );
   }
 
@@ -240,7 +243,7 @@ export async function retrieveQuestion(
     // session that wasn't in the top-20.
     const widerNet = await ingested.searchEngine.searchAsync(
       question.question,
-      { limit: CONFIG.benchmark.kuFusion.widerNetLimit }
+      { limit: CONFIG.benchmark.kuFusion.widerNetLimit, skipVector: noVector }
     );
 
     if (kuMode === "append") {
