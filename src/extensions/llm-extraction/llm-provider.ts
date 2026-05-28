@@ -13,6 +13,17 @@ export interface CompletionOptions {
   timeoutMs?: number;
   /** Request JSON output from the model (Gemini: responseMimeType, OpenAI: response_format) */
   jsonMode?: boolean;
+  /**
+   * Ollama-only: how long to keep the model loaded after this request.
+   * Accepts duration strings ("5m", "1h", "24h") or "-1" for forever.
+   * Default: undefined (Ollama uses its server-side default of 5 minutes,
+   * or the OLLAMA_KEEP_ALIVE env var if set).
+   *
+   * Setting this to "-1" or a long duration ("24h") prevents the model
+   * from being evicted between calls — critical for long benchmark runs
+   * where any single Q exceeding 5 min would force a reload + likely fail.
+   */
+  keepAlive?: string;
 }
 
 /** Result from a completion call, with optional metadata */
@@ -62,7 +73,7 @@ export class OllamaProvider implements LlmProvider {
   }
 
   async complete(prompt: string, options: CompletionOptions = {}): Promise<string> {
-    const { temperature = 0.2, timeoutMs = 30000, maxTokens, jsonMode } = options;
+    const { temperature = 0.2, timeoutMs = 30000, maxTokens, jsonMode, keepAlive } = options;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -90,9 +101,22 @@ export class OllamaProvider implements LlmProvider {
         requestBody.format = "json";
       }
 
+      // keep_alive precedence: explicit option > OLLAMA_KEEP_ALIVE env var > Ollama default (5m).
+      // For long-running benchmark loops, set this to "-1" or "24h" to prevent
+      // the model from being evicted mid-run, which causes "fetch failed" on
+      // the next request when node tries to reuse a stale keep-alive connection.
+      const effectiveKeepAlive = keepAlive ?? process.env.OLLAMA_KEEP_ALIVE;
+      if (effectiveKeepAlive !== undefined) {
+        requestBody.keep_alive = effectiveKeepAlive;
+      }
+
       const response = await fetch(`${this.baseUrl}/api/generate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // Connection: close forces a new TCP connection per request.
+        // Without this, node's fetch reuses keep-alive connections that
+        // Ollama may have already closed on its side (idle timeout, model
+        // swap), surfacing as ECONNRESET / "fetch failed" on the next call.
+        headers: { "Content-Type": "application/json", "Connection": "close" },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });

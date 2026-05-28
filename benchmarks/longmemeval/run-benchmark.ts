@@ -333,6 +333,44 @@ async function main() {
     console.log(`Reranker:      ${rerankerInstance.name}`);
   }
 
+  // Pre-warm Ollama: load the model into VRAM with keep_alive=-1 before the
+  // benchmark loop starts. Avoids two failure modes:
+  //   1. Cold-start on Q1 timing out (model load from disk to VRAM is ~5-15s
+  //      for a 9 GB model, on top of the actual inference time).
+  //   2. Mid-run evictions — without keep_alive, Ollama's default 5-min
+  //      timeout will unload the model between any pair of Qs that has a
+  //      gap >5 min, causing the next request to "fetch failed".
+  if (answerProvider && answerProvider.provider.name === "ollama") {
+    const ollamaModel = answerProvider.modelName;
+    const ollamaHost = process.env.OLLAMA_HOST ?? "http://localhost:11434";
+    const keepAlive = process.env.LONGMEMEVAL_OLLAMA_KEEP_ALIVE ?? "24h";
+    console.log(`Pre-warming Ollama (${ollamaModel}) with keep_alive=${keepAlive}...`);
+    const prewarmStart = performance.now();
+    try {
+      const resp = await fetch(`${ollamaHost}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Connection": "close" },
+        body: JSON.stringify({
+          model: ollamaModel,
+          prompt: "hi",
+          stream: false,
+          keep_alive: keepAlive,
+          options: { num_predict: 1 },
+        }),
+      });
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => "");
+        console.warn(`  ⚠ Pre-warm returned ${resp.status}: ${body.slice(0, 200)}`);
+      } else {
+        const elapsed = ((performance.now() - prewarmStart) / 1000).toFixed(1);
+        console.log(`  ✓ Pre-warmed in ${elapsed}s`);
+      }
+    } catch (err) {
+      console.warn(`  ⚠ Pre-warm failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`    Continuing anyway — first real Q will trigger model load.`);
+    }
+  }
+
   // Phase 1: Retrieval
   if (noVector) {
     console.log(

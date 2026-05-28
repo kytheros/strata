@@ -899,6 +899,18 @@ export async function generateAnswer(
     timeoutMs: isLocalOrCompat ? 600000 : 60000,
   };
 
+  // Ollama: keep the model loaded across the entire benchmark run.
+  // Without this, Ollama's default 5-minute keep-alive will evict the
+  // model between Qs that take longer than 5 min (which is common for
+  // 14B+ models on long context). The next request then fails as
+  // "fetch failed" while Ollama reloads.
+  if (provider.name === "ollama") {
+    // "24h" is plenty for any single benchmark run. Ollama rejects "-1" as
+    // a string (wants a duration with unit or numeric -1); 24h covers our
+    // worst-case run wall and is easier than handling the type variance.
+    completionOptions.keepAlive = process.env.LONGMEMEVAL_OLLAMA_KEEP_ALIVE ?? "24h";
+  }
+
   if (structured.system) {
     completionOptions.systemPrompt = structured.system;
   }
