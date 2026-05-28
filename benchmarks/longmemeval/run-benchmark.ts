@@ -572,8 +572,12 @@ async function main() {
         process.stdout.write(` [plan:${psResult.plan.questionType},${psResult.sessionsUsed}s,${psResult.eventsUsed}e]`);
       } else if (agentLoop) {
         // Agent loop mode: model calls search tools iteratively
-        // Route to Gemini or OpenAI agent loop based on answer model provider
-        const isGemini = answerProvider!.modelName.startsWith("gemini");
+        // Route to Gemini or OpenAI agent loop based on answer model provider.
+        // Both AI Studio ('gemini-...') and Vertex ('vertex:gemini-...') identifiers
+        // are part of the Gemini family for agent-loop dispatch.
+        const isGemini =
+          answerProvider!.modelName.startsWith("gemini") ||
+          answerProvider!.modelName.startsWith("vertex:gemini");
 
         if (isGemini) {
           const geminiKey = process.env.GEMINI_API_KEY;
