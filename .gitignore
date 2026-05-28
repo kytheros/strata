@@ -43,6 +43,11 @@ benchmarks/longmemeval/providers/*
 !benchmarks/longmemeval/providers/oai-compatible.ts
 !benchmarks/longmemeval/providers/ollama-bench.ts
 !benchmarks/longmemeval/answer.ts
+# Agent loop variants — load-bearing for the LongMemEval distillation flywheel
+# (spec 2026-05-28-reasoning-trace-capture-design.md). run-benchmark.ts already
+# imports these; promoting them aligns the tracked surface with the module graph.
+!benchmarks/longmemeval/agent-loop.ts
+!benchmarks/longmemeval/gemini-agent-loop.ts
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
