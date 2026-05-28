@@ -18,6 +18,7 @@ import type { LlmProvider } from "../../../src/extensions/llm-extraction/llm-pro
 import { AnthropicProvider } from "./anthropic.js";
 import { OpenAIProvider } from "./openai.js";
 import { GeminiProvider } from "../../../src/extensions/llm-extraction/gemini-provider.js";
+import { VertexGeminiProvider } from "../../../src/extensions/llm-extraction/vertex-gemini-provider.js";
 import { OaiCompatibleProvider } from "./oai-compatible.js";
 import { createOllamaBenchProvider } from "./ollama-bench.js";
 import { resolveRegistryEntry } from "./provider-registry.js";
@@ -102,6 +103,27 @@ function createProviderFromIdentifier(
   if (identifier.startsWith("ollama:")) {
     const model = identifier.slice("ollama:".length);
     return createOllamaBenchProvider(model);
+  }
+
+  // vertex:<model> — Vertex AI Gemini via Application Default Credentials
+  if (identifier.startsWith("vertex:")) {
+    const projectId = process.env.VERTEX_PROJECT_ID;
+    if (!projectId) {
+      throw new Error(
+        `VERTEX_PROJECT_ID required for vertex: ${purpose} model: ${identifier}. ` +
+          `Set it in .env and run: gcloud auth application-default login`
+      );
+    }
+    const location = process.env.VERTEX_LOCATION;
+    const model = identifier.slice("vertex:".length);
+    return {
+      provider: new VertexGeminiProvider({
+        projectId,
+        ...(location ? { location } : {}),
+        model,
+      }),
+      modelName: identifier,
+    };
   }
 
   // custom:<model> — env-var override
