@@ -392,7 +392,7 @@ function initSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS training_data (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue', 'conflict')),
+      task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue', 'conflict', 'reasoning_tool_call', 'reasoning_final_answer')),
       input_text TEXT NOT NULL,
       output_json TEXT NOT NULL,
       model_used TEXT NOT NULL,
@@ -406,21 +406,25 @@ function initSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_training_created ON training_data(created_at);
   `);
 
-  // Migrate existing training_data tables that lack the 'dialogue' task type OR
-  // the 'conflict' task type (Phase 0 distillation capture expansion).
+  // Migrate existing training_data tables that lack any of:
+  //   'dialogue', 'conflict' (Phase 0 distillation capture expansion)
+  //   'reasoning_tool_call', 'reasoning_final_answer' (agent-loop training pair capture, 2026-05-28)
   const trainingSql = db.prepare(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='training_data'"
   ).get() as { sql: string } | undefined;
   if (
     trainingSql &&
-    (!trainingSql.sql.includes("'dialogue'") || !trainingSql.sql.includes("'conflict'"))
+    (!trainingSql.sql.includes("'dialogue'") ||
+      !trainingSql.sql.includes("'conflict'") ||
+      !trainingSql.sql.includes("'reasoning_tool_call'") ||
+      !trainingSql.sql.includes("'reasoning_final_answer'"))
   ) {
     db.pragma("foreign_keys = OFF");
     const migrateTraining = db.transaction(() => {
       db.exec(`
         CREATE TABLE training_data_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue', 'conflict')),
+          task_type TEXT NOT NULL CHECK(task_type IN ('extraction', 'summarization', 'dialogue', 'conflict', 'reasoning_tool_call', 'reasoning_final_answer')),
           input_text TEXT NOT NULL,
           output_json TEXT NOT NULL,
           model_used TEXT NOT NULL,

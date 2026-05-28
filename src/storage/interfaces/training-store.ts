@@ -19,7 +19,13 @@ export interface ITrainingStore {
 
   /** Get training data rows for export. */
   getTrainingData(
-    taskType: "extraction" | "summarization" | "dialogue" | "conflict",
+    taskType:
+      | "extraction"
+      | "summarization"
+      | "dialogue"
+      | "conflict"
+      | "reasoning_tool_call"
+      | "reasoning_final_answer",
     minQuality?: number,
     limit?: number,
     offset?: number,

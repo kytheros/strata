@@ -13,7 +13,13 @@ import type Database from "better-sqlite3";
 
 /** A training pair ready for insertion */
 export interface TrainingPair {
-  taskType: "extraction" | "summarization" | "dialogue" | "conflict";
+  taskType:
+    | "extraction"
+    | "summarization"
+    | "dialogue"
+    | "conflict"
+    | "reasoning_tool_call"
+    | "reasoning_final_answer";
   inputText: string;
   outputJson: string;
   modelUsed: string;
@@ -175,7 +181,13 @@ export interface TrainingDataRow {
  */
 export function* iterateTrainingData(
   db: Database.Database,
-  taskType: "extraction" | "summarization" | "dialogue" | "conflict",
+  taskType:
+    | "extraction"
+    | "summarization"
+    | "dialogue"
+    | "conflict"
+    | "reasoning_tool_call"
+    | "reasoning_final_answer",
   minQuality: number = 0.7
 ): Generator<TrainingDataRow> {
   const stmt = db.prepare(`

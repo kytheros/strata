@@ -108,7 +108,13 @@ export class PgTrainingStore implements ITrainingStore {
   }
 
   async getTrainingData(
-    taskType: "extraction" | "summarization" | "dialogue" | "conflict",
+    taskType:
+      | "extraction"
+      | "summarization"
+      | "dialogue"
+      | "conflict"
+      | "reasoning_tool_call"
+      | "reasoning_final_answer",
     minQuality: number = 0.7,
     limit: number = 1000,
     offset: number = 0
