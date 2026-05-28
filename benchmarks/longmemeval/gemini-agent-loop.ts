@@ -468,6 +468,13 @@ export async function runGeminiAgentLoop(
     // No function calls — model is done, extract text answer
     if (functionCalls.length === 0 || response.finishReason === "STOP" && functionCalls.length === 0) {
       const answer = textParts.map(p => p.text).join("\n").trim() || "Unable to determine answer.";
+      // Capture the final-answer training pair against the state that produced it.
+      captureBuffer.push({
+        kind: "reasoning_final_answer",
+        messages: contents.map((c) => ({ ...c })),
+        answer,
+        reasoning: null,
+      });
       return {
         answer,
         latencyMs: performance.now() - start,
@@ -477,6 +484,18 @@ export async function runGeminiAgentLoop(
       };
     }
 
+    // Snapshot state and concatenate text parts as the reasoning that
+    // accompanied this batch of functionCall decisions. Snapshot BEFORE
+    // mutating contents so the captured pair has the inputs that led
+    // to the action, not the action itself.
+    const decisionInputContents = contents.map((c) => ({ ...c }));
+    const decisionReasoning =
+      textParts
+        .map((p) => p.text)
+        .filter((t): t is string => typeof t === "string" && t.length > 0)
+        .join("\n")
+        .trim() || null;
+
     // Add model's response to conversation history
     contents.push({ role: "model", parts: response.parts });
 
@@ -485,6 +504,15 @@ export async function runGeminiAgentLoop(
 
     for (const part of functionCalls) {
       const fc = part.functionCall!;
+
+      // Capture (state → reasoning → action) training pair before tool execution.
+      captureBuffer.push({
+        kind: "reasoning_tool_call",
+        messages: decisionInputContents,
+        toolCall: { name: fc.name, args: fc.args },
+        reasoning: decisionReasoning,
+      });
+
       const result = await executeTool(fc.name, fc.args, question, ingested);
 
       toolCallLog.push({
@@ -522,6 +550,14 @@ export async function runGeminiAgentLoop(
     .map(p => p.text)
     .join("\n")
     .trim() || "Unable to determine answer.";
+
+  // Capture the forced-final-answer training pair.
+  captureBuffer.push({
+    kind: "reasoning_final_answer",
+    messages: contents.map((c) => ({ ...c })),
+    answer,
+    reasoning: null,
+  });
 
   return {
     answer,
