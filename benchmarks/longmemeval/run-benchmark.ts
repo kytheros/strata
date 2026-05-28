@@ -580,11 +580,28 @@ async function main() {
           answerProvider!.modelName.startsWith("vertex:gemini");
 
         if (isGemini) {
-          const geminiKey = process.env.GEMINI_API_KEY;
-          if (!geminiKey) throw new Error("--agent-loop with Gemini requires GEMINI_API_KEY");
+          // For vertex: prefix, pull the SDK client off the provider and pass
+          // the bare model name (without 'vertex:') downstream. AI Studio path
+          // still requires GEMINI_API_KEY; Vertex path uses ADC and doesn't.
+          const isVertex = answerProvider!.modelName.startsWith("vertex:");
+          const vertexClient = isVertex
+            ? (answerProvider!.provider as unknown as {
+                getGenaiClient: () => unknown;
+              }).getGenaiClient()
+            : undefined;
+          const geminiKey = process.env.GEMINI_API_KEY ?? "";
+          if (!isVertex && !geminiKey) {
+            throw new Error("--agent-loop with Gemini requires GEMINI_API_KEY (or use vertex: prefix with VERTEX_PROJECT_ID)");
+          }
+          const bareModel = isVertex
+            ? answerProvider!.modelName.slice("vertex:".length)
+            : answerProvider!.modelName;
           const { runGeminiAgentLoop } = await import("./gemini-agent-loop.js");
           const loopResult = await withRetry(
-            () => runGeminiAgentLoop(geminiKey, answerProvider!.modelName, question, ingested, { maxIterations }),
+            () => runGeminiAgentLoop(geminiKey, bareModel, question, ingested, {
+              maxIterations,
+              ...(vertexClient ? { vertexClient: vertexClient as never } : {}),
+            }),
             3,
             8000
           );

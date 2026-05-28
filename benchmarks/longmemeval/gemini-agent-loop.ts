@@ -21,6 +21,7 @@ import { searchEventsFts } from "./benchmark-schema.js";
 import { searchByDateRange } from "./retrieve.js";
 import { deduplicateToSessions, isCountingQuestion, isDurationQuestion } from "./answer.js";
 import type { CapturePair } from "./agent-loop.js";
+import type { MinimalGenAIClient } from "../../src/extensions/llm-extraction/vertex-gemini-provider.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +52,12 @@ interface GeminiContent {
 
 export interface GeminiAgentLoopOptions {
   maxIterations?: number;
+  /**
+   * When provided, the loop calls Vertex AI (via the injected @google/genai
+   * client) instead of the AI Studio HTTP endpoint. The request shape is
+   * identical under the unified SDK — only auth + URL differ.
+   */
+  vertexClient?: MinimalGenAIClient;
 }
 
 export interface GeminiAgentLoopResult {
@@ -326,11 +333,41 @@ async function callGeminiWithTools(
   model: string,
   contents: GeminiContent[],
   systemInstruction: string,
-  tools: GeminiFunctionDeclaration[]
+  tools: GeminiFunctionDeclaration[],
+  vertexClient?: MinimalGenAIClient
 ): Promise<{
   parts: GeminiPart[];
   finishReason: string;
 }> {
+  // Vertex SDK path — identical request shape, different transport.
+  if (vertexClient) {
+    const sdkRequest = {
+      model,
+      contents: contents.map((c) => ({
+        role: c.role,
+        parts: c.parts as Array<{ text: string }>,
+      })),
+      config: {
+        temperature: 1.0,
+        maxOutputTokens: 8192,
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        tools: [{ functionDeclarations: tools }],
+        toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+      },
+    };
+    const sdkResponse = await vertexClient.models.generateContent(
+      sdkRequest as never
+    );
+    const candidate = sdkResponse.candidates?.[0] as
+      | { content?: { parts?: GeminiPart[] }; finishReason?: string }
+      | undefined;
+    return {
+      parts: candidate?.content?.parts || [],
+      finishReason: candidate?.finishReason || "STOP",
+    };
+  }
+
+  // AI Studio path (unchanged).
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const body: Record<string, unknown> = {
@@ -415,7 +452,7 @@ export async function runGeminiAgentLoop(
   ingested: IngestedQuestion,
   options: GeminiAgentLoopOptions = {}
 ): Promise<GeminiAgentLoopResult> {
-  const { maxIterations = 8 } = options;
+  const { maxIterations = 8, vertexClient } = options;
   const procedure = selectProcedure(question.question);
 
   const systemInstruction = [
@@ -458,7 +495,7 @@ export async function runGeminiAgentLoop(
     iterations++;
 
     const response = await callGeminiWithTools(
-      apiKey, model, contents, systemInstruction, questionTools
+      apiKey, model, contents, systemInstruction, questionTools, vertexClient
     );
 
     // Check for function calls in the response
@@ -542,7 +579,7 @@ export async function runGeminiAgentLoop(
 
   // Force final answer — keep tools available but the prompt forces a text response
   const finalResponse = await callGeminiWithTools(
-    apiKey, model, contents, systemInstruction, questionTools
+    apiKey, model, contents, systemInstruction, questionTools, vertexClient
   );
 
   const answer = finalResponse.parts
