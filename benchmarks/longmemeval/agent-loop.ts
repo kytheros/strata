@@ -692,8 +692,16 @@ export async function runAgentLoop(
 
     // Model produced a final text answer (no tool calls)
     if (response.finish_reason === "stop" || !response.tool_calls?.length) {
+      const answer = (response.content || "Unable to determine answer.").trim();
+      // Capture the final-answer training pair against the state that produced it.
+      captureBuffer.push({
+        kind: "reasoning_final_answer",
+        messages: messages.map((m) => ({ ...m })),
+        answer,
+        reasoning: null,
+      });
       return {
-        answer: (response.content || "Unable to determine answer.").trim(),
+        answer,
         latencyMs: performance.now() - start,
         iterations,
         toolCallLog,
@@ -701,6 +709,12 @@ export async function runAgentLoop(
         captureBuffer,
       };
     }
+
+    // Snapshot the state that produced the upcoming tool_call decisions BEFORE
+    // we mutate messages with the assistant turn. This is the (state) half of
+    // the captured (state → reasoning → action) training pair.
+    const decisionInputMessages = messages.map((m) => ({ ...m }));
+    const decisionReasoning = response.content || null;
 
     // Add assistant message with tool calls
     messages.push({
@@ -717,6 +731,14 @@ export async function runAgentLoop(
       } catch {
         args = {};
       }
+
+      // Capture (state → reasoning → action) training pair before tool execution.
+      captureBuffer.push({
+        kind: "reasoning_tool_call",
+        messages: decisionInputMessages,
+        toolCall: { name: toolCall.function.name, args },
+        reasoning: decisionReasoning,
+      });
 
       const result = await executeTool(toolCall.function.name, args, question, ingested);
 
@@ -744,8 +766,16 @@ export async function runAgentLoop(
   totalPromptTokens += finalResponse.usage?.promptTokens ?? 0;
   totalCompletionTokens += finalResponse.usage?.completionTokens ?? 0;
 
+  const forcedAnswer = (finalResponse.content || "Unable to determine answer.").trim();
+  // Capture the forced-final-answer training pair against the state that produced it.
+  captureBuffer.push({
+    kind: "reasoning_final_answer",
+    messages: messages.map((m) => ({ ...m })),
+    answer: forcedAnswer,
+    reasoning: null,
+  });
   return {
-    answer: (finalResponse.content || "Unable to determine answer.").trim(),
+    answer: forcedAnswer,
     latencyMs: performance.now() - start,
     iterations: maxIterations + 1,
     toolCallLog,
