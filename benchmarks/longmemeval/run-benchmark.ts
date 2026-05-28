@@ -695,7 +695,15 @@ async function main() {
       if (captureDb && capturedBuffer && capturedBuffer.length > 0) {
         const judgeVerdict =
           verdict === "CORRECT" || verdict === "INCORRECT" ? verdict : null;
-        persistCaptureBuffer(captureDb, capturedBuffer, judgeVerdict, answerProvider!.modelName);
+        // Strip the 'vertex:' routing prefix when persisting captures so the
+        // training_data row records the model identity ('gemini-2.5-flash'),
+        // not the routing layer. Captures from AI Studio and Vertex paths
+        // become indistinguishable in the corpus — which is the desired shape
+        // for distillation.
+        const captureModelName = answerProvider!.modelName.startsWith("vertex:")
+          ? answerProvider!.modelName.slice("vertex:".length)
+          : answerProvider!.modelName;
+        persistCaptureBuffer(captureDb, capturedBuffer, judgeVerdict, captureModelName);
       }
 
       const ability = questionTypeToAbility(question.question_type);
