@@ -39,6 +39,8 @@ export interface TrainingDataCounts {
   summarization: number;
   dialogue: number;
   conflict: number;
+  reasoning_tool_call: number;
+  reasoning_final_answer: number;
 }
 
 /**
@@ -79,6 +81,8 @@ export function getTrainingDataCount(db: Database.Database): TrainingDataCounts 
     summarization: rows.find((r) => r.task_type === "summarization")?.count ?? 0,
     dialogue: rows.find((r) => r.task_type === "dialogue")?.count ?? 0,
     conflict: rows.find((r) => r.task_type === "conflict")?.count ?? 0,
+    reasoning_tool_call: rows.find((r) => r.task_type === "reasoning_tool_call")?.count ?? 0,
+    reasoning_final_answer: rows.find((r) => r.task_type === "reasoning_final_answer")?.count ?? 0,
   };
 }
 
@@ -96,6 +100,8 @@ export interface TrainingDataStats {
   summarization: TaskStats;
   dialogue: TaskStats;
   conflict: TaskStats;
+  reasoning_tool_call: TaskStats;
+  reasoning_final_answer: TaskStats;
   lastCapturedAt: number | null;  // Unix timestamp (ms) of most recent pair
 }
 
@@ -126,6 +132,8 @@ export function getTrainingDataStats(db: Database.Database): TrainingDataStats {
   const summarizationRow = rows.find((r) => r.task_type === "summarization");
   const dialogueRow = rows.find((r) => r.task_type === "dialogue");
   const conflictRow = rows.find((r) => r.task_type === "conflict");
+  const reasoningToolCallRow = rows.find((r) => r.task_type === "reasoning_tool_call");
+  const reasoningFinalAnswerRow = rows.find((r) => r.task_type === "reasoning_final_answer");
 
   // Get most recent pair timestamp
   const lastRow = db.prepare(`
@@ -156,6 +164,18 @@ export function getTrainingDataStats(db: Database.Database): TrainingDataStats {
       highQuality: conflictRow?.high_quality ?? 0,
       mediumQuality: conflictRow?.medium_quality ?? 0,
       heuristicDiverged: conflictRow?.heuristic_diverged ?? 0,
+    },
+    reasoning_tool_call: {
+      total: reasoningToolCallRow?.total ?? 0,
+      highQuality: reasoningToolCallRow?.high_quality ?? 0,
+      mediumQuality: reasoningToolCallRow?.medium_quality ?? 0,
+      heuristicDiverged: reasoningToolCallRow?.heuristic_diverged ?? 0,
+    },
+    reasoning_final_answer: {
+      total: reasoningFinalAnswerRow?.total ?? 0,
+      highQuality: reasoningFinalAnswerRow?.high_quality ?? 0,
+      mediumQuality: reasoningFinalAnswerRow?.medium_quality ?? 0,
+      heuristicDiverged: reasoningFinalAnswerRow?.heuristic_diverged ?? 0,
     },
     lastCapturedAt: lastRow?.last_at ?? null,
   };

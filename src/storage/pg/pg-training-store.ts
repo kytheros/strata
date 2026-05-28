@@ -48,6 +48,8 @@ export class PgTrainingStore implements ITrainingStore {
       summarization: Number(rows.find((r) => r.task_type === "summarization")?.count ?? 0),
       dialogue: Number(rows.find((r) => r.task_type === "dialogue")?.count ?? 0),
       conflict: Number(rows.find((r) => r.task_type === "conflict")?.count ?? 0),
+      reasoning_tool_call: Number(rows.find((r) => r.task_type === "reasoning_tool_call")?.count ?? 0),
+      reasoning_final_answer: Number(rows.find((r) => r.task_type === "reasoning_final_answer")?.count ?? 0),
     };
   }
 
@@ -73,6 +75,8 @@ export class PgTrainingStore implements ITrainingStore {
     const summarizationRow = rows.find((r) => r.task_type === "summarization");
     const dialogueRow = rows.find((r) => r.task_type === "dialogue");
     const conflictRow = rows.find((r) => r.task_type === "conflict");
+    const reasoningToolCallRow = rows.find((r) => r.task_type === "reasoning_tool_call");
+    const reasoningFinalAnswerRow = rows.find((r) => r.task_type === "reasoning_final_answer");
 
     const { rows: lastRows } = await this.pool.query<{ last_at: string | null }>(
       "SELECT MAX(created_at) as last_at FROM training_data"
@@ -102,6 +106,18 @@ export class PgTrainingStore implements ITrainingStore {
         highQuality: Number(conflictRow?.high_quality ?? 0),
         mediumQuality: Number(conflictRow?.medium_quality ?? 0),
         heuristicDiverged: Number(conflictRow?.heuristic_diverged ?? 0),
+      },
+      reasoning_tool_call: {
+        total: Number(reasoningToolCallRow?.total ?? 0),
+        highQuality: Number(reasoningToolCallRow?.high_quality ?? 0),
+        mediumQuality: Number(reasoningToolCallRow?.medium_quality ?? 0),
+        heuristicDiverged: Number(reasoningToolCallRow?.heuristic_diverged ?? 0),
+      },
+      reasoning_final_answer: {
+        total: Number(reasoningFinalAnswerRow?.total ?? 0),
+        highQuality: Number(reasoningFinalAnswerRow?.high_quality ?? 0),
+        mediumQuality: Number(reasoningFinalAnswerRow?.medium_quality ?? 0),
+        heuristicDiverged: Number(reasoningFinalAnswerRow?.heuristic_diverged ?? 0),
       },
       lastCapturedAt: lastRows[0]?.last_at ? Number(lastRows[0].last_at) : null,
     };
