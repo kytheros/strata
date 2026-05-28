@@ -41,8 +41,11 @@ import { ingestQuestion, closeIngested } from "./ingest.js";
 import { retrieveQuestion, aggregateRetrieval } from "./retrieve.js";
 import { generateAnswer, generateAnswerTwoPass, isCountingQuestion, isDurationQuestion, sleep, withRetry } from "./answer.js";
 import type { PromptVariant } from "./answer.js";
-import type { AgentLoopResult } from "./agent-loop.js";
+import type { AgentLoopResult, CapturePair } from "./agent-loop.js";
 import type { GeminiAgentLoopResult } from "./gemini-agent-loop.js";
+import type DatabaseType from "better-sqlite3";
+import { openDatabase } from "../../src/storage/database.js";
+import { saveTrainingPair } from "../../src/extensions/llm-extraction/training-capture.js";
 import type { PlannedSearchResult } from "./planned-search.js";
 import { judgeAnswer } from "./judge.js";
 import { createAnswerProvider, createJudgeProvider } from "./providers/provider-factory.js";
@@ -53,6 +56,56 @@ import { expandQuery, filterByRelevance } from "./query-expansion.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
+
+/**
+ * Persist a buffer of CapturePairs to the training_data table.
+ * Atomically writes all pairs with quality_score backfilled from the judge
+ * verdict (1.0 for CORRECT, 0.0 for INCORRECT). Skips writing entirely when
+ * the verdict is null or the buffer is empty.
+ *
+ * Individual write failures are logged via console.warn but never thrown —
+ * capture must not affect the primary benchmark path.
+ *
+ * Spec: specs/2026-05-28-reasoning-trace-capture-design.md §7
+ */
+export function persistCaptureBuffer(
+  db: DatabaseType.Database,
+  buffer: CapturePair[],
+  verdict: "CORRECT" | "INCORRECT" | null,
+  modelUsed: string,
+): void {
+  if (verdict === null || buffer.length === 0) return;
+  const qualityScore = verdict === "CORRECT" ? 1.0 : 0.0;
+
+  for (const pair of buffer) {
+    try {
+      if (pair.kind === "reasoning_tool_call") {
+        saveTrainingPair(db, {
+          taskType: "reasoning_tool_call",
+          inputText: JSON.stringify(pair.messages),
+          outputJson: JSON.stringify(pair.toolCall),
+          modelUsed,
+          qualityScore,
+          heuristicDiverged: false,
+          reasoningTrace: pair.reasoning,
+        });
+      } else {
+        saveTrainingPair(db, {
+          taskType: "reasoning_final_answer",
+          inputText: JSON.stringify(pair.messages),
+          outputJson: JSON.stringify(pair.answer),
+          modelUsed,
+          qualityScore,
+          heuristicDiverged: false,
+          reasoningTrace: pair.reasoning,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[capture] saveTrainingPair failed for ${pair.kind}: ${msg}`);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Load .env file (same pattern as autoresearch evals)
@@ -381,6 +434,23 @@ async function main() {
   const retrievalResults: RetrievalResult[] = [];
   const answerResults: AnswerResult[] = [];
 
+  // Open the durable capture DB only when agent-loop mode is active. Captures
+  // land in the user's main Strata DB (~/.strata/strata.db by default, or
+  // $STRATA_DATA_DIR/strata.db) — distinct from the per-question in-memory DBs
+  // that ingest creates. Honors STRATA_NO_CAPTURE=1 as an opt-out for users
+  // who don't want benchmark runs writing to their training corpus.
+  let captureDb: DatabaseType.Database | null = null;
+  if (agentLoop && process.env.STRATA_NO_CAPTURE !== "1") {
+    try {
+      captureDb = openDatabase();
+      console.log(`Capture: writing training pairs to ${process.env.STRATA_DATA_DIR ?? "~/.strata"}/strata.db`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[capture] failed to open capture DB; continuing without capture: ${msg}`);
+      captureDb = null;
+    }
+  }
+
   for (let i = 0; i < questions.length; i++) {
     const question = questions[i];
     const progress = `[${i + 1}/${questions.length}]`;
@@ -485,6 +555,7 @@ async function main() {
       let answer: string;
       let answerLatency: number;
       let agentLoopData: { iterations: number; toolCallLog: AgentLoopResult["toolCallLog"]; tokenUsage: AgentLoopResult["tokenUsage"] } | undefined;
+      let capturedBuffer: CapturePair[] | undefined;
 
       if (plannedSearch) {
         // Planned search mode: cheap planner → deterministic multi-search → GPT-4o answers
@@ -515,6 +586,7 @@ async function main() {
           );
           answer = loopResult.answer;
           answerLatency = loopResult.latencyMs;
+          capturedBuffer = loopResult.captureBuffer;
           const toolSeq = loopResult.toolCallLog
             .map(tc => tc.tool.replace("search_", "s_").replace("get_session", "get").replace("count_sessions", "cnt").replace("knowledge", "know").replace("by_date", "date"))
             .join("→");
@@ -530,6 +602,7 @@ async function main() {
         );
         answer = loopResult.answer;
         answerLatency = loopResult.latencyMs;
+        capturedBuffer = loopResult.captureBuffer;
         agentLoopData = {
           iterations: loopResult.iterations,
           toolCallLog: loopResult.toolCallLog,
@@ -593,6 +666,16 @@ async function main() {
           question.answer,
           answer
         );
+
+      // Persist captured training pairs (if any) with judge-backfilled quality.
+      // Fires only when agent-loop mode produced a buffer AND the capture DB
+      // is open AND the judge returned a definitive verdict. Never throws —
+      // capture failures must not affect the primary benchmark path.
+      if (captureDb && capturedBuffer && capturedBuffer.length > 0) {
+        const judgeVerdict =
+          verdict === "CORRECT" || verdict === "INCORRECT" ? verdict : null;
+        persistCaptureBuffer(captureDb, capturedBuffer, judgeVerdict, answerProvider!.modelName);
+      }
 
       const ability = questionTypeToAbility(question.question_type);
       answerResults.push({
@@ -712,6 +795,10 @@ async function main() {
 
   writeFileSync(resultsPath, JSON.stringify(results, null, 2));
   console.log(`\nResults saved to ${resultsPath}`);
+
+  if (captureDb) {
+    try { captureDb.close(); } catch { /* already closed */ }
+  }
 }
 
 main().catch((err) => {
