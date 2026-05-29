@@ -133,6 +133,14 @@ export interface AbilityScore {
   accuracy: number;
 }
 
+/** End-to-end latency block (mean + percentiles in ms) */
+export interface LatencyBlock {
+  meanMs: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+}
+
 /** Complete benchmark results */
 export interface BenchmarkResults {
   variant: "s" | "m";
@@ -147,6 +155,11 @@ export interface BenchmarkResults {
     p50LatencyMs: number;
     p95LatencyMs: number;
   };
+  /** Answer-model latency aggregated across questions. Present only when
+   *  the harness ran the answer phase (i.e., not --retrieval-only). */
+  answerLatency?: LatencyBlock;
+  /** Judge latency aggregated across questions. Same condition as above. */
+  judgeLatency?: LatencyBlock;
   accuracy: {
     raw: number;
     rawCount: number;

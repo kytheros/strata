@@ -58,6 +58,30 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
 
 /**
+ * Summarise a list of latencies (ms) into mean + p50 + p95 + p99.
+ * Empty input returns all zeros.
+ */
+export function summariseLatency(latencies: number[]): {
+  meanMs: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+} {
+  if (latencies.length === 0) {
+    return { meanMs: 0, p50LatencyMs: 0, p95LatencyMs: 0, p99LatencyMs: 0 };
+  }
+  const sorted = [...latencies].sort((a, b) => a - b);
+  const mean = sorted.reduce((s, x) => s + x, 0) / sorted.length;
+  const percentile = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
+  return {
+    meanMs: mean,
+    p50LatencyMs: percentile(50),
+    p95LatencyMs: percentile(95),
+    p99LatencyMs: percentile(99),
+  };
+}
+
+/**
  * Persist a buffer of CapturePairs to the training_data table.
  * Atomically writes all pairs with quality_score backfilled from the judge
  * verdict (1.0 for CORRECT, 0.0 for INCORRECT). Skips writing entirely when
@@ -317,6 +341,30 @@ function printAccuracyReport(
   );
   console.log(
     `| ${"**Raw Accuracy**".padEnd(23)} | ${String(totalCorrect).padStart(7)} | ${String(answerResults.length).padStart(5)} | **${rawAccuracy.toFixed(1)}%** |`
+  );
+
+  // Latency block — end-to-end answer + judge timings. Strata is the second
+  // memory system (after ByteRover) to publish these numbers prominently.
+  const answerLats = answerResults
+    .map((r) => r.answerLatencyMs)
+    .filter((x) => Number.isFinite(x))
+    .sort((a, b) => a - b);
+  const judgeLats = answerResults
+    .map((r) => r.judgeLatencyMs)
+    .filter((x) => Number.isFinite(x))
+    .sort((a, b) => a - b);
+  const percentile = (xs: number[], p: number) =>
+    xs.length === 0 ? 0 : xs[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))];
+  const mean = (xs: number[]) =>
+    xs.length === 0 ? 0 : xs.reduce((s, x) => s + x, 0) / xs.length;
+  console.log("\nLatency (end-to-end, ms)");
+  console.log("|                | mean | p50  | p95  | p99  |");
+  console.log("|----------------|------|------|------|------|");
+  console.log(
+    `| Answer model   | ${mean(answerLats).toFixed(0).padStart(4)} | ${percentile(answerLats, 50).toFixed(0).padStart(4)} | ${percentile(answerLats, 95).toFixed(0).padStart(4)} | ${percentile(answerLats, 99).toFixed(0).padStart(4)} |`
+  );
+  console.log(
+    `| Judge          | ${mean(judgeLats).toFixed(0).padStart(4)} | ${percentile(judgeLats, 50).toFixed(0).padStart(4)} | ${percentile(judgeLats, 95).toFixed(0).padStart(4)} | ${percentile(judgeLats, 99).toFixed(0).padStart(4)} |`
   );
 
   // Published comparison
@@ -825,6 +873,18 @@ async function main() {
       judgeModel: judgeProvider!.modelName,
     };
 
+    // Answer-model + judge latency aggregates — added 2026-05-29 so future
+    // results can claim defensible end-to-end p50/p95/p99 numbers. Honcho,
+    // Mem0, Zep, and Letta all publish ZERO latency numbers; ByteRover is
+    // the only competitor that does (1.3s mean / 1.6s p50 / 2.3s p95 / 2.5s
+    // p99 on LongMemEval-S). Surfacing this lets Strata own the dimension.
+    results.answerLatency = summariseLatency(
+      answerResults.map((r) => r.answerLatencyMs).filter((x) => Number.isFinite(x))
+    );
+    results.judgeLatency = summariseLatency(
+      answerResults.map((r) => r.judgeLatencyMs).filter((x) => Number.isFinite(x))
+    );
+
     // Per-question verdicts for post-hoc analysis across runs
     (results as Record<string, unknown>).perQuestion = answerResults.map(r => ({
       questionId: r.questionId,
@@ -833,6 +893,8 @@ async function main() {
       goldAnswer: r.goldAnswer,
       predictedAnswer: r.predictedAnswer,
       judgeVerdict: r.judgeVerdict,
+      answerLatencyMs: r.answerLatencyMs,
+      judgeLatencyMs: r.judgeLatencyMs,
       ...(r.voteBreakdown ? { voteBreakdown: r.voteBreakdown } : {}),
     }));
   }
