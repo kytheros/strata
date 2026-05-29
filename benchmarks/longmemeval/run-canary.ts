@@ -133,14 +133,16 @@ async function main() {
   const summary = aggregateCanaryRuns(summaries);
   console.log(`\n=== Canary-${runs} summary ===`);
   for (let i = 0; i < summaries.length; i++) {
+    // accuracy.taskAveraged / accuracy.raw in the results JSON are already
+    // percentages (e.g. 79.1, not 0.791) — do NOT re-multiply by 100.
     console.log(
-      `Run ${i + 1}: ${(summaries[i].taskAvg * 100).toFixed(1)}% task-avg, ` +
-        `${(summaries[i].raw * 100).toFixed(1)}% raw`
+      `Run ${i + 1}: ${summaries[i].taskAvg.toFixed(1)}% task-avg, ` +
+        `${summaries[i].raw.toFixed(1)}% raw`
     );
   }
   console.log(
-    `Mean: ${(summary.taskAvgMean * 100).toFixed(1)}% ± ` +
-      `${(summary.taskAvgStdDev * 100).toFixed(2)}pp`
+    `Mean: ${summary.taskAvgMean.toFixed(1)}% ± ` +
+      `${summary.taskAvgStdDev.toFixed(2)}pp`
   );
   console.log(
     `Stable verdicts: ${summary.stableCount}/${summary.totalQuestions} ` +
@@ -163,9 +165,22 @@ async function main() {
 }
 
 // Only run main when invoked as a script (not when imported by tests).
-if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}`) {
-  main().catch((err) => {
-    console.error("Canary failed:", err);
-    process.exit(1);
-  });
+// Uses fileURLToPath to normalise both sides — string compare is fragile on
+// Windows where `import.meta.url` is `file:///E:/...` (3 slashes for the drive
+// letter) but a hand-built `file://${argv[1]}` is `file://E:/...` (2 slashes).
+{
+  let invokedAsScript = false;
+  try {
+    const here = fileURLToPath(import.meta.url);
+    const entry = process.argv[1] || "";
+    invokedAsScript = here === entry;
+  } catch {
+    invokedAsScript = false;
+  }
+  if (invokedAsScript) {
+    main().catch((err) => {
+      console.error("Canary failed:", err);
+      process.exit(1);
+    });
+  }
 }
