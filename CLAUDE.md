@@ -142,6 +142,19 @@ The Semgrep rules are shared across all Strata packages. When updating rules, pr
 
 Search parameters in `src/config.ts` are empirically optimized via automated eval suites. Do not change them without re-running evals.
 
+## Benchmark Methodology
+
+LongMemEval-S benchmark runs from `benchmarks/longmemeval/` follow
+**N>=3 canary discipline** for any result that will ship externally:
+
+1. Use `--judge-votes=3` to collapse GPT-4o judge variance per question
+2. Use `npx tsx benchmarks/longmemeval/run-canary.ts --runs=3` for shipped scores
+3. Single-run verdict deltas in the ~0.5-1pp range are NOT trustworthy
+
+See `benchmarks/longmemeval/README.md` for the flag reference and
+`specs/2026-05-29-eval-methodology-judge-noise-design.md` for the
+empirical basis. The judge-noise finding is also persisted in Strata memory.
+
 ## Local Model Distillation
 
 Users with `GEMINI_API_KEY` get LLM-powered extraction, conflict resolution,
