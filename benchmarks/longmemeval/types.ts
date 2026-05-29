@@ -117,6 +117,12 @@ export interface AnswerResult {
   judgeModel: string;
   answerLatencyMs: number;
   judgeLatencyMs: number;
+  /** Per-judge-call breakdown when judgeVotes > 1; absent for single-vote runs. */
+  voteBreakdown?: {
+    correct: number;
+    incorrect: number;
+    rawResponses: string[];
+  };
 }
 
 /** Per-ability accuracy breakdown */

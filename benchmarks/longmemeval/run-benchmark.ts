@@ -130,7 +130,7 @@ function loadEnv(): void {
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
-function parseArgs(): {
+export function parseArgs(): {
   variant: "s" | "m";
   retrievalOnly: boolean;
   limit: number;
@@ -151,6 +151,7 @@ function parseArgs(): {
   maxIterations: number;
   plannedSearch: boolean;
   noVector: boolean;
+  judgeVotes: number;
 } {
   const args = process.argv.slice(2);
 
@@ -199,7 +200,17 @@ function parseArgs(): {
   const maxIterationsArg = args.find((a) => a.startsWith("--max-iterations="));
   const maxIterations = maxIterationsArg ? parseInt(maxIterationsArg.split("=")[1], 10) : 8;
 
-  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector };
+  // --judge-votes=N or LONGMEMEVAL_JUDGE_VOTES env. Default 1 (back-compat).
+  let judgeVotes = 1;
+  const judgeVotesFlag = args.find((a) => a.startsWith("--judge-votes="));
+  if (judgeVotesFlag) {
+    judgeVotes = parseInt(judgeVotesFlag.slice("--judge-votes=".length), 10);
+  } else if (process.env.LONGMEMEVAL_JUDGE_VOTES) {
+    judgeVotes = parseInt(process.env.LONGMEMEVAL_JUDGE_VOTES, 10);
+  }
+  if (!Number.isInteger(judgeVotes) || judgeVotes < 1) judgeVotes = 1;
+
+  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes };
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +337,7 @@ function printAccuracyReport(
 async function main() {
   loadEnv();
   const args = parseArgs();
-  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector } = args;
+  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes } = args;
 
   const thinkingTag = thinkingBudget ? `, thinking=${thinkingBudget}` : "";
   const proTag = pro ? `, pro, knowledgeLimit=${knowledgeLimit}` : "";
@@ -337,7 +348,8 @@ async function main() {
   const twoPassTag = twoPass ? `, two-pass` : "";
   const agentLoopTag = agentLoop ? `, agent-loop(max=${maxIterations})` : "";
   const plannedSearchTag = plannedSearch ? `, planned-search` : "";
-  console.log(`LongMemEval Benchmark (LongMemEval${variant.toUpperCase()}, ${retrievalOnly ? "retrieval-only" : "full"}, topK=${topK}, prompt=${promptVariant}${thinkingTag}${proTag}${sessionTag}${rerankerTag}${eventsTag}${twoPassTag}${agentLoopTag}${plannedSearchTag})`);
+  const judgeVotesTag = judgeVotes > 1 ? `, judge-votes=${judgeVotes}` : "";
+  console.log(`LongMemEval Benchmark (LongMemEval${variant.toUpperCase()}, ${retrievalOnly ? "retrieval-only" : "full"}, topK=${topK}, prompt=${promptVariant}${thinkingTag}${proTag}${sessionTag}${rerankerTag}${eventsTag}${twoPassTag}${agentLoopTag}${plannedSearchTag}${judgeVotesTag})`);
   console.log("=".repeat(60));
 
   // Load dataset
@@ -678,14 +690,15 @@ async function main() {
       await sleep(4000);
 
       // Judge answer
-      const { verdict, rawResponse, latencyMs: judgeLatency } =
+      const { verdict, rawResponse, latencyMs: judgeLatency, voteBreakdown } =
         await judgeAnswer(
           judgeProvider!.provider,
           question.question_type,
           question.question_id,
           question.question,
           question.answer,
-          answer
+          answer,
+          { votes: judgeVotes }
         );
 
       // Persist captured training pairs (if any) with judge-backfilled quality.
@@ -721,6 +734,7 @@ async function main() {
         answerLatencyMs: answerLatency,
         judgeLatencyMs: judgeLatency,
         ...(agentLoopData ? { agentLoop: agentLoopData } : {}),
+        ...(voteBreakdown ? { voteBreakdown } : {}),
       });
 
       process.stdout.write(` → ${verdict}`);
