@@ -48,6 +48,11 @@ benchmarks/longmemeval/providers/*
 # imports these; promoting them aligns the tracked surface with the module graph.
 !benchmarks/longmemeval/agent-loop.ts
 !benchmarks/longmemeval/gemini-agent-loop.ts
+# Judge-noise mitigation (spec 2026-05-29-eval-methodology-judge-noise-design.md).
+# judge.ts: multi-vote judging. run-canary.ts: N-run orchestrator. README.md: harness docs.
+!benchmarks/longmemeval/judge.ts
+!benchmarks/longmemeval/run-canary.ts
+!benchmarks/longmemeval/README.md
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
