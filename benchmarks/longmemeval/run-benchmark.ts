@@ -833,6 +833,7 @@ async function main() {
       goldAnswer: r.goldAnswer,
       predictedAnswer: r.predictedAnswer,
       judgeVerdict: r.judgeVerdict,
+      ...(r.voteBreakdown ? { voteBreakdown: r.voteBreakdown } : {}),
     }));
   }
 
