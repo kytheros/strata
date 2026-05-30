@@ -52,6 +52,8 @@ benchmarks/longmemeval/providers/*
 # judge.ts: multi-vote judging. run-canary.ts: N-run orchestrator. README.md: harness docs.
 !benchmarks/longmemeval/judge.ts
 !benchmarks/longmemeval/run-canary.ts
+# Vertex DSQ 429 backoff helper (see specs/2026-05-30-vertex-backoff or canary-3 retry track).
+!benchmarks/longmemeval/vertex-backoff.ts
 !benchmarks/longmemeval/README.md
 autoresearch/
 

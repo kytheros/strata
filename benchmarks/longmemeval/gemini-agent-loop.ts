@@ -22,6 +22,7 @@ import { searchByDateRange } from "./retrieve.js";
 import { deduplicateToSessions, isCountingQuestion, isDurationQuestion } from "./answer.js";
 import type { CapturePair } from "./agent-loop.js";
 import type { MinimalGenAIClient } from "../../src/extensions/llm-extraction/vertex-gemini-provider.js";
+import { withVertexBackoff } from "./vertex-backoff.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -355,8 +356,8 @@ async function callGeminiWithTools(
         toolConfig: { functionCallingConfig: { mode: "AUTO" } },
       },
     };
-    const sdkResponse = await vertexClient.models.generateContent(
-      sdkRequest as never
+    const sdkResponse = await withVertexBackoff(() =>
+      vertexClient.models.generateContent(sdkRequest as never)
     );
     const candidate = sdkResponse.candidates?.[0] as
       | { content?: { parts?: GeminiPart[] }; finishReason?: string }
