@@ -18,7 +18,11 @@ import { SqliteSearchEngine } from "../../src/search/sqlite-search-engine.js";
 import { SqliteKnowledgeStore } from "../../src/storage/sqlite-knowledge-store.js";
 import { SqliteEntityStore } from "../../src/storage/sqlite-entity-store.js";
 import { SqliteKnowledgeTurnStore } from "../../src/storage/sqlite-knowledge-turn-store.js";
+import { mkdirSync } from "fs";
+import { dirname } from "path";
 import { GeminiEmbedder } from "../../src/extensions/embeddings/gemini-embedder.js";
+import { CachedEmbedder, EmbeddingCacheStore, type CacheStats } from "./embedding-cache.js";
+import { CONFIG } from "../../src/config.js";
 import { VectorSearch } from "../../src/extensions/embeddings/vector-search.js";
 import { extractEntities, extractRelations } from "../../src/knowledge/entity-extractor.js";
 import { extractKnowledge } from "../../src/knowledge/knowledge-extractor.js";
@@ -29,17 +33,59 @@ import { initBenchmarkSchema, insertSVOEvents } from "./benchmark-schema.js";
 import { loadSVOEvents } from "./extract-events.js";
 
 /**
- * Lazily initialized Gemini embedder (shared across all questions).
- * Returns null if GEMINI_API_KEY is not set.
+ * Lazily initialized Gemini embedder (shared across all questions), optionally
+ * wrapped in a persistent CachedEmbedder. Returns null if GEMINI_API_KEY is unset.
  */
-let _embedder: GeminiEmbedder | null | undefined;
-function getEmbedder(): GeminiEmbedder | null {
+let _embedder: GeminiEmbedder | CachedEmbedder | null | undefined;
+let _cacheEnabled = true;
+let _cacheDbPath = "benchmarks/longmemeval/cache/embedding-cache.db";
+let _cacheStore: EmbeddingCacheStore | null = null;
+
+/** Configure embedding caching. Call once before ingestion begins. */
+export function configureEmbeddingCache(opts: { enabled: boolean; dbPath?: string }): void {
+  _cacheEnabled = opts.enabled;
+  if (opts.dbPath) _cacheDbPath = opts.dbPath;
+  // Reset memoized embedder + store so the new config takes effect.
+  _embedder = undefined;
+  if (_cacheStore) {
+    _cacheStore.close();
+    _cacheStore = null;
+  }
+  // Eagerly open the store so getEmbeddingCacheStats() works before the first
+  // embed call (e.g. for tests and for the run-summary stats line).
+  if (_cacheEnabled) {
+    if (_cacheDbPath !== ":memory:") {
+      mkdirSync(dirname(_cacheDbPath), { recursive: true });
+    }
+    _cacheStore = new EmbeddingCacheStore(_cacheDbPath);
+  }
+}
+
+/** Cache hit/miss stats for the run summary, or null when caching is disabled. */
+export function getEmbeddingCacheStats(): CacheStats | null {
+  return _cacheStore ? _cacheStore.stats() : null;
+}
+
+function getEmbedder(): GeminiEmbedder | CachedEmbedder | null {
   if (_embedder === undefined) {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      _embedder = new GeminiEmbedder({ apiKey });
-    } else {
+    if (!apiKey) {
       _embedder = null;
+      return _embedder;
+    }
+    const base = new GeminiEmbedder({ apiKey });
+    if (_cacheEnabled) {
+      // _cacheStore is already open (created eagerly in configureEmbeddingCache).
+      // If somehow not open yet (e.g. default path, never configured), open it now.
+      if (!_cacheStore) {
+        if (_cacheDbPath !== ":memory:") {
+          mkdirSync(dirname(_cacheDbPath), { recursive: true });
+        }
+        _cacheStore = new EmbeddingCacheStore(_cacheDbPath);
+      }
+      _embedder = new CachedEmbedder(base, _cacheStore, CONFIG.embeddings.model);
+    } else {
+      _embedder = base;
     }
   }
   return _embedder;
