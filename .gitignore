@@ -59,6 +59,11 @@ benchmarks/longmemeval/providers/*
 # embedding-cache.ts: CachedEmbedder + EmbeddingCacheStore. ingest.ts: wired getEmbedder.
 !benchmarks/longmemeval/embedding-cache.ts
 !benchmarks/longmemeval/ingest.ts
+# Benchmark embedding cache — large, regenerable, never commit
+benchmarks/longmemeval/cache/embedding-cache.db
+benchmarks/longmemeval/cache/embedding-cache.db-wal
+benchmarks/longmemeval/cache/embedding-cache.db-shm
+
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
