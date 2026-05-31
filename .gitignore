@@ -55,6 +55,10 @@ benchmarks/longmemeval/providers/*
 # Vertex DSQ 429 backoff helper (see specs/2026-05-30-vertex-backoff or canary-3 retry track).
 !benchmarks/longmemeval/vertex-backoff.ts
 !benchmarks/longmemeval/README.md
+# Persistent embedding cache (spec 2026-05-31-benchmark-embedding-cache-design.md).
+# embedding-cache.ts: CachedEmbedder + EmbeddingCacheStore. ingest.ts: wired getEmbedder.
+!benchmarks/longmemeval/embedding-cache.ts
+!benchmarks/longmemeval/ingest.ts
 autoresearch/
 
 # Personal exploratory scripts (uncommitted by policy)
