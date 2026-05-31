@@ -59,6 +59,11 @@ benchmarks/longmemeval/providers/*
 # embedding-cache.ts: CachedEmbedder + EmbeddingCacheStore. ingest.ts: wired getEmbedder.
 !benchmarks/longmemeval/embedding-cache.ts
 !benchmarks/longmemeval/ingest.ts
+# Phase 1 gap-judging infrastructure (spec 2026-05-31-agent-loop-gap-judging-plan.md).
+# T1: token/cost logging. T2: stratified set helper. T4: gap-judge module. T5: loop wiring.
+!benchmarks/longmemeval/token-cost.ts
+!benchmarks/longmemeval/stratified-set.ts
+!benchmarks/longmemeval/gap-judge.ts
 # Benchmark embedding cache — large, regenerable, never commit
 benchmarks/longmemeval/cache/embedding-cache.db
 benchmarks/longmemeval/cache/embedding-cache.db-wal

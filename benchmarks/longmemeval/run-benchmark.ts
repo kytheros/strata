@@ -53,6 +53,8 @@ import { runProExtraction, searchKnowledge, formatKnowledgeForPrompt } from "./p
 import { isDecomposable, decomposedSearch } from "./query-decomposer.js";
 import { loadCachedEvents, formatEventsForPrompt, filterEventsByRelevance } from "./extract-events.js";
 import { expandQuery, filterByRelevance } from "./query-expansion.js";
+import { summariseTokens, computeCost } from "./token-cost.js";
+import type { TokenUsage } from "./token-cost.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
@@ -505,6 +507,7 @@ async function main() {
   console.log("\n--- Phase 1: Retrieval ---\n");
   const retrievalResults: RetrievalResult[] = [];
   const answerResults: AnswerResult[] = [];
+  const allTokenUsages: TokenUsage[] = [];
 
   // Open the durable capture DB only when agent-loop mode is active. Captures
   // land in the user's main Strata DB (~/.strata/strata.db by default, or
@@ -628,6 +631,7 @@ async function main() {
       let answerLatency: number;
       let agentLoopData: { iterations: number; toolCallLog: AgentLoopResult["toolCallLog"]; tokenUsage: AgentLoopResult["tokenUsage"] } | undefined;
       let capturedBuffer: CapturePair[] | undefined;
+      let questionTokenUsage: TokenUsage | undefined;
 
       if (plannedSearch) {
         // Planned search mode: cheap planner → deterministic multi-search → GPT-4o answers
@@ -680,6 +684,7 @@ async function main() {
           answer = loopResult.answer;
           answerLatency = loopResult.latencyMs;
           capturedBuffer = loopResult.captureBuffer;
+          questionTokenUsage = loopResult.tokenUsage;
           const toolSeq = loopResult.toolCallLog
             .map(tc => tc.tool.replace("search_", "s_").replace("get_session", "get").replace("count_sessions", "cnt").replace("knowledge", "know").replace("by_date", "date"))
             .join("→");
@@ -700,6 +705,10 @@ async function main() {
           iterations: loopResult.iterations,
           toolCallLog: loopResult.toolCallLog,
           tokenUsage: loopResult.tokenUsage,
+        };
+        questionTokenUsage = {
+          inputTokens: loopResult.tokenUsage.promptTokens,
+          outputTokens: loopResult.tokenUsage.completionTokens,
         };
         const toolSeq = loopResult.toolCallLog
           .map(tc => tc.tool.replace("search_", "s_").replace("get_session", "get").replace("count_sessions", "cnt").replace("knowledge", "know"))
@@ -798,6 +807,11 @@ async function main() {
       });
 
       process.stdout.write(` → ${verdict}`);
+
+      // Accumulate token usage for summary line (agent-loop paths only)
+      if (questionTokenUsage) {
+        allTokenUsages.push(questionTokenUsage);
+      }
 
       // Rate limit padding between questions — Tier 1 keys have
       // aggressive RPM limits; agent loop needs longer padding (multiple API calls per Q)
@@ -918,6 +932,14 @@ async function main() {
     console.log(`\nEmbedding cache: ${embedStats.hits} hits / ${embedStats.misses} misses (${pct}% hit rate)`);
   } else {
     console.log(`\nEmbedding cache: disabled`);
+  }
+
+  // Token/cost summary for agent-loop runs (bake-off visibility)
+  if (allTokenUsages.length > 0) {
+    const answerModelName = answerProvider?.modelName ?? "";
+    const tok = summariseTokens(allTokenUsages);
+    const cost = computeCost(answerModelName, tok.totalInput, tok.totalOutput);
+    console.log(`\nTokens: ${tok.totalInput} in / ${tok.totalOutput} out (mean ${Math.round(tok.meanInputPerQ)} in/Q) — est. $${cost.toFixed(2)}`);
   }
 
   writeFileSync(resultsPath, JSON.stringify(results, null, 2));

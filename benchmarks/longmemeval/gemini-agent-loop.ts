@@ -68,6 +68,8 @@ export interface GeminiAgentLoopResult {
   toolCallLog: Array<{ tool: string; args: Record<string, unknown>; resultLength: number }>;
   /** Captured (state → reasoning → action) training pairs. Empty if loop crashed. */
   captureBuffer: CapturePair[];
+  /** Accumulated token usage across all API calls in this loop (input + output). */
+  tokenUsage: { inputTokens: number; outputTokens: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +341,7 @@ async function callGeminiWithTools(
 ): Promise<{
   parts: GeminiPart[];
   finishReason: string;
+  usage?: { inputTokens: number; outputTokens: number };
 }> {
   // Vertex SDK path — identical request shape, different transport.
   if (vertexClient) {
@@ -362,9 +365,15 @@ async function callGeminiWithTools(
     const candidate = sdkResponse.candidates?.[0] as
       | { content?: { parts?: GeminiPart[] }; finishReason?: string }
       | undefined;
+    const meta = (sdkResponse as Record<string, unknown>).usageMetadata as
+      | { promptTokenCount?: number; candidatesTokenCount?: number }
+      | undefined;
     return {
       parts: candidate?.content?.parts || [],
       finishReason: candidate?.finishReason || "STOP",
+      usage: meta
+        ? { inputTokens: meta.promptTokenCount ?? 0, outputTokens: meta.candidatesTokenCount ?? 0 }
+        : undefined,
     };
   }
 
@@ -406,10 +415,16 @@ async function callGeminiWithTools(
 
     const data = await response.json() as any;
     const candidate = data.candidates?.[0];
+    const meta = data.usageMetadata as
+      | { promptTokenCount?: number; candidatesTokenCount?: number }
+      | undefined;
 
     return {
       parts: candidate?.content?.parts || [],
       finishReason: candidate?.finishReason || "STOP",
+      usage: meta
+        ? { inputTokens: meta.promptTokenCount ?? 0, outputTokens: meta.candidatesTokenCount ?? 0 }
+        : undefined,
     };
   } finally {
     clearTimeout(timeout);
@@ -491,6 +506,8 @@ export async function runGeminiAgentLoop(
   const captureBuffer: CapturePair[] = [];
   const start = performance.now();
   let iterations = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
 
   while (iterations < maxIterations) {
     iterations++;
@@ -498,6 +515,8 @@ export async function runGeminiAgentLoop(
     const response = await callGeminiWithTools(
       apiKey, model, contents, systemInstruction, questionTools, vertexClient
     );
+    totalInputTokens += response.usage?.inputTokens ?? 0;
+    totalOutputTokens += response.usage?.outputTokens ?? 0;
 
     // Check for function calls in the response
     const functionCalls = response.parts.filter(p => p.functionCall);
@@ -519,6 +538,7 @@ export async function runGeminiAgentLoop(
         iterations,
         toolCallLog,
         captureBuffer,
+        tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
       };
     }
 
@@ -582,6 +602,8 @@ export async function runGeminiAgentLoop(
   const finalResponse = await callGeminiWithTools(
     apiKey, model, contents, systemInstruction, questionTools, vertexClient
   );
+  totalInputTokens += finalResponse.usage?.inputTokens ?? 0;
+  totalOutputTokens += finalResponse.usage?.outputTokens ?? 0;
 
   const answer = finalResponse.parts
     .filter(p => p.text)
@@ -603,5 +625,6 @@ export async function runGeminiAgentLoop(
     iterations: maxIterations + 1,
     toolCallLog,
     captureBuffer,
+    tokenUsage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
   };
 }
