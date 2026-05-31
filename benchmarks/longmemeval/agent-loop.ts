@@ -21,6 +21,7 @@ import { searchEventsFts } from "./benchmark-schema.js";
 import { searchByDateRange } from "./retrieve.js";
 import { deduplicateToSessions, isCountingQuestion, isDurationQuestion } from "./answer.js";
 import { LlmError } from "../../src/extensions/llm-extraction/llm-provider.js";
+import { judgeGap, formatGapInjection } from "./gap-judge.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +51,13 @@ type AgentMessage =
 export interface AgentLoopOptions {
   maxIterations?: number;
   includeGrep?: boolean;
+  /**
+   * Optional gap-judge configuration. When `enabled` is true, the loop runs
+   * the structured sufficiency evaluator before committing to a final answer.
+   * If insufficient and iterations remain, injects gap text as a user message
+   * and continues. Flag OFF = byte-for-byte current behavior.
+   */
+  gapJudge?: { enabled: boolean; complete: (prompt: string) => Promise<string> };
 }
 
 /**
@@ -620,7 +628,7 @@ export async function runAgentLoop(
   ingested: IngestedQuestion,
   options: AgentLoopOptions = {}
 ): Promise<AgentLoopResult> {
-  const { maxIterations = 8, includeGrep = false } = options;
+  const { maxIterations = 8, includeGrep = false, gapJudge } = options;
 
   const tools: OpenAITool[] = [
     TOOL_SEARCH_SESSIONS,
@@ -692,6 +700,19 @@ export async function runAgentLoop(
 
     // Model produced a final text answer (no tool calls)
     if (response.finish_reason === "stop" || !response.tool_calls?.length) {
+      // Gap-judge hook: if enabled, evaluate evidence sufficiency before committing.
+      if (gapJudge?.enabled && iterations < maxIterations) {
+        const evidence = messages
+          .map(m => (typeof m.content === "string" ? m.content : ""))
+          .join("\n")
+          .slice(0, 12000);
+        const verdict = await judgeGap(question.question, evidence, gapJudge.complete);
+        if (!verdict.sufficient) {
+          messages.push({ role: "user", content: formatGapInjection(verdict) });
+          continue; // search again instead of answering
+        }
+      }
+
       const answer = (response.content || "Unable to determine answer.").trim();
       // Capture the final-answer training pair against the state that produced it.
       captureBuffer.push({

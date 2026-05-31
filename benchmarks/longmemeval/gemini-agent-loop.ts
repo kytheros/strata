@@ -23,6 +23,7 @@ import { deduplicateToSessions, isCountingQuestion, isDurationQuestion } from ".
 import type { CapturePair } from "./agent-loop.js";
 import type { MinimalGenAIClient } from "../../src/extensions/llm-extraction/vertex-gemini-provider.js";
 import { withVertexBackoff } from "./vertex-backoff.js";
+import { judgeGap, formatGapInjection } from "./gap-judge.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,6 +60,17 @@ export interface GeminiAgentLoopOptions {
    * identical under the unified SDK — only auth + URL differ.
    */
   vertexClient?: MinimalGenAIClient;
+  /**
+   * Optional gap-judge configuration. When `enabled` is true, the loop runs
+   * the structured sufficiency evaluator after each round where the model
+   * produces no function calls. If the judge says not sufficient AND there are
+   * iterations remaining, the injection text is pushed as a user turn and the
+   * loop continues instead of returning.
+   *
+   * When absent or `enabled` is false, the loop behaves byte-for-byte as
+   * before — the frozen baseline is unchanged.
+   */
+  gapJudge?: { enabled: boolean; complete: (prompt: string) => Promise<string> };
 }
 
 export interface GeminiAgentLoopResult {
@@ -468,7 +480,7 @@ export async function runGeminiAgentLoop(
   ingested: IngestedQuestion,
   options: GeminiAgentLoopOptions = {}
 ): Promise<GeminiAgentLoopResult> {
-  const { maxIterations = 8, vertexClient } = options;
+  const { maxIterations = 8, vertexClient, gapJudge } = options;
   const procedure = selectProcedure(question.question);
 
   const systemInstruction = [
@@ -522,8 +534,23 @@ export async function runGeminiAgentLoop(
     const functionCalls = response.parts.filter(p => p.functionCall);
     const textParts = response.parts.filter(p => p.text);
 
-    // No function calls — model is done, extract text answer
+    // No function calls — model is about to give a final answer.
     if (functionCalls.length === 0 || response.finishReason === "STOP" && functionCalls.length === 0) {
+      // Gap-judge hook: if enabled, evaluate evidence sufficiency before committing.
+      // If insufficient and iterations remain, inject the gap list and continue.
+      if (gapJudge?.enabled && iterations < maxIterations) {
+        const evidence = contents
+          .flatMap(c => c.parts)
+          .map(p => (p as { text?: string }).text ?? "")
+          .join("\n")
+          .slice(0, 12000);
+        const verdict = await judgeGap(question.question, evidence, gapJudge.complete);
+        if (!verdict.sufficient) {
+          contents.push({ role: "user", parts: [{ text: formatGapInjection(verdict) }] });
+          continue; // search again instead of answering
+        }
+      }
+
       const answer = textParts.map(p => p.text).join("\n").trim() || "Unable to determine answer.";
       // Capture the final-answer training pair against the state that produced it.
       captureBuffer.push({

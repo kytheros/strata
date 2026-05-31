@@ -189,6 +189,7 @@ export function parseArgs(): {
   noVector: boolean;
   judgeVotes: number;
   stratifiedN: number;
+  gapJudgeEnabled: boolean;
 } {
   const args = process.argv.slice(2);
 
@@ -250,7 +251,9 @@ export function parseArgs(): {
   const stratArg = args.find((a) => a.startsWith("--stratified="));
   const stratifiedN = stratArg ? parseInt(stratArg.split("=")[1], 10) : 0;
 
-  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN };
+  const gapJudgeEnabled = args.includes("--gap-judge");
+
+  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled };
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +404,7 @@ function printAccuracyReport(
 async function main() {
   loadEnv();
   const args = parseArgs();
-  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN } = args;
+  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled } = args;
 
   configureEmbeddingCache({ enabled: resolveEmbeddingCacheEnabled(process.argv.slice(2), process.env) });
 
@@ -686,6 +689,12 @@ async function main() {
             () => runGeminiAgentLoop(geminiKey, bareModel, question, ingested, {
               maxIterations,
               ...(vertexClient ? { vertexClient: vertexClient as never } : {}),
+              ...(gapJudgeEnabled ? {
+                gapJudge: {
+                  enabled: true,
+                  complete: (p: string) => answerProvider!.provider.complete(p, { maxTokens: 400, temperature: 0 }),
+                }
+              } : {}),
             }),
             3,
             8000
@@ -703,7 +712,15 @@ async function main() {
         if (!apiKey) throw new Error("--agent-loop requires OPENAI_API_KEY");
         const { runAgentLoop } = await import("./agent-loop.js");
         const loopResult = await withRetry(
-          () => runAgentLoop(apiKey, answerProvider!.modelName, question, ingested, { maxIterations }),
+          () => runAgentLoop(apiKey, answerProvider!.modelName, question, ingested, {
+            maxIterations,
+            ...(gapJudgeEnabled ? {
+              gapJudge: {
+                enabled: true,
+                complete: (p: string) => answerProvider!.provider.complete(p, { maxTokens: 400, temperature: 0 }),
+              }
+            } : {}),
+          }),
           3,
           8000
         );
