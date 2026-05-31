@@ -482,6 +482,7 @@ Example: Search for database optimization approaches in a specific project`,
       const bridgeResults = await semanticBridge.search(args.query, {
         limit: args.limit,
         project: args.project,
+        threshold: args.threshold,
       });
 
       // If bridge returned results, format them

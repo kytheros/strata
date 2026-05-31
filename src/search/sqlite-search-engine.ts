@@ -61,6 +61,9 @@ export interface SearchOptions {
    * Default: false (vector lane runs when embedder + vectorSearch present).
    */
   skipVector?: boolean;
+  /** Minimum result score (cosine similarity, 0.0–1.0). Results below are dropped.
+   *  Applied by SemanticSearchBridge as a post-filter; the engine itself ignores it. */
+  threshold?: number;
 }
 
 /** Attach normalized confidence (0-1) to ranked results. Top result = 1.0. */

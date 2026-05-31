@@ -113,7 +113,9 @@ export class SemanticSearchBridge {
         currentProject: options.currentProject,
       });
 
-      return toSearchResults(results);
+      const mapped = toSearchResults(results);
+      if (options.threshold == null) return mapped;
+      return mapped.filter((r) => r.score >= options.threshold!);
     } catch {
       // Embedding call failed at runtime -- degrade to FTS5
       return null;
