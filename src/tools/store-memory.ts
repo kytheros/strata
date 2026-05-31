@@ -14,6 +14,10 @@ import { computeImportance } from "../knowledge/importance.js";
 import { resolveGaps } from "../search/evidence-gaps.js";
 import { extractEntities } from "../knowledge/entity-extractor.js";
 import type { IEntityStore } from "../storage/interfaces/entity-store.js";
+import type { DocumentChunkStore, DocumentChunk as StoredChunk } from "../storage/document-chunk-store.js";
+import type { DocumentEmbedder } from "../extensions/embeddings/document-embedder.js";
+import { chunkText } from "./store-document.js";
+import { CONFIG } from "../config.js";
 
 import type { KnowledgeType } from "../knowledge/knowledge-store.js";
 
@@ -37,7 +41,9 @@ export async function handleStoreMemory(
   knowledgeStore: IKnowledgeStore,
   args: StoreMemoryArgs,
   db?: Database.Database,
-  entityStore?: IEntityStore
+  entityStore?: IEntityStore,
+  documentChunkStore?: DocumentChunkStore,
+  documentEmbedder?: DocumentEmbedder
 ): Promise<string> {
   const { memory, type, tags = [], project = "global", user } = args;
 
@@ -126,6 +132,65 @@ export async function handleStoreMemory(
       } catch {
         // Entity linking errors must never block storage
       }
+    }
+  }
+
+  // Shadow chunk-indexing: when details exceed the threshold, also store the
+  // details into DocumentChunkStore for FTS5/vector chunk-granularity retrieval.
+  // The atomic knowledge entry above is the canonical record; this is additive.
+  // No-op when documentChunkStore is absent (e.g. no local DB) — D3-compliant.
+  if (
+    documentChunkStore &&
+    documentEmbedder &&
+    resolution.shouldAdd &&
+    details.length > CONFIG.indexing.storeMemoryChunkThreshold
+  ) {
+    try {
+      const docId = randomUUID();
+      const now = Date.now();
+      const textChunks = chunkText(details, CONFIG.indexing.chunkSize, CONFIG.indexing.chunkOverlap);
+      const chunks: StoredChunk[] = [];
+
+      for (let i = 0; i < textChunks.length; i++) {
+        let embedding: Float32Array;
+        try {
+          embedding = await documentEmbedder.embedText(textChunks[i]);
+        } catch {
+          // Embedding failure is best-effort — store with a zero vector so FTS5
+          // still indexes the chunk text even if vector search cannot use it.
+          embedding = new Float32Array(CONFIG.quantization.embeddingDim);
+        }
+        chunks.push({
+          id: randomUUID(),
+          documentId: docId,
+          chunkIndex: i,
+          content: textChunks[i],
+          embedding,
+          model: CONFIG.embeddings.documentModel,
+          tokenCount: Math.ceil(textChunks[i].length / 4),
+          createdAt: now,
+        });
+      }
+
+      if (chunks.length > 0) {
+        const derivedSessionId = `explicit-memory:${entry.id}`;
+        documentChunkStore.addDocument(
+          {
+            id: docId,
+            title: derivedSessionId,
+            mimeType: "text/plain",
+            project: entry.project,
+            user: entry.user,
+            tags: entry.tags,
+            chunkCount: chunks.length,
+            fileSize: details.length,
+            createdAt: now,
+          },
+          chunks
+        );
+      }
+    } catch {
+      // Shadow indexing is best-effort — must never block or surface errors
     }
   }
 

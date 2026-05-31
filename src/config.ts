@@ -121,6 +121,13 @@ export const CONFIG = {
     chunkOverlap: 50,
     maxChunksPerSession: 500,
     /**
+     * Minimum details length (chars) at which store_memory ALSO indexes the
+     * details text into DocumentChunkStore (chunked + embedded) for better
+     * FTS5/vector retrieval of long multi-paragraph memories.
+     * When details.length <= this value, only the atomic knowledge entry is written.
+     */
+    storeMemoryChunkThreshold: 800,
+    /**
      * Maximum number of pages embedded per PDF on the text-only path
      * (>6-page PDFs). Pages beyond this cap are dropped with a WARN log.
      * Multimodal path (≤6 pages) is unaffected.

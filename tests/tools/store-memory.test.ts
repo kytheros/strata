@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import { openDatabase } from "../../src/storage/database.js";
 import { SqliteKnowledgeStore } from "../../src/storage/sqlite-knowledge-store.js";
+import { DocumentChunkStore } from "../../src/storage/document-chunk-store.js";
 import { handleStoreMemory } from "../../src/tools/store-memory.js";
+import { CONFIG } from "../../src/config.js";
 
 // Mock the gemini provider to return null (no LLM available in tests)
 vi.mock("../../src/extensions/llm-extraction/gemini-provider.js", () => ({
@@ -128,5 +130,119 @@ describe("store_memory tool", () => {
     });
 
     expect(await store.getEntryCount()).toBe(1);
+  });
+
+  // ── chunk-indexing tests ─────────────────────────────────────────────
+
+  describe("chunk indexing for long memories", () => {
+    let chunkDb: Database.Database;
+    let chunkStore: DocumentChunkStore;
+    const mockEmbedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(3072).fill(0.1)),
+      embedBinary: vi.fn(),
+      dimensions: 3072,
+    };
+
+    beforeEach(() => {
+      chunkDb = openDatabase(":memory:");
+      chunkStore = new DocumentChunkStore(chunkDb);
+      mockEmbedder.embedText.mockClear();
+    });
+
+    afterEach(() => {
+      chunkDb.close();
+    });
+
+    it("chunks long details into DocumentChunkStore with derived sessionId", async () => {
+      // Produce a details string longer than the threshold (default 800)
+      const longDetails = "Paragraph about the decision. ".repeat(40); // ~1200 chars
+      expect(longDetails.length).toBeGreaterThan(CONFIG.indexing.storeMemoryChunkThreshold);
+
+      const result = await handleStoreMemory(
+        store,
+        { memory: longDetails, type: "decision" },
+        db,
+        undefined,
+        chunkStore,
+        mockEmbedder as any
+      );
+
+      expect(result).toContain("Stored decision");
+
+      // The atomic knowledge entry must still be written
+      expect(await store.getEntryCount()).toBe(1);
+
+      // At least one chunk must have been stored in the document chunk store
+      const docs = chunkDb.prepare("SELECT * FROM stored_documents").all() as Array<{ id: string }>;
+      expect(docs.length).toBe(1);
+
+      // The sessionId stored as the document title must be the derived explicit-memory:<id>
+      const entries = await store.getAllEntries();
+      const knowledgeId = entries[0].id;
+      const docRow = docs[0] as { id: string; title: string };
+      expect((docs[0] as any).title).toBe(`explicit-memory:${knowledgeId}`);
+
+      // embedder must have been called for chunking
+      expect(mockEmbedder.embedText).toHaveBeenCalled();
+    });
+
+    it("does NOT chunk short details (≤ threshold) — back-compat", async () => {
+      const shortMemory = "Use bun for package management"; // well under 800
+      expect(shortMemory.length).toBeLessThanOrEqual(CONFIG.indexing.storeMemoryChunkThreshold);
+
+      await handleStoreMemory(
+        store,
+        { memory: shortMemory, type: "decision" },
+        db,
+        undefined,
+        chunkStore,
+        mockEmbedder as any
+      );
+
+      // Atomic entry written
+      expect(await store.getEntryCount()).toBe(1);
+
+      // NO chunk store writes
+      const docs = chunkDb.prepare("SELECT * FROM stored_documents").all();
+      expect(docs).toHaveLength(0);
+      expect(mockEmbedder.embedText).not.toHaveBeenCalled();
+    });
+
+    it("is a no-op when documentChunkStore is absent — back-compat", async () => {
+      const longDetails = "Paragraph about the decision. ".repeat(40);
+
+      // Pass NO chunkStore — should not throw, atomic entry still written
+      const result = await handleStoreMemory(
+        store,
+        { memory: longDetails, type: "decision" },
+        db
+        // no chunkStore, no embedder
+      );
+
+      expect(result).toContain("Stored decision");
+      expect(await store.getEntryCount()).toBe(1);
+    });
+
+    it("still stores atomic entry even if embedding fails (best-effort)", async () => {
+      const failingEmbedder = {
+        embedText: vi.fn().mockRejectedValue(new Error("429 rate limit")),
+        embedBinary: vi.fn(),
+        dimensions: 3072,
+      };
+      const longDetails = "Paragraph about the decision. ".repeat(40);
+
+      const result = await handleStoreMemory(
+        store,
+        { memory: longDetails, type: "decision" },
+        db,
+        undefined,
+        chunkStore,
+        failingEmbedder as any
+      );
+
+      // Memory storage must succeed even when embedding fails
+      expect(result).toContain("Stored decision");
+      expect(await store.getEntryCount()).toBe(1);
+    });
   });
 });

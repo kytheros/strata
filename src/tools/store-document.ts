@@ -215,7 +215,7 @@ export async function handleStoreDocument(
 }
 
 /** Split text into chunks with overlap. Simple character-based splitting. */
-function chunkText(text: string, chunkSize: number, overlap: number): string[] {
+export function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   // Approximate chars per token (~4 chars/token for English)
   const charsPerChunk = chunkSize * 4;
   const charsOverlap = overlap * 4;
