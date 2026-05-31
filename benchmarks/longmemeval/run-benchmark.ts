@@ -188,6 +188,7 @@ export function parseArgs(): {
   plannedSearch: boolean;
   noVector: boolean;
   judgeVotes: number;
+  stratifiedN: number;
 } {
   const args = process.argv.slice(2);
 
@@ -246,7 +247,10 @@ export function parseArgs(): {
   }
   if (!Number.isInteger(judgeVotes) || judgeVotes < 1) judgeVotes = 1;
 
-  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes };
+  const stratArg = args.find((a) => a.startsWith("--stratified="));
+  const stratifiedN = stratArg ? parseInt(stratArg.split("=")[1], 10) : 0;
+
+  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN };
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +401,7 @@ function printAccuracyReport(
 async function main() {
   loadEnv();
   const args = parseArgs();
-  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes } = args;
+  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN } = args;
 
   configureEmbeddingCache({ enabled: resolveEmbeddingCacheEnabled(process.argv.slice(2), process.env) });
 
@@ -417,7 +421,12 @@ async function main() {
   // Load dataset
   const dataset = loadDataset(variant);
   let questions = dataset.slice(skip, skip + limit);
-  if (filterIds) {
+  if (stratifiedN > 0) {
+    const { pickStratified } = await import("./stratified-set.js");
+    const ids = new Set(pickStratified(dataset, stratifiedN));
+    questions = dataset.filter((q) => ids.has(q.question_id));
+    console.log(`\nStratified ${stratifiedN}/ability → ${questions.length} questions`);
+  } else if (filterIds) {
     questions = questions.filter((q) => filterIds.has(q.question_id));
     console.log(`\nLoaded ${dataset.length} questions, filtered to ${questions.length} by --ids (skip=${skip}, topK=${topK}, prompt=${promptVariant}${thinkingTag})`);
   } else {
