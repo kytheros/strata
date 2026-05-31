@@ -49,9 +49,16 @@ interface AuthProxyConfig {
   token: string | null;
 }
 
-function resolveAuthProxyConfig(): AuthProxyConfig {
+export function resolveAuthProxyConfig(): AuthProxyConfig {
   const required = process.env.STRATA_REQUIRE_AUTH_PROXY === "1";
-  if (!required) return { required: false, token: null };
+  if (!required) {
+    console.warn(
+      "[strata] Multi-tenant mode is trusting the X-Strata-User header without verification. " +
+      "Any client can impersonate any user. Set STRATA_REQUIRE_AUTH_PROXY=1 and " +
+      "STRATA_AUTH_PROXY_TOKEN behind a verified auth proxy for any deployment reachable by untrusted clients."
+    );
+    return { required: false, token: null };
+  }
 
   const token = process.env.STRATA_AUTH_PROXY_TOKEN ?? "";
   if (!token) {
