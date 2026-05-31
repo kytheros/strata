@@ -37,7 +37,7 @@ import type {
   AbilityScore,
 } from "./types.js";
 import { questionTypeToAbility } from "./types.js";
-import { ingestQuestion, closeIngested } from "./ingest.js";
+import { ingestQuestion, closeIngested, configureEmbeddingCache, getEmbeddingCacheStats } from "./ingest.js";
 import { retrieveQuestion, aggregateRetrieval } from "./retrieve.js";
 import { generateAnswer, generateAnswerTwoPass, isCountingQuestion, isDurationQuestion, sleep, withRetry } from "./answer.js";
 import type { PromptVariant } from "./answer.js";
@@ -79,6 +79,16 @@ export function summariseLatency(latencies: number[]): {
     p95LatencyMs: percentile(95),
     p99LatencyMs: percentile(99),
   };
+}
+
+/** Embedding cache is on unless --no-embedding-cache or LONGMEMEVAL_NO_EMBED_CACHE=1. */
+export function resolveEmbeddingCacheEnabled(
+  args: string[],
+  env: NodeJS.ProcessEnv
+): boolean {
+  if (args.includes("--no-embedding-cache")) return false;
+  if (env.LONGMEMEVAL_NO_EMBED_CACHE === "1") return false;
+  return true;
 }
 
 /**
@@ -386,6 +396,8 @@ async function main() {
   loadEnv();
   const args = parseArgs();
   const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes } = args;
+
+  configureEmbeddingCache({ enabled: resolveEmbeddingCacheEnabled(process.argv.slice(2), process.env) });
 
   const thinkingTag = thinkingBudget ? `, thinking=${thinkingBudget}` : "";
   const proTag = pro ? `, pro, knowledgeLimit=${knowledgeLimit}` : "";
@@ -897,6 +909,15 @@ async function main() {
       judgeLatencyMs: r.judgeLatencyMs,
       ...(r.voteBreakdown ? { voteBreakdown: r.voteBreakdown } : {}),
     }));
+  }
+
+  const embedStats = getEmbeddingCacheStats();
+  if (embedStats) {
+    const total = embedStats.hits + embedStats.misses;
+    const pct = total > 0 ? ((embedStats.hits / total) * 100).toFixed(1) : "0.0";
+    console.log(`\nEmbedding cache: ${embedStats.hits} hits / ${embedStats.misses} misses (${pct}% hit rate)`);
+  } else {
+    console.log(`\nEmbedding cache: disabled`);
   }
 
   writeFileSync(resultsPath, JSON.stringify(results, null, 2));
