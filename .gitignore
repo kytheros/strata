@@ -66,6 +66,9 @@ benchmarks/longmemeval/providers/*
 !benchmarks/longmemeval/gap-judge.ts
 # Gap-coverage wrapper (spec 2026-05-31-gap-judge-coverage-wrapper-plan.md).
 !benchmarks/longmemeval/gap-coverage.ts
+# Resumability: per-question checkpoint helper (ticket: longmemeval-resumability).
+# data/checkpoints/ is under the gitignored data/ dir — checkpoint files not committed.
+!benchmarks/longmemeval/checkpoint.ts
 # Benchmark embedding cache — large, regenerable, never commit
 benchmarks/longmemeval/cache/embedding-cache.db
 benchmarks/longmemeval/cache/embedding-cache.db-wal

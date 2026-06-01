@@ -26,6 +26,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
+import { appendResult, loadCompleted } from "./checkpoint.js";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import type {
@@ -194,6 +195,7 @@ export function parseArgs(): {
   gapJudgeEnabled: boolean;
   gapCoverage: boolean;
   gapCoverageRounds: number;
+  runId: string | null;
 } {
   const args = process.argv.slice(2);
 
@@ -263,7 +265,13 @@ export function parseArgs(): {
     ? parseInt(gapCoverageRoundsArg.split("=")[1], 10)
     : 1;
 
-  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled, gapCoverage, gapCoverageRounds };
+  // --run-id=<id>: enables per-question checkpointing and resume-on-restart.
+  // When absent, runId is null and checkpoint calls are completely skipped
+  // (flag-off is byte-identical to current behavior).
+  const runIdArg = args.find((a) => a.startsWith("--run-id="));
+  const runId: string | null = runIdArg ? runIdArg.slice("--run-id=".length) : null;
+
+  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled, gapCoverage, gapCoverageRounds, runId };
 }
 
 // ---------------------------------------------------------------------------
@@ -487,7 +495,7 @@ function printGapCoverageSummary(
 async function main() {
   loadEnv();
   const args = parseArgs();
-  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled, gapCoverage, gapCoverageRounds } = args;
+  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled, gapCoverage, gapCoverageRounds, runId } = args;
 
   configureEmbeddingCache({ enabled: resolveEmbeddingCacheEnabled(process.argv.slice(2), process.env) });
 
@@ -594,6 +602,15 @@ async function main() {
     }
   }
 
+  // Resume support: load already-completed questions from checkpoint file.
+  // When runId is null (flag absent), completed is an empty Map and no checkpoint
+  // calls are made — behavior is byte-identical to an uninterrupted run.
+  const completed = runId ? loadCompleted(runId) : new Map<string, unknown>();
+  if (runId) {
+    const remaining = questions.length - completed.size;
+    console.log(`\nResuming run-id=${runId}: ${completed.size} already complete, ${remaining} to go`);
+  }
+
   // Phase 1: Retrieval
   if (noVector) {
     console.log(
@@ -625,6 +642,17 @@ async function main() {
   for (let i = 0; i < questions.length; i++) {
     const question = questions[i];
     const progress = `[${i + 1}/${questions.length}]`;
+
+    // Resume: if this question was already completed in a prior run, restore
+    // its record from the checkpoint and skip all work (no ingest, retrieval,
+    // answer, or judge). The restored record goes into answerResults so the
+    // final JSON shape is identical to an uninterrupted run.
+    if (runId && completed.has(question.question_id)) {
+      const restoredRecord = completed.get(question.question_id) as AnswerResult;
+      answerResults.push(restoredRecord);
+      console.log(`  ${progress} Q${question.question_id}: [resumed from checkpoint]`);
+      continue;
+    }
 
     // Ingest this question's haystack
     const ingested = await ingestQuestion(question);
@@ -970,7 +998,7 @@ async function main() {
       }
 
       const ability = questionTypeToAbility(question.question_type);
-      answerResults.push({
+      const answerRecord: AnswerResult = {
         questionId: question.question_id,
         questionType: question.question_type,
         ability,
@@ -986,7 +1014,15 @@ async function main() {
         ...(agentLoopData ? { agentLoop: agentLoopData } : {}),
         ...(voteBreakdown ? { voteBreakdown } : {}),
         ...(gapCoverageFired !== undefined ? { gapCoverageFired, gapNewChunkCount } : {}),
-      });
+      };
+      answerResults.push(answerRecord);
+
+      // Per-question checkpoint: persist immediately after scoring so a network
+      // drop or crash costs at most one question on the next resume.
+      // Guard on runId so flag-off is byte-identical to current behavior.
+      if (runId) {
+        appendResult(runId, answerRecord);
+      }
 
       process.stdout.write(` → ${verdict}`);
 
