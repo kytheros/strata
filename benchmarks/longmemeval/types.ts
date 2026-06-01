@@ -123,6 +123,16 @@ export interface AnswerResult {
     incorrect: number;
     rawResponses: string[];
   };
+  /**
+   * Whether gap-coverage fired (gap-judge returned insufficient) on this question.
+   * Present only when --gap-coverage flag was active; absent in flag-off runs.
+   */
+  gapCoverageFired?: boolean;
+  /**
+   * Number of new (not originally retrieved) chunks found during gap re-retrieval.
+   * Present only when --gap-coverage flag was active; absent in flag-off runs.
+   */
+  gapNewChunkCount?: number;
 }
 
 /** Per-ability accuracy breakdown */

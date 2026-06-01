@@ -55,6 +55,8 @@ import { loadCachedEvents, formatEventsForPrompt, filterEventsByRelevance } from
 import { expandQuery, filterByRelevance } from "./query-expansion.js";
 import { summariseTokens, computeCost } from "./token-cost.js";
 import type { TokenUsage } from "./token-cost.js";
+import { answerWithGapCoverage } from "./gap-coverage.js";
+import { judgeGap } from "./gap-judge.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
@@ -190,6 +192,8 @@ export function parseArgs(): {
   judgeVotes: number;
   stratifiedN: number;
   gapJudgeEnabled: boolean;
+  gapCoverage: boolean;
+  gapCoverageRounds: number;
 } {
   const args = process.argv.slice(2);
 
@@ -253,7 +257,13 @@ export function parseArgs(): {
 
   const gapJudgeEnabled = args.includes("--gap-judge");
 
-  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled };
+  const gapCoverage = args.includes("--gap-coverage");
+  const gapCoverageRoundsArg = args.find((a) => a.startsWith("--gap-coverage-rounds="));
+  const gapCoverageRounds = gapCoverageRoundsArg
+    ? parseInt(gapCoverageRoundsArg.split("=")[1], 10)
+    : 1;
+
+  return { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker, events, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled, gapCoverage, gapCoverageRounds };
 }
 
 // ---------------------------------------------------------------------------
@@ -398,13 +408,86 @@ function printAccuracyReport(
 }
 
 // ---------------------------------------------------------------------------
+// Gap-coverage diagnostics summary
+// ---------------------------------------------------------------------------
+
+/**
+ * Print gap-coverage diagnostics when --gap-coverage was active.
+ * Shows: questions fired, new-chunk finds, re-answers superseded,
+ * and (when the known 29 target IDs are available via companion JSON)
+ * fixed vs regressed counts vs baselineResults.
+ *
+ * Target IDs (partial-coverage failures): loaded from
+ * benchmarks/longmemeval/gap-coverage-targets.json if present.
+ */
+function printGapCoverageSummary(
+  answerResults: AnswerResult[],
+  baselineResults: Array<{ questionId: string; judgeVerdict: "CORRECT" | "INCORRECT" }> | null,
+  targetIds: Set<string> | null
+): void {
+  const withGc = answerResults.filter(r => r.gapCoverageFired !== undefined);
+  if (withGc.length === 0) return;
+
+  const fired = withGc.filter(r => r.gapCoverageFired);
+  const foundNew = fired.filter(r => (r.gapNewChunkCount ?? 0) > 0);
+  const reAnswered = foundNew.length; // re-answer ran whenever new chunks found
+
+  console.log("\nGap-Coverage Summary");
+  console.log("| Metric                        | Count |");
+  console.log("|-------------------------------|-------|");
+  console.log(`| Questions checked             | ${withGc.length.toString().padStart(5)} |`);
+  console.log(`| Gap-judge fired (insufficient)| ${fired.length.toString().padStart(5)} |`);
+  console.log(`| Found new chunks              | ${foundNew.length.toString().padStart(5)} |`);
+  console.log(`| Re-answers generated          | ${reAnswered.toString().padStart(5)} |`);
+
+  if (baselineResults && targetIds) {
+    const baselineMap = new Map(baselineResults.map(r => [r.questionId, r.judgeVerdict]));
+    const currentMap = new Map(answerResults.map(r => [r.questionId, r.judgeVerdict]));
+
+    // Among the 29 targets: how many flipped INCORRECT → CORRECT?
+    let targetsFixed = 0;
+    let targetsTotal = 0;
+    for (const id of targetIds) {
+      const base = baselineMap.get(id);
+      const curr = currentMap.get(id);
+      if (base && curr) {
+        targetsTotal++;
+        if (base === "INCORRECT" && curr === "CORRECT") targetsFixed++;
+      }
+    }
+
+    // Among baseline-correct (non-target): how many regressed CORRECT → INCORRECT?
+    let regressions = 0;
+    let regressionTotal = 0;
+    for (const [id, baseVerdict] of baselineMap) {
+      if (targetIds.has(id)) continue;
+      if (baseVerdict === "CORRECT") {
+        regressionTotal++;
+        const curr = currentMap.get(id);
+        if (curr === "INCORRECT") regressions++;
+      }
+    }
+
+    console.log(`\nSuccess Gate (vs baseline)`);
+    console.log(`| Target recoveries (≥15/29 needed)  | ${targetsFixed}/${targetsTotal} |`);
+    console.log(`| Baseline regressions (≤3 allowed)  | ${regressions}/${regressionTotal} |`);
+    const ratio = regressions > 0 ? (targetsFixed / regressions).toFixed(1) : "∞";
+    console.log(`| Fix:regress ratio (≥3:1 needed)    | ${ratio}:1 |`);
+    const pass1 = targetsFixed >= 15;
+    const pass2 = regressions <= 3 && (regressions === 0 || targetsFixed / regressions >= 3);
+    console.log(`| Gate 1 (mechanism)                 | ${pass1 ? "PASS" : "FAIL"} |`);
+    console.log(`| Gate 2 (baseline guard)            | ${pass2 ? "PASS" : "FAIL"} |`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
   loadEnv();
   const args = parseArgs();
-  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled } = args;
+  const { variant, retrievalOnly, limit, skip, topK, promptVariant, thinkingBudget, filterIds, pro, knowledgeLimit, decompose, sessionScoring, reranker: rerankerMode, events: useEvents, eventTopK, twoPass, agentLoop, maxIterations, plannedSearch, noVector, judgeVotes, stratifiedN, gapJudgeEnabled, gapCoverage, gapCoverageRounds } = args;
 
   configureEmbeddingCache({ enabled: resolveEmbeddingCacheEnabled(process.argv.slice(2), process.env) });
 
@@ -418,7 +501,8 @@ async function main() {
   const agentLoopTag = agentLoop ? `, agent-loop(max=${maxIterations})` : "";
   const plannedSearchTag = plannedSearch ? `, planned-search` : "";
   const judgeVotesTag = judgeVotes > 1 ? `, judge-votes=${judgeVotes}` : "";
-  console.log(`LongMemEval Benchmark (LongMemEval${variant.toUpperCase()}, ${retrievalOnly ? "retrieval-only" : "full"}, topK=${topK}, prompt=${promptVariant}${thinkingTag}${proTag}${sessionTag}${rerankerTag}${eventsTag}${twoPassTag}${agentLoopTag}${plannedSearchTag}${judgeVotesTag})`);
+  const gapCoverageTag = gapCoverage ? `, gap-coverage(rounds=${gapCoverageRounds})` : "";
+  console.log(`LongMemEval Benchmark (LongMemEval${variant.toUpperCase()}, ${retrievalOnly ? "retrieval-only" : "full"}, topK=${topK}, prompt=${promptVariant}${thinkingTag}${proTag}${sessionTag}${rerankerTag}${eventsTag}${twoPassTag}${agentLoopTag}${plannedSearchTag}${judgeVotesTag}${gapCoverageTag})`);
   console.log("=".repeat(60));
 
   // Load dataset
@@ -644,6 +728,8 @@ async function main() {
       let agentLoopData: { iterations: number; toolCallLog: AgentLoopResult["toolCallLog"]; tokenUsage: AgentLoopResult["tokenUsage"] } | undefined;
       let capturedBuffer: CapturePair[] | undefined;
       let questionTokenUsage: TokenUsage | undefined;
+      let gapCoverageFired: boolean | undefined;
+      let gapNewChunkCount: number | undefined;
 
       if (plannedSearch) {
         // Planned search mode: cheap planner → deterministic multi-search → GPT-4o answers
@@ -789,6 +875,65 @@ async function main() {
         if (twoPassUsed) {
           process.stdout.write(` [2-pass]`);
         }
+
+        // Gap-coverage: one-round sufficiency check (spec 2026-05-31-gap-judge-coverage-wrapper-plan)
+        if (gapCoverage && !agentLoop && !plannedSearch) {
+          const completeFn = (prompt: string) =>
+            answerProvider!.provider.complete(prompt, {
+              maxTokens: 500,
+              temperature: 0,
+            } as any);
+          const gcResult = await answerWithGapCoverage(
+            question.question,
+            question.question_date,
+            searchResults,
+            answer,
+            {
+              // Re-retrieval MUST go through retrieveQuestion — the full engineered
+              // ranking stack (FTS5 + ONNX rerank + session-scoring + turn-lane fusion).
+              // Using searchAsync() directly would bypass the engineered ranker and feed
+              // the gap-fill inferior retrieval, defeating the lever's core invariant.
+              // Build a synthetic LongMemQuestion with the gap query substituted; all
+              // other fields (answer_session_ids etc.) are carried over from `question`
+              // but are irrelevant to the search path (only the .question field is used
+              // by retrieveQuestion for the FTS5 query). Both `question` and `ingested`
+              // are in scope; `sessionScoring` and `noVector` are from args destructuring.
+              retrieve: (query: string) =>
+                retrieveQuestion(
+                  { ...question, question: query },
+                  ingested,
+                  undefined,
+                  { sessionScoring, noVector }
+                ).then(r => r.searchResults),
+              judgeGap: (q: string, evidence: string) => judgeGap(q, evidence, completeFn),
+              generateAnswer: (q: string, qDate: string, ctx: import("../../src/search/sqlite-search-engine.js").SearchResult[], opts?: Record<string, unknown>) =>
+                generateAnswer(
+                  answerProvider!.provider,
+                  q,
+                  qDate,
+                  ctx,
+                  {
+                    topK: effectiveTopK,
+                    promptVariant: effectiveVariant,
+                    knowledgeContext,
+                    questionType: question.question_type,
+                    ...opts,
+                  }
+                ),
+            },
+            { maxRounds: gapCoverageRounds }
+          );
+          // Always record diagnostics when flag is active
+          gapCoverageFired = gcResult.fired;
+          gapNewChunkCount = gcResult.newChunkIds.length;
+          answer = gcResult.answer;
+          // answerLatency reflects the draft; re-answer latency not separately tracked
+          // (acceptable for benchmark purposes — the gap-coverage path adds one judge
+          // call + one optional answer call, both small relative to the primary answer).
+          if (gcResult.fired) {
+            process.stdout.write(` [gc:+${gcResult.newChunkIds.length}]`);
+          }
+        }
       }
 
       // Rate limit padding between answer and judge calls
@@ -840,6 +985,7 @@ async function main() {
         judgeLatencyMs: judgeLatency,
         ...(agentLoopData ? { agentLoop: agentLoopData } : {}),
         ...(voteBreakdown ? { voteBreakdown } : {}),
+        ...(gapCoverageFired !== undefined ? { gapCoverageFired, gapNewChunkCount } : {}),
       });
 
       process.stdout.write(` → ${verdict}`);
@@ -869,6 +1015,20 @@ async function main() {
       answerProvider!.modelName,
       judgeProvider!.modelName
     );
+  }
+
+  // Report gap-coverage diagnostics (when --gap-coverage was active)
+  if (gapCoverage && answerResults.length > 0) {
+    // Load target IDs from companion file if present
+    const targetPath = join(__dirname, "gap-coverage-targets.json");
+    let targetIds: Set<string> | null = null;
+    if (existsSync(targetPath)) {
+      try {
+        const raw = JSON.parse(readFileSync(targetPath, "utf-8")) as string[];
+        targetIds = new Set(raw);
+      } catch { /* ignore */ }
+    }
+    printGapCoverageSummary(answerResults, null, targetIds);
   }
 
   // Save full results to JSON
