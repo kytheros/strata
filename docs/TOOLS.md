@@ -439,7 +439,7 @@ Valid types: `decision`, `solution`, `error_fix`, `pattern`, `learning`, `proced
 Stored decision: "Always run database migrations before seeding in the CI pipeline" [tags: database, ci]
 ```
 
-With conflict resolution (Pro):
+With conflict resolution (requires an LLM provider, e.g. `GEMINI_API_KEY`):
 
 ```
 Stored decision: "Always run database migrations before seeding in the CI pipeline" [tags: database, ci] (replaced 1 conflicting entry)
@@ -454,7 +454,7 @@ Skipped duplicate decision: "Always run database migrations before seeding" (alr
 #### Notes
 
 - Entries are stored with `sessionId = "explicit-memory"`, which gives them the maximum explicit importance signal (0.10 weight * 1.0 score) and exempts them from memory decay
-- When an LLM provider is available (Pro), long memories (> 100 chars) are compressed into a 1-2 sentence summary while preserving the full text in details
+- When an LLM provider is available (e.g. `GEMINI_API_KEY` is set), long memories (> 100 chars) are compressed into a 1-2 sentence summary while preserving the full text in details
 - Conflict resolution runs before writing: checks for up to 5 similar entries, classifies as delete/update/noop
 - After storing, `resolveGaps()` checks if any open evidence gaps are resolved by the new entry
 - Importance score is computed at write time and stored in the `importance` column
@@ -598,18 +598,7 @@ Cache keys are constructed from all relevant parameters. The `store_memory` and 
 
 **Source:** `src/extensions/feature-gate.ts`
 
-The community edition feature gate returns `false` for all feature checks. Pro and Team editions replace this file with a license-aware implementation.
-
-Features gated behind Pro:
-- Gemini CLI and Aider parsers (`src/indexing/sqlite-index-manager.ts`, line 52)
-- Memory decay penalties (`src/search/result-ranker.ts`, line 66)
-- Gemini CLI watch target (`src/watcher/file-watcher.ts`, line 54)
-- LLM-enhanced extraction, smart summarization, conflict resolution
-- Cross-machine cloud sync, procedures, entity graph, analytics
-
-Vector/hybrid search and document embeddings are Community-tier — opt in by setting `GEMINI_API_KEY`.
-
-Community edition tools are always available with no license required.
+The feature gate is a no-op stub: all 15 tools are always available with no license key required. Vector/hybrid search and document embeddings opt in by setting `GEMINI_API_KEY`.
 
 ---
 

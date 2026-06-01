@@ -4,37 +4,11 @@ Strata is a local memory layer for AI coding assistants. It indexes conversation
 
 ---
 
-## Three-Tier Product Model
+## Core Engine (free, 15 tools)
 
-Strata ships as a layered product family. Each tier extends the one below it:
-
-```
-strata (community, free)         15 MCP tools
-  ^
-  |  imported via "strata-mcp" (npm)
-  |
-strata-pro (enterprise)         +11 MCP tools, license-gated
-  ^
-  |  imported via "@kytheros/strata-pro" (npm)
-  |
-strata-team (team)              + team sync, shared knowledge, RBAC
-```
-
-### Community (free, 15 tools)
-
-The core engine. Indexes conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI. Provides full-text search via FTS5 with BM25 ranking, semantic vector search, explicit memory storage, pattern discovery, document ingestion, event search, and multi-step reasoning.
+The core engine indexes conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI. Provides full-text search via FTS5 with BM25 ranking, semantic vector search, explicit memory storage, pattern discovery, document ingestion, event search, and multi-step reasoning.
 
 **Tools:** `search_history`, `find_solutions`, `semantic_search`, `search_events`, `list_projects`, `get_session_summary`, `get_project_context`, `get_user_profile`, `find_patterns`, `store_memory`, `delete_memory`, `ingest_document`, `store_document`, `reason_over_query`, `get_search_procedure`
-
-### Pro (licensed, +11 tools)
-
-Adds cross-machine cloud sync, step-by-step procedure capture, entity graph, usage analytics, conversation ingestion from external agents, and a full audit trail interface. (Hybrid BM25+vector retrieval ships in Community.)
-
-**Tools:** `find_procedures`, `store_procedure`, `search_entities`, `update_memory`, `memory_history`, `ingest_conversation`, `cloud_sync_status`, `cloud_sync_push`, `cloud_sync_pull`, `get_analytics`, `list_evidence_gaps`
-
-### Team (licensed, extends Pro)
-
-Adds shared knowledge bases across teams, RBAC for access control, vector-clock sync for conflict-free team collaboration, and multi-user scoping.
 
 ---
 
@@ -95,7 +69,7 @@ Knowledge entries survive session teardown, context rotation, and server restart
 
 ## Retrieval Pipeline
 
-### Community: BM25 Full-Text Search (baseline)
+### BM25 Full-Text Search (baseline)
 
 ```
 Raw query string
@@ -113,7 +87,7 @@ applyFilters()          Remove results not matching project/date/tool filters
 applyBoosts()           Multiplicative score adjustments:
       |                   - Recency: 1.2x (<=7d), 1.1x (<=30d)
       |                   - Project match: 1.3x
-      |                   - Memory decay (Pro): 0.85x (>90d), 0.7x (>180d)
+      |                   - Memory decay: 0.85x (>90d), 0.7x (>180d)
       |                   - Importance: score *= (1.0 + importance * 0.5)
       v
 Session dedup           Keep only the highest-scoring chunk per session
@@ -127,9 +101,9 @@ SearchResult[]
 
 Explicit memories (stored via `store_memory`, sessionId = `"explicit-memory"`) are exempt from memory decay.
 
-### Community: Hybrid BM25 + Vector + RRF
+### Hybrid BM25 + Vector + RRF
 
-Strata Community fuses BM25 with vector cosine similarity via Reciprocal Rank Fusion (RRF). (This pipeline previously shipped only in Pro; it moved to Community for Mem0 parity.)
+Strata fuses BM25 with vector cosine similarity via Reciprocal Rank Fusion (RRF).
 
 ```
 Raw query
@@ -207,7 +181,7 @@ Conversation History Files
     |         |
     v         v
  Documents   Knowledge Pipeline
- + FTS5      1. Extract (regex-based, or LLM-enhanced with Pro)
+ + FTS5      1. Extract (regex-based, or LLM-enhanced with a Gemini API key)
  Index       2. Evaluate (actionability + specificity + relevance gates)
              3. Score importance (type 35% + language 20% + frequency 35% + explicit 10%)
              4. Check duplicates (trigram Jaccard > 0.90 = duplicate)

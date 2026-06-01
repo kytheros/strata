@@ -367,16 +367,6 @@ strata search "authentication" --json --limit 5
 | [Tools Reference](TOOLS.md) | Complete MCP tool API with all parameters |
 | [Hooks and Skills](HOOKS-AND-SKILLS.md) | Detailed hook setup, skill definitions, agent integration |
 
-### Upgrade to Pro
-
-If you need semantic (vector) search, cloud sync, procedure storage, entity graphs, or analytics:
-
-```bash
-strata activate STRATA-XXXX-XXXX-XXXX
-```
-
-Visit [strata.kytheros.dev/pricing](https://strata.kytheros.dev/pricing) for plans.
-
 ---
 
 ## Troubleshooting

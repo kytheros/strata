@@ -1,6 +1,6 @@
 # Retrieval Quality Benchmarks
 
-This document describes Strata's retrieval quality benchmark methodology and results. The benchmark compares Strata Community (BM25-only), Strata Pro (hybrid BM25 + vector + RRF), and Mem0 on a standardized corpus of operational engineering knowledge.
+This document describes Strata's retrieval quality benchmark methodology and results. The benchmark compares Strata (hybrid BM25 + vector + RRF) and Mem0 on a standardized corpus of operational engineering knowledge.
 
 ---
 
@@ -46,8 +46,6 @@ Queries span different retrieval challenges:
 |----------|-------------|
 | **Strata Community** | Hybrid BM25 + vector cosine similarity merged via Reciprocal Rank Fusion. BM25 full-text search via FTS5 with Porter stemming; vector embeddings via Gemini (3072d) or local provider (384d). Boosts: recency, project match, importance. |
 | **Mem0** | Mem0 hosted API with default configuration. Requires `MEM0_API_KEY`. |
-
-> **Note on Strata Pro.** Pro's differentiators — procedures, entity graph, analytics, cloud sync, knowledge audit — don't move retrieval-quality metrics on a 50-learning corpus where Community already saturates Recall@5. Pro warrants its own evaluations on its own axes (procedure-recall, entity-graph traversal, analytics fidelity); those are queued separately. See [Pro feature evaluations](#pro-feature-evaluations) below.
 
 ### Comparison set
 
@@ -153,7 +151,7 @@ The product itself has since grown beyond coding assistants. Strata exposes a RE
 
 For operational queries containing specific technical terms (error codes, API names, configuration keys), BM25 exact-match search often outperforms pure vector search. A query for "ECONNREFUSED port 5432" benefits more from exact keyword matching than from semantic similarity.
 
-Strata Pro's hybrid pipeline combines both: BM25 catches exact matches while vector search finds semantically related content. The RRF fusion gives credit to results that appear in either list, with bonus scoring for results found by both methods.
+Strata's hybrid pipeline combines both: BM25 catches exact matches while vector search finds semantically related content. The RRF fusion gives credit to results that appear in either list, with bonus scoring for results found by both methods.
 
 ### Latency Advantage
 
@@ -251,20 +249,3 @@ The game-engine track evaluates Strata's REST + world-scoped storage path on mul
 The two tests Spec 2026-04-28 was designed to fix — `ContradictoryUpdate` (Silvermist→Shadowfax) and `ConflictingQuantities` — pass in 5 of 6 attempts across N=1 and N=3 runs. The stable-failure set is generation-side (LLM prompt-following), not retrieval; each is queued for its own spec.
 
 Reproducibility: see `evals/npc-recall-tir-qdp/` (frozen eval) and `evals/npc-recall-tir-qdp/stress-battery-ab.md` (stress battery readouts).
-
----
-
-## Pro feature evaluations
-
-Strata Pro extends the open-source memory engine with features that don't show up on a retrieval-quality benchmark: procedures (reusable search recipes), entity graph (cross-memory entity tracking), analytics (`get_analytics`, `knowledge_stats`, `knowledge_quality`, `knowledge_audit`, `list_evidence_gaps`), cloud sync, and conversation-level ingestion.
-
-These features warrant their own evaluations on their own axes:
-
-| Feature | Evaluation axis | Status |
-|---|---|---|
-| Procedures | Procedure recall and reuse hit-rate | Queued |
-| Entity graph | Cross-memory entity-traversal queries | Queued |
-| Analytics | Aggregate fidelity vs ground truth | Queued |
-| Cloud sync | Multi-device convergence + conflict resolution | Queued |
-
-Results land here as those harnesses ship.

@@ -1,6 +1,6 @@
 # Local LLM Inference with Gemma 4
 
-Strata Pro's ingestion pipeline runs **three** LLM-powered stages per
+Strata's ingestion pipeline runs **three** LLM-powered stages per
 conversation: knowledge extraction, conflict resolution, and session
 summarization. By default these call Gemini 2.5 Flash over the network.
 

@@ -493,11 +493,9 @@ Adding staging and prod environments is documented in `templates/aws/README.md` 
 |----------|---------|-------------|
 | `STRATA_DATA_DIR` | `~/.strata` | Directory for SQLite database, summaries, and metadata |
 | `PORT` | `3000` | HTTP server port (used by `strata serve`) |
-| `STRATA_LICENSE_KEY` | (none) | License key for Pro/Team features (alternative to `strata activate`) |
+| `STRATA_LICENSE_KEY` | (none) | License key (read from the environment if set; alternative to `strata activate`) |
 | `STRATA_EXTRA_WATCH_DIRS` | (none) | Comma-separated additional directories to watch for conversation files |
-| `STRATA_API_URL` | (none) | Cloud sync API endpoint (Pro feature) |
-| `STRATA_API_KEY` | (none) | Cloud sync API key (Pro feature) |
-| `STRATA_TEAM_ID` | (none) | Team identifier for team sync (Team feature) |
+| `GEMINI_API_KEY` | (none) | Gemini API key for embeddings and semantic search |
 | `NO_COLOR` | (none) | Disable colored CLI output (any value) |
 
 ---

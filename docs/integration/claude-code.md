@@ -79,7 +79,7 @@ Projects: 12
 
 ## Available Tools
 
-Once connected, Claude Code has access to 8 community tools. It calls them automatically based on your requests.
+Once connected, Claude Code has access to Strata's MCP tools. It calls them automatically based on your requests. Some of the most commonly used:
 
 ### Search and Discovery
 
@@ -87,6 +87,7 @@ Once connected, Claude Code has access to 8 community tools. It calls them autom
 |------|-------------|
 | `search_history` | Full-text search across all past conversations. Supports inline filters: `project:name`, `before:7d`, `after:30d`, `tool:Bash`. BM25 ranking with recency and project boosts. |
 | `find_solutions` | Search for past solutions to errors and problems. Results containing fix/resolve language score 1.5x higher. |
+| `semantic_search` | Hybrid FTS5 + vector cosine similarity search via Reciprocal Rank Fusion. Finds semantically similar content beyond keyword matching. Requires `GEMINI_API_KEY`. |
 | `list_projects` | List all indexed projects with session counts, message counts, and date ranges. |
 | `get_session_summary` | Get a structured summary of a specific session by ID or most recent for a project. |
 | `get_project_context` | Comprehensive project context: recent sessions, key decisions, patterns. Useful at session start. |
@@ -98,21 +99,6 @@ Once connected, Claude Code has access to 8 community tools. It calls them autom
 |------|-------------|
 | `store_memory` | Explicitly store a memory for future recall. Supports 9 types: decision, solution, error_fix, pattern, learning, procedure, fact, preference, episodic. Immediately searchable. |
 | `delete_memory` | Hard-delete a memory entry by ID. The deletion is recorded in the audit trail. |
-
-### Pro Tools (11 additional, requires license)
-
-| Tool | What It Does |
-|------|-------------|
-| `semantic_search` | Hybrid FTS5 + vector cosine similarity search via Reciprocal Rank Fusion. Finds semantically similar content beyond keyword matching. |
-| `find_procedures` | Search for stored step-by-step procedures and workflows. |
-| `store_procedure` | Store a step-by-step procedure. Repeated stores of the same title merge steps automatically. |
-| `search_entities` | Query the cross-session entity graph (libraries, services, tools, frameworks). |
-| `update_memory` | Partially update an existing memory entry. Changes are recorded in the audit trail. |
-| `memory_history` | View the mutation history (add/update/delete) for any memory entry. |
-| `ingest_conversation` | Push conversations from external agents (Cursor, Slack bots, custom agents) into the extraction pipeline. |
-| `cloud_sync_status/push/pull` | Cross-machine sync via encrypted cloud backend. |
-| `get_analytics` | Local usage analytics: search patterns, tool usage, activity trends. |
-| `list_evidence_gaps` | List topics searched but not found -- shows blind spots in your knowledge base. |
 
 ---
 
@@ -191,20 +177,16 @@ This installs:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `STRATA_DATA_DIR` | Data directory (database location) | `~/.strata/` |
-| `STRATA_LICENSE_KEY` | Pro/Team license key | _(free tier)_ |
 | `STRATA_DEFAULT_USER` | Default user scope for multi-user setups | `default` |
 | `STRATA_EXTRA_WATCH_DIRS` | Additional directories to watch (comma-separated) | _(none)_ |
 
-### Pro Configuration (optional)
+### Embeddings (optional)
 
 | Variable | Description |
 |----------|-------------|
 | `STRATA_EMBEDDING_PROVIDER` | Embedding provider: `local` (default), `openai`, or auto-detected Gemini |
-| `GEMINI_API_KEY` | Gemini API key for embedding generation |
+| `GEMINI_API_KEY` | Gemini API key for embedding generation and semantic search |
 | `STRATA_OPENAI_API_KEY` | OpenAI API key (if using OpenAI embeddings) |
-| `STRATA_API_URL` | Cloud sync server URL |
-| `STRATA_API_KEY` | Cloud sync API key |
-| `STRATA_TEAM_ID` | Team ID for shared sync |
 
 Pass environment variables in the MCP configuration:
 
@@ -215,7 +197,6 @@ Pass environment variables in the MCP configuration:
       "command": "npx",
       "args": ["strata-mcp"],
       "env": {
-        "STRATA_LICENSE_KEY": "your-license-key",
         "GEMINI_API_KEY": "your-gemini-key"
       }
     }

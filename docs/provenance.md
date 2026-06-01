@@ -30,7 +30,7 @@ CREATE INDEX idx_knowledge_history_entry ON knowledge_history(entry_id, id DESC)
 | Event | old_summary | new_summary | old_details | new_details | When |
 |-------|------------|------------|------------|------------|------|
 | `add` | `NULL` | Entry summary | `NULL` | Entry details | A new knowledge entry is created via extraction, `store_memory`, or conflict resolution merge |
-| `update` | Previous summary | Updated summary | Previous details | Updated details | Entry is modified via `update_memory`, procedure merge, or conflict resolution update |
+| `update` | Previous summary | Updated summary | Previous details | Updated details | Entry is modified via conflict resolution update |
 | `delete` | Entry summary at deletion | `NULL` | Entry details at deletion | `NULL` | Entry is removed via `delete_memory` or conflict resolution supersession |
 
 ### Row Type
@@ -157,17 +157,6 @@ consider using store_memory to record relevant knowledge.
 ---
 
 ## Accessing the Audit Trail
-
-### Via MCP Tool: `memory_history` (Pro)
-
-The `memory_history` tool (`strata-pro/src/tools/memory-history.ts`) exposes the audit trail through MCP:
-
-```
-memory_history({ id: "abc-123" })
-memory_history({ id: "abc-123", limit: 100 })
-```
-
-Returns the most recent history rows for the given entry ID, ordered newest-first. The `limit` parameter defaults to 20, maximum 100.
 
 History persists even after an entry is deleted, so you can always trace what happened to a removed entry.
 

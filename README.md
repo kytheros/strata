@@ -38,9 +38,9 @@ No cloud required. No memory caps. Everything stays on your machine -- or deploy
 
 > **Status:** Beta. The data model and MCP tool surface are stable; CLI flags and deploy commands may shift between minor versions. Used in production by Kytheros LLC and design partners.
 >
-> **Who builds this:** Strata is built and maintained by **[Kytheros LLC](https://kytheros.dev)**. The community edition (this repo) is **Apache 2.0 licensed and free forever** — the feature set documented here is committed, not bait-and-switch. A commercial Pro tier is in development; see [Pro Edition](#pro-edition) below for the planned scope.
+> **Who builds this:** Strata is built and maintained by **[Kytheros LLC](https://kytheros.dev)**. This edition is **Apache 2.0 licensed and free forever** — the feature set documented here is committed, not bait-and-switch.
 >
-> **Support development:** [polar.sh/kytheros](https://polar.sh/kytheros) — sponsorships fund the community edition.
+> **Support development:** [polar.sh/kytheros](https://polar.sh/kytheros) — sponsorships fund development.
 >
 > **Privacy:** Strata stores everything locally in `~/.strata/strata.db` by default and works fully offline with FTS5 keyword search. If you set `GEMINI_API_KEY`, queries and stored content are sent to Google's Gemini API for embeddings and extraction (subject to [Google's API terms](https://ai.google.dev/terms)). [Local LLM Inference](#local-llm-inference-gemma-4) removes the Gemini dependency entirely.
 
@@ -581,34 +581,13 @@ Run `strata status` to see which tools are detected on your system.
 
 ---
 
-## Pro Edition
-
-> **Status: In development.** Pro is on the roadmap and not yet released. The features below describe the planned scope; there is no buy link, license activation flow, or download artifact available to the public yet. Sign up for updates at [polar.sh/kytheros](https://polar.sh/kytheros).
-
-Planned scope — audit trails, entity intelligence, multi-provider LLM extraction, local dashboard, and cross-machine sync.
-
-| Feature | Description |
-|---------|-------------|
-| `memory_history` | Full audit trail of every knowledge mutation (add/update/delete) |
-| `update_memory` | Partial updates with change tracking |
-| `find_procedures` / `store_procedure` | Step-by-step workflow capture and search |
-| `search_entities` | Cross-session entity graph (libraries, services, tools, frameworks) |
-| `ingest_conversation` | Push conversations from any agent into the extraction pipeline |
-| `get_analytics` | Local usage analytics -- search patterns, tool usage, trends |
-| `list_evidence_gaps` | Knowledge blind spots -- topics searched but never answered |
-| Multi-provider extraction | LLM-powered extraction with Anthropic, OpenAI, and Gemini (community gets Gemini with API key; Pro adds provider choice) |
-| Local dashboard | Browser-based UI for knowledge exploration, settings, and maintenance |
-| Pre-trained base models | Skip months of training data accumulation with Pro-only base models for distillation |
-
----
-
 ## Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `GEMINI_API_KEY` | Gemini API key for semantic search and embeddings. [Get one free](https://aistudio.google.com/apikey). Also reads from `~/.strata/config.json`. | _(FTS5 only)_ |
 | `STRATA_DATA_DIR` | Database directory | `~/.strata/` |
-| `STRATA_LICENSE_KEY` | Pro license key | _(free tier)_ |
+| `STRATA_LICENSE_KEY` | License key (read from the environment if set) | _(unset)_ |
 | `STRATA_DEFAULT_USER` | Default user scope | `default` |
 | `STRATA_EXTRA_WATCH_DIRS` | Additional watch directories | _(none)_ |
 | `NO_COLOR` | Disable colored CLI output | _(unset)_ |
@@ -651,7 +630,7 @@ You can also set the Gemini key in `~/.strata/config.json` instead of an environ
 | `strata backup push <s3-uri>` | Upload `~/.strata/strata.db` to S3-compatible bucket |
 | `strata backup pull <s3-uri>` | Restore DB from bucket (prompts before overwriting newer local file) |
 | `strata backup status <s3-uri>` | Compare local vs. remote size and last-modified |
-| `strata activate <key>` | Activate a Pro license |
+| `strata activate <key>` | Activate a license key |
 | `strata license` | Show current license status |
 | `strata --help` | Full usage |
 
@@ -732,7 +711,7 @@ What's next: a first-party Unity package ([strata#2](https://github.com/kytheros
 - **Bugs and feature requests** — [GitHub Issues](https://github.com/kytheros/strata/issues)
 - **First-time contributors** — issues labeled [`good first issue`](https://github.com/kytheros/strata/labels/good%20first%20issue) are scoped, documented, and reviewed quickly
 - **Security disclosures** — see [SECURITY.md](SECURITY.md) (do not file public issues for vulnerabilities)
-- **Sponsor / Pro updates** — [polar.sh/kytheros](https://polar.sh/kytheros) (Pro is in development)
+- **Sponsor development** — [polar.sh/kytheros](https://polar.sh/kytheros)
 
 ## Contributing
 

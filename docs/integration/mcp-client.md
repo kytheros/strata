@@ -306,8 +306,8 @@ All search tools support three output formats via the `format` parameter:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `STRATA_DATA_DIR` | Database and data directory | `~/.strata/` |
-| `STRATA_LICENSE_KEY` | Pro/Team license key | _(free tier)_ |
 | `STRATA_DEFAULT_USER` | Default user scope | `default` |
+| `GEMINI_API_KEY` | Gemini API key for embeddings and semantic search | _(FTS5 only)_ |
 | `PORT` | HTTP server port (for `strata serve`) | `3000` |
 
 ---

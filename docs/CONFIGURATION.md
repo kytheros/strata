@@ -1,6 +1,6 @@
 # Strata Configuration Reference
 
-This document covers all configuration options for Strata: environment variables, MCP server setup, CLI flags, internal config constants, file locations, and cloud sync settings.
+This document covers all configuration options for Strata: environment variables, MCP server setup, CLI flags, internal config constants, and file locations.
 
 ---
 
@@ -11,7 +11,6 @@ This document covers all configuration options for Strata: environment variables
 3. [CLI Flags](#3-cli-flags)
 4. [Config Constants](#4-config-constants)
 5. [File Locations](#5-file-locations)
-6. [Cloud Sync Configuration](#6-cloud-sync-configuration)
 
 ---
 
@@ -22,11 +21,8 @@ All environment variables are read at runtime. None are required for basic opera
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `STRATA_DATA_DIR` | `~/.strata/` | Root directory for Strata's database, summaries, and caches |
-| `STRATA_LICENSE_KEY` | -- | License key for Pro/Team features (alternative to `strata activate`) |
+| `STRATA_LICENSE_KEY` | -- | License key (read from the environment if set; alternative to `strata activate`) |
 | `STRATA_DEFAULT_USER` | `"default"` | Default user scope for multi-user setups |
-| `STRATA_API_URL` | `""` | Cloud sync API endpoint (Pro) |
-| `STRATA_API_KEY` | `""` | Cloud sync API key (Pro) |
-| `STRATA_TEAM_ID` | `""` | Team identifier for team sync (Team tier) |
 | `STRATA_EXTRA_WATCH_DIRS` | `""` | Additional watch directories (see below) |
 | `STRATA_CONFLICT_RESOLUTION` | `"1"` | Set to `"0"` to disable LLM conflict resolution |
 | `NO_COLOR` | -- | Disable colored CLI output (any value) |
@@ -237,26 +233,6 @@ Search conversation history from the command line.
 | `--tool <name>` | -- | Filter by tool (claude-code, codex, aider) |
 | `--json` | false | Output results as JSON |
 
-#### `strata find-procedures <query>`
-
-Search for procedure entries. Requires Strata Pro.
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--project <name>` | -- | Filter by project |
-| `--json` | false | Output as JSON |
-
-#### `strata entities [query]`
-
-Search the entity graph. Requires Strata Pro.
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--type <type>` | -- | Filter by entity type (library, service, tool, etc.) |
-| `--project <name>` | -- | Filter by project |
-| `--limit <n>` | 10 | Maximum results |
-| `--json` | false | Output as JSON |
-
 #### `strata store-memory <text>`
 
 Store an explicit memory from the command line.
@@ -270,10 +246,10 @@ Store an explicit memory from the command line.
 
 #### `strata activate <key>`
 
-Activate a license. Supports two key formats:
+Activate a license key. Supports two key formats:
 
-- **Polar keys** (start with `STRATA-` or contain `pol_lic_`): Downloads and installs the licensed edition
-- **JWT keys** (start with `eyJ`): Validates and saves the license locally
+- **Polar keys** (start with `STRATA-` or contain `pol_lic_`): Downloads and installs a packaged build
+- **JWT keys** (start with `eyJ`): Validates and saves the key locally
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -290,7 +266,7 @@ Show current license status: tier, email, features, expiration date.
 
 #### `strata embed`
 
-Generate embeddings for vector search. Requires Strata Pro.
+Generate embeddings for vector search.
 
 #### `strata init`
 
@@ -346,8 +322,8 @@ Note: These constants are defined for reference but FTS5 uses its own internal B
 | `search.recencyBoost30d` | 1.1 | Boost multiplier for results <= 30 days old |
 | `search.projectMatchBoost` | 1.3 | Boost multiplier when result project matches current |
 | `search.rrfK` | 60 | Reciprocal Rank Fusion constant (higher = less weight on rank position) |
-| `search.decayPenalty90d` | 0.85 | Decay multiplier for auto-indexed entries > 90 days (Pro only) |
-| `search.decayPenalty180d` | 0.7 | Decay multiplier for auto-indexed entries > 180 days (Pro only) |
+| `search.decayPenalty90d` | 0.85 | Decay multiplier for auto-indexed entries > 90 days |
+| `search.decayPenalty180d` | 0.7 | Decay multiplier for auto-indexed entries > 180 days |
 | `search.confidenceHighThreshold` | 0.6 | Confidence >= this is labeled "high" |
 | `search.confidenceMediumThreshold` | 0.3 | Confidence >= this is labeled "medium" |
 | `search.lowConfidenceThreshold` | 1.5 | Absolute score below which results trigger gap recording |
@@ -398,14 +374,6 @@ The four weights sum to 1.0.
 | `gaps.maxPerProject` | 100 | Maximum open gaps per project+user |
 | `gaps.pruneAfterDays` | 90 | Auto-prune unresolved gaps older than this |
 
-### Cloud Sync
-
-| Constant | Source | Description |
-|----------|--------|-------------|
-| `cloud.apiUrl` | `STRATA_API_URL` | Cloud sync API endpoint |
-| `cloud.apiKey` | `STRATA_API_KEY` | Cloud sync API key |
-| `cloud.teamId` | `STRATA_TEAM_ID` | Team identifier |
-
 ---
 
 ## 5. File Locations
@@ -425,7 +393,6 @@ Override with `STRATA_DATA_DIR` environment variable.
 | `~/.strata/strata.db` | Main SQLite database (WAL mode) | `src/storage/database.ts`, line 22 |
 | `~/.strata/summaries/{sessionId}.json` | Cached session summaries | `src/knowledge/session-summarizer.ts`, line 78 |
 | `~/.strata/recurring-issues.json` | Recurring issue cache | `src/knowledge/learning-synthesizer.ts`, line 207 |
-| `~/.strata/sync-state.json` | Cloud sync state | `src/config.ts`, line 91 |
 | `~/.strata/license.key` | Saved license key | `src/cli.ts`, line 343 |
 | `~/.strata/config.json` | Install configuration (tier, version, format, platform) | Used by `strata update` |
 | `~/.strata/knowledge.json` | Legacy knowledge file (pre-SQLite) | `src/config.ts`, line 21 |
@@ -444,8 +411,8 @@ Strata reads conversation data from these tool-specific directories:
 | Cline (macOS) | `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/watcher/file-watcher.ts`, line 189 |
 | Cline (Linux) | `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/watcher/file-watcher.ts`, line 192 |
 | Cline (Windows) | `%APPDATA%/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/watcher/file-watcher.ts`, line 187 |
-| Gemini CLI (Pro) | `~/.gemini/tmp/` | `src/watcher/file-watcher.ts`, line 58 |
-| Aider (Pro) | Project-level `.aider.chat.history.md` files | Discovered by parser |
+| Gemini CLI | `~/.gemini/tmp/` | `src/watcher/file-watcher.ts`, line 58 |
+| Aider | Project-level `.aider.chat.history.md` files | Discovered by parser |
 
 ### Changing the Data Directory
 
@@ -473,48 +440,6 @@ Or in MCP configuration:
 ```
 
 The directory is created automatically if it does not exist (`src/storage/database.ts`, line 36).
-
----
-
-## 6. Cloud Sync Configuration
-
-Cloud sync is a Pro feature that synchronizes knowledge entries with a remote API.
-
-### Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `STRATA_API_URL` | Yes | Base URL of the sync API endpoint |
-| `STRATA_API_KEY` | Yes | Authentication key for the sync API |
-| `STRATA_TEAM_ID` | For Team tier | Team identifier for shared knowledge |
-
-### Setup
-
-```bash
-export STRATA_API_URL="https://api.strata.kytheros.dev"
-export STRATA_API_KEY="your-api-key"
-export STRATA_TEAM_ID="your-team-id"  # Team tier only
-```
-
-Or in MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "strata": {
-      "command": "npx",
-      "args": ["-y", "strata-mcp@latest"],
-      "env": {
-        "STRATA_API_URL": "https://api.strata.kytheros.dev",
-        "STRATA_API_KEY": "your-api-key",
-        "STRATA_TEAM_ID": "your-team-id"
-      }
-    }
-  }
-}
-```
-
-Sync state is persisted at `~/.strata/sync-state.json` (`src/config.ts`, line 91) to track what has been uploaded and enable incremental sync.
 
 ---
 
