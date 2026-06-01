@@ -64,6 +64,8 @@ benchmarks/longmemeval/providers/*
 !benchmarks/longmemeval/token-cost.ts
 !benchmarks/longmemeval/stratified-set.ts
 !benchmarks/longmemeval/gap-judge.ts
+# Gap-coverage wrapper (spec 2026-05-31-gap-judge-coverage-wrapper-plan.md).
+!benchmarks/longmemeval/gap-coverage.ts
 # Benchmark embedding cache — large, regenerable, never commit
 benchmarks/longmemeval/cache/embedding-cache.db
 benchmarks/longmemeval/cache/embedding-cache.db-wal
