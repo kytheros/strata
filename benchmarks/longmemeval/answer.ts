@@ -920,7 +920,13 @@ export async function generateAnswer(
   // Token budget: CoN two-step extraction needs more than 500 tokens.
   // 2048 is sufficient for notes + answer on most questions.
   // Gemini reasoning models need 8192 for internal thinking + visible output.
-  const maxTokens = provider.name === "gemini" ? 8192 : 2048;
+  // vertex-gemini uses the same underlying model family and also benefits from
+  // 8192 — the baseline accidentally capped it at 2048 because the name check
+  // only covered "gemini". Extended here to fix the truncation confound for
+  // the category-reasoning canary. Temperature stays at 0 for vertex-gemini
+  // (its baseline value) — do NOT change to 1.0 here.
+  const isGeminiFamily = provider.name === "gemini" || provider.name === "vertex-gemini";
+  const maxTokens = isGeminiFamily ? 8192 : 2048;
 
   // Build completion options. For providers that support system/user split
   // (benchmark OpenAI/Anthropic providers), pass the system prompt via options.
