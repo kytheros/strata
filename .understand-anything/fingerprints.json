@@ -1,78 +1,8 @@
 {
   "version": "1.0.0",
-  "gitCommitHash": "027cef1e80fe495b7474b14a441f9a7f25464564",
-  "generatedAt": "2026-05-26T12:55:28.627Z",
+  "gitCommitHash": "d576cc0e5fb24db911a2daf8828f722a23bff5f8",
+  "generatedAt": "2026-06-01T22:41:22.431Z",
   "files": {
-    ".dockerignore": {
-      "filePath": ".dockerignore",
-      "contentHash": "1d98758161a9845853806027251f34226901bacdad02c540c90b2fb8c11ff3e3",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 13,
-      "hasStructuralAnalysis": false
-    },
-    ".github/workflows/aws-template-apply.yml": {
-      "filePath": ".github/workflows/aws-template-apply.yml",
-      "contentHash": "2f8dff5461329dcb24dcb1fdcb3f8beaca88db2b6ed34668ed28fa94e7ac4bbf",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 155,
-      "hasStructuralAnalysis": true
-    },
-    ".github/workflows/aws-template-ci.yml": {
-      "filePath": ".github/workflows/aws-template-ci.yml",
-      "contentHash": "a0874bb018ce40d337e31c43ede03eee0217d4f953b9503e90eefefb74e5b6ed",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 323,
-      "hasStructuralAnalysis": true
-    },
-    ".github/workflows/ci.yml": {
-      "filePath": ".github/workflows/ci.yml",
-      "contentHash": "239fd420ad041dbad18b015d6e30f72eb2d0c17060adfcb2551e1b050054912a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 149,
-      "hasStructuralAnalysis": true
-    },
-    ".github/workflows/publish.yml": {
-      "filePath": ".github/workflows/publish.yml",
-      "contentHash": "a5d53db66a4b1b8daa60c8ca229b9603664c7b7f82028e26b1fd7b1897d8b73d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 68,
-      "hasStructuralAnalysis": true
-    },
-    ".github/workflows/security.yml": {
-      "filePath": ".github/workflows/security.yml",
-      "contentHash": "f869654cada41631f8a0077cc57e5551505acd22460861d8bbc863c5e3eb93d0",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 149,
-      "hasStructuralAnalysis": true
-    },
-    ".gitleaks.toml": {
-      "filePath": ".gitleaks.toml",
-      "contentHash": "eddd4fbae27c77a86993b1a0615a778b9450c2a245f7e5a989e906bdd39b7924",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 128,
-      "hasStructuralAnalysis": true
-    },
     ".husky/pre-commit": {
       "filePath": ".husky/pre-commit",
       "contentHash": "8f525d8c3b40a75e688b34809abeba991c41719039c83a706a66d7bdfb3b0c4a",
@@ -85,12 +15,12 @@
     },
     ".husky/pre-push": {
       "filePath": ".husky/pre-push",
-      "contentHash": "b1b7682d9536d614a6ecd7570b64986c447e91d07f763213b61f36e157bd8af4",
+      "contentHash": "f33ef9a7f6e79b4b384baeb5322e04107d65a67e50c3579456804aeae6c92bd8",
       "functions": [],
       "classes": [],
       "imports": [],
       "exports": [],
-      "totalLines": 53,
+      "totalLines": 63,
       "hasStructuralAnalysis": false
     },
     ".npmrc": {
@@ -102,26 +32,6 @@
       "exports": [],
       "totalLines": 2,
       "hasStructuralAnalysis": false
-    },
-    ".semgrep/custom-rules.yml": {
-      "filePath": ".semgrep/custom-rules.yml",
-      "contentHash": "54175187a161d9a8f0bd290d099a45902dc944c48b933bcb6ccbf55b6e1a3f64",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 938,
-      "hasStructuralAnalysis": true
-    },
-    ".semgrep/security-baseline.md": {
-      "filePath": ".semgrep/security-baseline.md",
-      "contentHash": "a8e98780d3365fb2a2d6e49efbad8c3fd443b14cbcc4fe24e9360b482912457a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 46,
-      "hasStructuralAnalysis": true
     },
     ".semgrepignore": {
       "filePath": ".semgrepignore",
@@ -142,6 +52,59 @@
       "exports": [],
       "totalLines": 34,
       "hasStructuralAnalysis": false
+    },
+    "autoresearch/ku-fusion/run-eval.ts": {
+      "filePath": "autoresearch/ku-fusion/run-eval.ts",
+      "contentHash": "01233be5f9f7ff82f3b582823b7ea51e21f42762075607f767df2ccea6e526bd",
+      "functions": [
+        {
+          "name": "loadKuIds",
+          "params": [],
+          "returnType": "string[]",
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": false,
+          "lineCount": 90
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "node:fs",
+          "specifiers": [
+            "readFileSync",
+            "writeFileSync",
+            "readdirSync",
+            "statSync"
+          ]
+        },
+        {
+          "source": "node:child_process",
+          "specifiers": [
+            "execSync"
+          ]
+        },
+        {
+          "source": "node:path",
+          "specifiers": [
+            "join",
+            "dirname"
+          ]
+        },
+        {
+          "source": "node:url",
+          "specifiers": [
+            "fileURLToPath"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 136,
+      "hasStructuralAnalysis": true
     },
     "autoresearch/search-retrieval/run-eval-hybrid.ts": {
       "filePath": "autoresearch/search-retrieval/run-eval-hybrid.ts",
@@ -242,46 +205,6 @@
       "totalLines": 268,
       "hasStructuralAnalysis": true
     },
-    "autoresearch/turn-lane-ranking/baseline.md": {
-      "filePath": "autoresearch/turn-lane-ranking/baseline.md",
-      "contentHash": "0649a241e8663f6307ddac69fd9b13a4a998ba123dd44b1c4673bfc432de772a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 49,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/best-score.md": {
-      "filePath": "autoresearch/turn-lane-ranking/best-score.md",
-      "contentHash": "f7a7d0bbddf944155766b39b1f4bcefb36257a51db7ea3947c454f2d652e5b6a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 19,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/eval-corpus.md": {
-      "filePath": "autoresearch/turn-lane-ranking/eval-corpus.md",
-      "contentHash": "f624e1404a88ebe5d409c3eb8b3ad52da26c8bc5596aa241822600e501db3103",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 42,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/eval-queries.md": {
-      "filePath": "autoresearch/turn-lane-ranking/eval-queries.md",
-      "contentHash": "e0f816435adfb2a561d4ec74f803129971c708bb1d12d5192b6187c52d01b7a4",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 20,
-      "hasStructuralAnalysis": true
-    },
     "autoresearch/turn-lane-ranking/experiments/.gitkeep": {
       "filePath": "autoresearch/turn-lane-ranking/experiments/.gitkeep",
       "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -291,216 +214,6 @@
       "exports": [],
       "totalLines": 1,
       "hasStructuralAnalysis": false
-    },
-    "autoresearch/turn-lane-ranking/experiments/000-baseline.md": {
-      "filePath": "autoresearch/turn-lane-ranking/experiments/000-baseline.md",
-      "contentHash": "5aa06ece37b31c033495eb78426dd6794aae64246b122811e98211f67e17211f",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 99,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/experiments/001-speaker-prefer.md": {
-      "filePath": "autoresearch/turn-lane-ranking/experiments/001-speaker-prefer.md",
-      "contentHash": "541e11222012cedd828313cb4b2fac09c5a7e6c071dcd22eae9b5ed5d422435f",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 100,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/experiments/002-short-session-desc.md": {
-      "filePath": "autoresearch/turn-lane-ranking/experiments/002-short-session-desc.md",
-      "contentHash": "bd330a11fca3cf97bc8e310a470f42222b7ad39ea515a2f9658323e7e13bb7be",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 91,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/experiments/003-existential-classifier.md": {
-      "filePath": "autoresearch/turn-lane-ranking/experiments/003-existential-classifier.md",
-      "contentHash": "e75e50d4a7825cd46a0093a1a8f26420f219aa3343bcf2827b8a7bac58c46a18",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 81,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/experiments/004-per-session-cap.md": {
-      "filePath": "autoresearch/turn-lane-ranking/experiments/004-per-session-cap.md",
-      "contentHash": "d48cd7395d017cb86f357d647137b6f9709cc0e7b18afed00655136029a9de76",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 77,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-001.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-001.json",
-      "contentHash": "3fccf1e8be9958a6fb0048c6e829606eaaf39e022b833a8b77b33157a0ba5b57",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 43,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-002.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-002.json",
-      "contentHash": "f8c4e3ce92119f17193f25eb318c69ae0ea4454f9f196f771120fae296374171",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 43,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-003.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-003.json",
-      "contentHash": "ec3add7ac7c65235bd5ea293cb7ff620daaad667959d92ac4484167dd06e9fa7",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 2767,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-004.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-004.json",
-      "contentHash": "ab91f5f90170d9574bc139ec18bef9c6be47c4ff278e16929a85033a6d0eb20f",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 2245,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-005.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-005.json",
-      "contentHash": "789312909d7cc36771b265da876bfc81c24c46e033f2fe805b9e61210d68ecae",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 2325,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-006.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-006.json",
-      "contentHash": "9b8cf28cd3c3c815513e7854969b3cb08a3fbf1010f791ed058d239f6762fdc4",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 24,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-007.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-007.json",
-      "contentHash": "4f59195314171416d0811ed5e7d3718975ac030fc25ff6d35f8d67377eeb56ed",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 39,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-008.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-008.json",
-      "contentHash": "540858acfe399a63d669bb997051478e033ceb0484d47216ec07f0198e79074d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 39,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-009.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-009.json",
-      "contentHash": "87c76df461e6061d47d64f8ca48072a66c3e830e86d677497af041ea57dc9da2",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 31,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-010.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-010.json",
-      "contentHash": "cd660d69e0377b6248b4052c9e0af2ce52f437ee73af221fff541155f823e930",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 27,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-011.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-011.json",
-      "contentHash": "35ce8f2a0a375eb8a296d7ff575f7246014c40463ef6b41d9dd7dc1088b74e2f",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 39,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-012.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-012.json",
-      "contentHash": "04203f7d917057d05919677819c23b7b791aa65b01d35e499a149e02d62620a0",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 31,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-013.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-013.json",
-      "contentHash": "1d4ea70d9a66d3d532c220aa86828c229192a822f714a5d03726d34abca5ed79",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 31,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-014.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-014.json",
-      "contentHash": "875346dcee2dcfd12d786046b7da81f1c39043de0dbf67fbe21cdd41b8a0fbe3",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 31,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/fixtures/ranking-015.json": {
-      "filePath": "autoresearch/turn-lane-ranking/fixtures/ranking-015.json",
-      "contentHash": "87565173b16767182cec45def1fd57ffde32a07ac6b41276de9361a2e9c368d1",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 31,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/README.md": {
-      "filePath": "autoresearch/turn-lane-ranking/README.md",
-      "contentHash": "dd05b35e7558c27a0af739e679c80ecef81c74671e8711c6470d05000c9071f7",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 51,
-      "hasStructuralAnalysis": true
     },
     "autoresearch/turn-lane-ranking/run-eval.ts": {
       "filePath": "autoresearch/turn-lane-ranking/run-eval.ts",
@@ -573,16 +286,6 @@
       ],
       "exports": [],
       "totalLines": 182,
-      "hasStructuralAnalysis": true
-    },
-    "autoresearch/turn-lane-ranking/session-summary.md": {
-      "filePath": "autoresearch/turn-lane-ranking/session-summary.md",
-      "contentHash": "716170dee81006849b4a90cfea5c543bf7afe6b99d63adbf42036295bf00f534",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 44,
       "hasStructuralAnalysis": true
     },
     "benchmarks/longmemeval-tirqdp-baseline.ts": {
@@ -791,46 +494,6 @@
       "totalLines": 646,
       "hasStructuralAnalysis": true
     },
-    "CHANGELOG.md": {
-      "filePath": "CHANGELOG.md",
-      "contentHash": "2430b1940f1db756bb56ebbeeaddc8a059352fea09500be593ee4a263d10d370",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 277,
-      "hasStructuralAnalysis": true
-    },
-    "CLAUDE.md": {
-      "filePath": "CLAUDE.md",
-      "contentHash": "cacd5cb7e508473d0031fe0e2e7277794483479cf985f6df6959e499a07b018b",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 192,
-      "hasStructuralAnalysis": true
-    },
-    "CONTRIBUTING.md": {
-      "filePath": "CONTRIBUTING.md",
-      "contentHash": "60cff5011584e7e2fb134dbdbc7a895c82603752022f4a5563bd15ea8ddb7bf4",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 118,
-      "hasStructuralAnalysis": true
-    },
-    "deploy/cloud-run.yaml": {
-      "filePath": "deploy/cloud-run.yaml",
-      "contentHash": "e15a79602b606088d28464b16eb8c633b5961e055be91daa40d8fefdb547436d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 55,
-      "hasStructuralAnalysis": true
-    },
     "deploy/deploy.sh": {
       "filePath": "deploy/deploy.sh",
       "contentHash": "cf7afd841211a75fa1b9ca042e381fc2708e2d24ea030e5dbf27ddae8b9ea1f1",
@@ -847,216 +510,6 @@
       "exports": [],
       "totalLines": 154,
       "hasStructuralAnalysis": true
-    },
-    "deploy/README.md": {
-      "filePath": "deploy/README.md",
-      "contentHash": "fb0488734de2985aa85982794db9590ca9c923cf371494db2979b187c87ef1ff",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 137,
-      "hasStructuralAnalysis": true
-    },
-    "docker-compose.yml": {
-      "filePath": "docker-compose.yml",
-      "contentHash": "037122515e6a294145d8e1e4706d4bb28932cca649d26d72455d97db1ece3b2b",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 15,
-      "hasStructuralAnalysis": true
-    },
-    "Dockerfile": {
-      "filePath": "Dockerfile",
-      "contentHash": "65c7e5589446c7b3debbe045101640e84232883c7038084a2e35398cc9080f4e",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 39,
-      "hasStructuralAnalysis": true
-    },
-    "docs/ARCHITECTURE.md": {
-      "filePath": "docs/ARCHITECTURE.md",
-      "contentHash": "65fb1979ed48d57cc914dac4d63d7afca9fcaf04e7b40bb1d01ff6016cae53ff",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 244,
-      "hasStructuralAnalysis": true
-    },
-    "docs/benchmarks.md": {
-      "filePath": "docs/benchmarks.md",
-      "contentHash": "73cbbca39afbd0a2546929e7eda0f3d5de65e40325b6d901b8ac7a51960a9031",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 271,
-      "hasStructuralAnalysis": true
-    },
-    "docs/CONFIGURATION.md": {
-      "filePath": "docs/CONFIGURATION.md",
-      "contentHash": "e9b4bec53defa9ddb273c0ca4c4201b6271b78a7946b9d9b4604172fe772c351",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 525,
-      "hasStructuralAnalysis": true
-    },
-    "docs/DEPLOYMENT.md": {
-      "filePath": "docs/DEPLOYMENT.md",
-      "contentHash": "7986cae633ac3ed6668fc2b0be8d478db23d3469269a95c2a5d24c5227ff6dcf",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 634,
-      "hasStructuralAnalysis": true
-    },
-    "docs/evaluator-pipeline.md": {
-      "filePath": "docs/evaluator-pipeline.md",
-      "contentHash": "ea56a2c75f4102bc2e9a965915812da03d0b2531088fe03f57d3d98b9bc025a7",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 270,
-      "hasStructuralAnalysis": true
-    },
-    "docs/GETTING-STARTED.md": {
-      "filePath": "docs/GETTING-STARTED.md",
-      "contentHash": "9696a9f8f739441f58f0fcb2749a3d2ad3cdbb1847635dbe308125889a71627a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 432,
-      "hasStructuralAnalysis": true
-    },
-    "docs/HOOKS-AND-SKILLS.md": {
-      "filePath": "docs/HOOKS-AND-SKILLS.md",
-      "contentHash": "6b0a6785dfa618b0348c6abeb75f01f978c5f883729be4412d7fd89c9055d17b",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 337,
-      "hasStructuralAnalysis": true
-    },
-    "docs/integration/claude-code.md": {
-      "filePath": "docs/integration/claude-code.md",
-      "contentHash": "95132704ae061f1b57b7cf3b9f0f55cc56380da7f1e0917ff2f1370f7ce93623",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 244,
-      "hasStructuralAnalysis": true
-    },
-    "docs/integration/mcp-client.md": {
-      "filePath": "docs/integration/mcp-client.md",
-      "contentHash": "6d30b44731f6d91e17a9ae28d49662ca6a33af536eb5bfc5df0d8b5635b97c44",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 319,
-      "hasStructuralAnalysis": true
-    },
-    "docs/LICENSING.md": {
-      "filePath": "docs/LICENSING.md",
-      "contentHash": "eb88ba5322cbd337c943f952c6bfd35dbc6beb485fa6825b911acf5ea6b6a7a0",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 370,
-      "hasStructuralAnalysis": true
-    },
-    "docs/local-inference.md": {
-      "filePath": "docs/local-inference.md",
-      "contentHash": "3f086e1c41e77ba60162caac62e7fd728ab9effa24e42ab3b588c16ad5952cbc",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 198,
-      "hasStructuralAnalysis": true
-    },
-    "docs/MULTI-TOOL.md": {
-      "filePath": "docs/MULTI-TOOL.md",
-      "contentHash": "0acdcf13bf04fc93883938f00c792478b21b653f84bb2effb6550db508d2693d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 249,
-      "hasStructuralAnalysis": true
-    },
-    "docs/provenance.md": {
-      "filePath": "docs/provenance.md",
-      "contentHash": "3507caf8886174e2f9d9784f5484a39ef5febc380e5594d2b37e56d0c90d33b4",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 204,
-      "hasStructuralAnalysis": true
-    },
-    "docs/release-flow.md": {
-      "filePath": "docs/release-flow.md",
-      "contentHash": "c1976f94e2c8a686985b292c8930eea320ec8696dd0ab3771359b5bcb3ba51ed",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 134,
-      "hasStructuralAnalysis": true
-    },
-    "docs/TOOLS.md": {
-      "filePath": "docs/TOOLS.md",
-      "contentHash": "ce14dbccf3a761e8eb3430a77ff279d6b0efdfa225f360e3f4eeb2f733e2d67b",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 620,
-      "hasStructuralAnalysis": true
-    },
-    "docs/upgrade-guide.md": {
-      "filePath": "docs/upgrade-guide.md",
-      "contentHash": "3c87517176d9eb927847036f8279f21a6f4e67b20e516238ec8976983d1134fa",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 83,
-      "hasStructuralAnalysis": true
-    },
-    "docs/USE-CASES.md": {
-      "filePath": "docs/USE-CASES.md",
-      "contentHash": "2dcac153d4f4fa5ba63d3c66e96ef87044ca12a295288b4fe302c19df12bb0a1",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 360,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/baseline-result.txt": {
-      "filePath": "evals/community-recall-tir-qdp/baseline-result.txt",
-      "contentHash": "77f8fecc9ded71b2dc3a74d87dcb1a54123286dcff041fea71d2136c9a24d46f",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 24,
-      "hasStructuralAnalysis": false
     },
     "evals/community-recall-tir-qdp/eval.ts": {
       "filePath": "evals/community-recall-tir-qdp/eval.ts",
@@ -1141,126 +594,6 @@
       ],
       "exports": [],
       "totalLines": 232,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/README.md": {
-      "filePath": "evals/community-recall-tir-qdp/README.md",
-      "contentHash": "a0c05d7582d16ec2c4df70b88723ed0c5ae5a4faccb284e331686ed3779084c6",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 42,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/01-buried-fact-long-session.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/01-buried-fact-long-session.json",
-      "contentHash": "030519e5c74c3096797e4322450d75e1908edc7464e5555d2f68ea81e1e6d658",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 64,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/02-distractor-saturation.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/02-distractor-saturation.json",
-      "contentHash": "49e38a2841bf2bc9472360e707580d31d73a57b4cb5187bf5bf69d5f060bc3c1",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 44,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/03-redundancy-near-duplicate.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/03-redundancy-near-duplicate.json",
-      "contentHash": "e4b36623ecb8b0475aa3c37433c8ce89524f6dc454f2dbd1c7fa3afaf389407c",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 19,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/04-cross-project-isolation.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/04-cross-project-isolation.json",
-      "contentHash": "e81313cb4f06656e0f8678354083e034ab4e6cd484718ab5341e128d763ea034",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 17,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/05-cross-user-isolation.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/05-cross-user-isolation.json",
-      "contentHash": "a56817d9c734cc3b8d708002f286488c37677bc662a8b3bbb73b58610d9ddb84",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 17,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/06-solution-bias.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/06-solution-bias.json",
-      "contentHash": "feed7731c97678dd9aff83ad1c7d9e83b5c33c947df41906ff5c0bf0620ef170",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 28,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/07-recency-prefer-on-conflict.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/07-recency-prefer-on-conflict.json",
-      "contentHash": "00682ddff8a551f2f146cc81678994c6751c6db75f00c1d99018ab0a63e766c1",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 37,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/08-multi-session-merge.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/08-multi-session-merge.json",
-      "contentHash": "36e8c0a6dd8a702f3831fdbbbb5a65dd06e2aa7f41b8f591701379e05956795d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 45,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/09-query-coverage-floor.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/09-query-coverage-floor.json",
-      "contentHash": "af9a2a5b563cdf67c6bef13befd164c72d5c82f6461295e1c09001e92f8d30c7",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 34,
-      "hasStructuralAnalysis": true
-    },
-    "evals/community-recall-tir-qdp/scenarios/10-seed-only-baseline.json": {
-      "filePath": "evals/community-recall-tir-qdp/scenarios/10-seed-only-baseline.json",
-      "contentHash": "9ed6fa19b2660c1030b4e2140282695cc11c4818587de5eea31f3a3592686068",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 22,
-      "hasStructuralAnalysis": true
-    },
-    "evals/distillation-e2e/baseline.md": {
-      "filePath": "evals/distillation-e2e/baseline.md",
-      "contentHash": "5fbb84b551e2e5fccb66b9a518ba8cc98f621d2407df91438a01c85ffac44d92",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 93,
       "hasStructuralAnalysis": true
     },
     "evals/distillation-e2e/lib/aggregator.test.ts": {
@@ -3156,46 +2489,6 @@
       "totalLines": 103,
       "hasStructuralAnalysis": true
     },
-    "evals/local-inference-quality/fixtures/conflict-cases.json": {
-      "filePath": "evals/local-inference-quality/fixtures/conflict-cases.json",
-      "contentHash": "bfc83d84a78c0b010c74d1a2ea3533527152842b3b8d4d716e010680d2d6b52c",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 443,
-      "hasStructuralAnalysis": true
-    },
-    "evals/local-inference-quality/fixtures/extraction-cases.json": {
-      "filePath": "evals/local-inference-quality/fixtures/extraction-cases.json",
-      "contentHash": "6d0930d9dbc17c10ce6632b08e4eba546ce179a1345ff9f57766545d4c23b6e1",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 783,
-      "hasStructuralAnalysis": true
-    },
-    "evals/local-inference-quality/fixtures/summarization-cases.json": {
-      "filePath": "evals/local-inference-quality/fixtures/summarization-cases.json",
-      "contentHash": "a691dba8bcb6db1ddf6d1dc940f8251f85d2f226a43d8c5680ccb3e74adc29ec",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 753,
-      "hasStructuralAnalysis": true
-    },
-    "evals/local-inference-quality/README.md": {
-      "filePath": "evals/local-inference-quality/README.md",
-      "contentHash": "190bc2975a23e511b7fcaefd0610d2e2e527de811ff1443127cedb4535d5aa65",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 89,
-      "hasStructuralAnalysis": true
-    },
     "evals/local-inference-quality/run-eval.ts": {
       "filePath": "evals/local-inference-quality/run-eval.ts",
       "contentHash": "451ca72cb8766fccaf72d9fc45a52a70dedf5c65d477d4834389664deea4890e",
@@ -3420,66 +2713,6 @@
       "totalLines": 142,
       "hasStructuralAnalysis": true
     },
-    "evals/npc-narrative-integrity/README.md": {
-      "filePath": "evals/npc-narrative-integrity/README.md",
-      "contentHash": "1d54f2e81b18e03229323fe8506ab729f0ce5d4a973e96d6cd7612afae01fbc4",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 17,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-narrative-integrity/scenarios/hallucination-containment.json": {
-      "filePath": "evals/npc-narrative-integrity/scenarios/hallucination-containment.json",
-      "contentHash": "1a3fee627790c98550f5a2934be961b36b3094d71e3344e39651a92079825819",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 17,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-narrative-integrity/scenarios/hedge-extraction.json": {
-      "filePath": "evals/npc-narrative-integrity/scenarios/hedge-extraction.json",
-      "contentHash": "5d07fd98a06e2337d3e0c14998d2aa36b31e5f406f3908adc0f686a67d38df95",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 21,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-narrative-integrity/scenarios/multi-turn-consistency.json": {
-      "filePath": "evals/npc-narrative-integrity/scenarios/multi-turn-consistency.json",
-      "contentHash": "ff06f0c1601c102f18a0920b62616ff2cc4a5341a685790df7c66754bb7c9669",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 17,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-narrative-integrity/scenarios/self-utterance-grounding.json": {
-      "filePath": "evals/npc-narrative-integrity/scenarios/self-utterance-grounding.json",
-      "contentHash": "2d349ecd226440607de4d2925dd1f0d4b29d8e21f9be10d1be04fd01a5e32a24",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 16,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/baseline-result.txt": {
-      "filePath": "evals/npc-recall-tir-qdp/baseline-result.txt",
-      "contentHash": "c237783f31c32a13e1e8469d0e399878d0f964a03c92bbe4466fd16576efe3ac",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 17,
-      "hasStructuralAnalysis": false
-    },
     "evals/npc-recall-tir-qdp/eval.ts": {
       "filePath": "evals/npc-recall-tir-qdp/eval.ts",
       "contentHash": "8a263af4e619344ad2e85d51dc31c755ffe4d10056b80b2086c872b510e000a2",
@@ -3570,216 +2803,6 @@
       "totalLines": 159,
       "hasStructuralAnalysis": true
     },
-    "evals/npc-recall-tir-qdp/README.md": {
-      "filePath": "evals/npc-recall-tir-qdp/README.md",
-      "contentHash": "a088f1ef691976f38aa5b95e6348b162bf4ca238973cad58669c9578b0a40069",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 22,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/abstention-pure-noise.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/abstention-pure-noise.json",
-      "contentHash": "49fabcb61cd25f63a9d73072bb9c667f0cdef2b7060cc5e0ba265d2073dcbc2d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 14,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/alias-reverse-lookup.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/alias-reverse-lookup.json",
-      "contentHash": "5f54234523d91f71fe46cba9a66142041cd2a89f3aa7075958895f9fcdafb607",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 15,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/conflict-current-horse.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/conflict-current-horse.json",
-      "contentHash": "2f7eff42f5e2cee65ad7075d6630c75b82ede6bc5d3db94b10364698ce78cbb7",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 15,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/conflict-multi-supersedes.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/conflict-multi-supersedes.json",
-      "contentHash": "9b8796ecb3ab444a9423535c339434db0061345e6841a42ff6913d871777880c",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 16,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/conflict-quantity-shields.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/conflict-quantity-shields.json",
-      "contentHash": "ead0edb00c70b9891c5214f2824394bfeb1f8485de8dba3d3374d648f0a9cd06",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 15,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/conflicting-quantities.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/conflicting-quantities.json",
-      "contentHash": "bcbd4e814ae254505ea76df44b16d62e3fab57e567a45b7551e6818408c84397",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 14,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/cross-npc-contamination.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/cross-npc-contamination.json",
-      "contentHash": "3fbde50abb1dcabc59fe70880256bd9c3cd7eeae62a640462cac844b2221c6d1",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 12,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/mixed-source-fusion.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/mixed-source-fusion.json",
-      "contentHash": "4fe4f375e9d5f632c68774ec2083712197d2a8e91451c697fa4f8a6394d6409e",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 14,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/no-conflict-different-predicate.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/no-conflict-different-predicate.json",
-      "contentHash": "cb534c423f1f8b2babc86ed0fe2f6d2ff15f4cc1ab551de3768bde0b08306ba0",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 15,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/no-conflict-different-subject.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/no-conflict-different-subject.json",
-      "contentHash": "885c8223e2f39f31bc34a9e1c304aed33e600d07092012c5db3fb2863572511d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 15,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/noise-buried-fact.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/noise-buried-fact.json",
-      "contentHash": "452e826ccd234f102167a4df122dbb01170e9c61000a5880232e045c93392b42",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 20,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/null-key-no-collision.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/null-key-no-collision.json",
-      "contentHash": "1868061b9e54924d3716095e77fa1322e798a8f1a41a56a1ad58eb8cf2d938fe",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 15,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/private-secret.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/private-secret.json",
-      "contentHash": "89eafb65f22402a4292ba3ad06f01793449ecdfeac2dfc033d0e0e6eb719b468",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 13,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/recency-contradiction.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/recency-contradiction.json",
-      "contentHash": "8bcd168697312c19feb762b3cea0aac546f5e217107f15a203dce9e33de22f62",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 13,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/redundant-statements.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/redundant-statements.json",
-      "contentHash": "cea4225c3924ba58ac58723272a32640a7a7f865fb0dffa291234af1e8aa029c",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 14,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/scenarios/seed-only.json": {
-      "filePath": "evals/npc-recall-tir-qdp/scenarios/seed-only.json",
-      "contentHash": "65b4349f0fecb8f33156f537d37c85814b83d794a1802d7cc35cd4d9ba00365a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 13,
-      "hasStructuralAnalysis": true
-    },
-    "evals/npc-recall-tir-qdp/stress-battery-ab.md": {
-      "filePath": "evals/npc-recall-tir-qdp/stress-battery-ab.md",
-      "contentHash": "68012b9de5ac2e1ff399ab5a50b960275bd03727287e0d39da305fd3e2600d13",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 248,
-      "hasStructuralAnalysis": true
-    },
-    "examples/cloudflare-worker/migrations/0001_init.sql": {
-      "filePath": "examples/cloudflare-worker/migrations/0001_init.sql",
-      "contentHash": "df14d1704dfbe740687c955fd0216aaeaf7def2da2e04369f094fcfd6e7d9dd6",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 176,
-      "hasStructuralAnalysis": true
-    },
-    "examples/cloudflare-worker/package.json": {
-      "filePath": "examples/cloudflare-worker/package.json",
-      "contentHash": "ce7022b500e0ba76bd60045a5fecf435ca9e2d8c9ecacae27749f3ee99df009a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 20,
-      "hasStructuralAnalysis": true
-    },
-    "examples/cloudflare-worker/README.md": {
-      "filePath": "examples/cloudflare-worker/README.md",
-      "contentHash": "f5492e073f3bb406389427602ee4b475c5eb8953e02a330cdfd0c54f3826e0e9",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 58,
-      "hasStructuralAnalysis": true
-    },
     "examples/cloudflare-worker/src/auth.ts": {
       "filePath": "examples/cloudflare-worker/src/auth.ts",
       "contentHash": "07cf1af3b016d1809c69e4f4663e4d966db1d68ca765cf24f5c556a523c521c2",
@@ -3847,46 +2870,6 @@
       ],
       "exports": [],
       "totalLines": 52,
-      "hasStructuralAnalysis": true
-    },
-    "examples/cloudflare-worker/tsconfig.json": {
-      "filePath": "examples/cloudflare-worker/tsconfig.json",
-      "contentHash": "4b2be744a05de40eb018a4d0651abfc437749787c9da17aa0c2a6b57ff40e247",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 15,
-      "hasStructuralAnalysis": true
-    },
-    "examples/cloudflare-worker/wrangler.toml": {
-      "filePath": "examples/cloudflare-worker/wrangler.toml",
-      "contentHash": "e86343735608715867bdcb95c1edb669944b75c72ea42fc4c5b147b2eefb7885",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 10,
-      "hasStructuralAnalysis": true
-    },
-    "package.json": {
-      "filePath": "package.json",
-      "contentHash": "ed0cd95344b222d0a3d027b9bbfa3b3fb4f27f3d6b0bb8e3998a00008559f78a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 125,
-      "hasStructuralAnalysis": true
-    },
-    "README.md": {
-      "filePath": "README.md",
-      "contentHash": "64c22c234c2116bf3c44161b0ae9f6202aa317c76d2988edc4c75fc66036d6aa",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 769,
       "hasStructuralAnalysis": true
     },
     "scripts/audit-all-lockfiles.ts": {
@@ -3997,6 +2980,36 @@
       "totalLines": 47,
       "hasStructuralAnalysis": true
     },
+    "scripts/graph-status.mjs": {
+      "filePath": "scripts/graph-status.mjs",
+      "contentHash": "e8bf2c1c95df70cb819e4c01d7a797d360a638a87fda4b90864bde0f65777903",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "node:fs",
+          "specifiers": [
+            "readFileSync",
+            "existsSync"
+          ]
+        },
+        {
+          "source": "node:child_process",
+          "specifiers": [
+            "execSync"
+          ]
+        },
+        {
+          "source": "node:path",
+          "specifiers": [
+            "resolve"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 99,
+      "hasStructuralAnalysis": true
+    },
     "scripts/preflight-docker.sh": {
       "filePath": "scripts/preflight-docker.sh",
       "contentHash": "cb059f671787f34149ee996035cdf0996a47f82ec96e329812a053fb850ce1a2",
@@ -4007,34 +3020,89 @@
       "totalLines": 115,
       "hasStructuralAnalysis": true
     },
-    "SECURITY.md": {
-      "filePath": "SECURITY.md",
-      "contentHash": "6036d07ebfebe6655de0bce1786100624b891ffadcc3a2fc38e05819af7ff26e",
-      "functions": [],
+    "scripts/query-graph.mjs": {
+      "filePath": "scripts/query-graph.mjs",
+      "contentHash": "6c1b9c85cf49e4a526972da63634bb9dee82e93bca7b8e27fc1e24320d8e8868",
+      "functions": [
+        {
+          "name": "loadGraph",
+          "params": [],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "findNode",
+          "params": [
+            "graph",
+            "query"
+          ],
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "layerOf",
+          "params": [
+            "graph",
+            "nodeId"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "cmdSummarize",
+          "params": [
+            "graph",
+            "args"
+          ],
+          "exported": false,
+          "lineCount": 20
+        },
+        {
+          "name": "cmdLayer",
+          "params": [
+            "graph",
+            "args"
+          ],
+          "exported": false,
+          "lineCount": 33
+        },
+        {
+          "name": "cmdTestsFor",
+          "params": [
+            "graph",
+            "args"
+          ],
+          "exported": false,
+          "lineCount": 21
+        },
+        {
+          "name": "cmdDependents",
+          "params": [
+            "graph",
+            "args"
+          ],
+          "exported": false,
+          "lineCount": 24
+        }
+      ],
       "classes": [],
-      "imports": [],
+      "imports": [
+        {
+          "source": "node:fs",
+          "specifiers": [
+            "readFileSync",
+            "existsSync"
+          ]
+        },
+        {
+          "source": "node:path",
+          "specifiers": [
+            "resolve"
+          ]
+        }
+      ],
       "exports": [],
-      "totalLines": 99,
-      "hasStructuralAnalysis": true
-    },
-    "skills/deep-retrieval.md": {
-      "filePath": "skills/deep-retrieval.md",
-      "contentHash": "e367295a677815ca21caff6066670b83f484550ddb7ae60abd6d80760601c4a5",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 34,
-      "hasStructuralAnalysis": true
-    },
-    "socket.yml": {
-      "filePath": "socket.yml",
-      "contentHash": "e1134651c41be04d41a87f4dc5885c165cc25b018efaa6d2174a7cbdb40113ee",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 51,
+      "totalLines": 192,
       "hasStructuralAnalysis": true
     },
     "src/cli.ts": {
@@ -6119,7 +5187,7 @@
     },
     "src/config.ts": {
       "filePath": "src/config.ts",
-      "contentHash": "f714958d8b8190ca5127458315c608386623a3e3aa1128036cd0cabff4923a07",
+      "contentHash": "8c4d51f15c2493a8cc7cfb5481818e54e5a4d20577de019a6fbcc509e93f3615",
       "functions": [],
       "classes": [],
       "imports": [
@@ -6139,7 +5207,7 @@
       "exports": [
         "CONFIG"
       ],
-      "totalLines": 355,
+      "totalLines": 386,
       "hasStructuralAnalysis": true
     },
     "src/extensions/embeddings/document-embedder.ts": {
@@ -6971,7 +6039,7 @@
     },
     "src/extensions/llm-extraction/llm-provider.ts": {
       "filePath": "src/extensions/llm-extraction/llm-provider.ts",
-      "contentHash": "a5f40efa924cf483674192a2ef24a851ebc92c956a041372cd8bab830def041b",
+      "contentHash": "0e2e1629006d1cf620bac3174567f46da7589f915b9d71eb115973a1009e401a",
       "functions": [],
       "classes": [
         {
@@ -6995,7 +6063,7 @@
             "baseUrl"
           ],
           "exported": true,
-          "lineCount": 79
+          "lineCount": 92
         }
       ],
       "imports": [],
@@ -7003,7 +6071,7 @@
         "LlmError",
         "OllamaProvider"
       ],
-      "totalLines": 133,
+      "totalLines": 157,
       "hasStructuralAnalysis": true
     },
     "src/extensions/llm-extraction/provider-factory.ts": {
@@ -7244,7 +6312,7 @@
     },
     "src/extensions/llm-extraction/training-capture.ts": {
       "filePath": "src/extensions/llm-extraction/training-capture.ts",
-      "contentHash": "7d1fc73b15ccbd45d1ad830aa878292c0d7a37acaf7305e015aaa217fe07eb93",
+      "contentHash": "99ea90bca1f27e2847cfb0771438d540e31f7fbc8399f3c8092a85931eb3a910",
       "functions": [
         {
           "name": "saveTrainingPair",
@@ -7263,7 +6331,7 @@
           ],
           "returnType": "TrainingDataCounts",
           "exported": true,
-          "lineCount": 15
+          "lineCount": 17
         },
         {
           "name": "getTrainingDataStats",
@@ -7272,7 +6340,7 @@
           ],
           "returnType": "TrainingDataStats",
           "exported": true,
-          "lineCount": 57
+          "lineCount": 71
         }
       ],
       "classes": [],
@@ -7289,7 +6357,7 @@
         "getTrainingDataCount",
         "getTrainingDataStats"
       ],
-      "totalLines": 212,
+      "totalLines": 244,
       "hasStructuralAnalysis": true
     },
     "src/extensions/llm-extraction/utterance-extractor.ts": {
@@ -7372,6 +6440,57 @@
         "extractAtomicFacts"
       ],
       "totalLines": 204,
+      "hasStructuralAnalysis": true
+    },
+    "src/extensions/llm-extraction/vertex-gemini-provider.ts": {
+      "filePath": "src/extensions/llm-extraction/vertex-gemini-provider.ts",
+      "contentHash": "b87e216851789430befd0bc2dc8df9e9a348bf915547476c299c1a44d4ceba50",
+      "functions": [],
+      "classes": [
+        {
+          "name": "VertexGeminiProvider",
+          "methods": [
+            "constructor",
+            "getConfig",
+            "getGenaiClient",
+            "complete"
+          ],
+          "properties": [
+            "name",
+            "projectId",
+            "location",
+            "model",
+            "client"
+          ],
+          "exported": true,
+          "lineCount": 83
+        }
+      ],
+      "imports": [
+        {
+          "source": "@google/genai",
+          "specifiers": [
+            "GoogleGenAI"
+          ]
+        },
+        {
+          "source": "./llm-provider.js",
+          "specifiers": [
+            "CompletionOptions",
+            "LlmProvider"
+          ]
+        },
+        {
+          "source": "./llm-provider.js",
+          "specifiers": [
+            "LlmError"
+          ]
+        }
+      ],
+      "exports": [
+        "VertexGeminiProvider"
+      ],
+      "totalLines": 126,
       "hasStructuralAnalysis": true
     },
     "src/extensions/quantization/codec.ts": {
@@ -11465,7 +10584,7 @@
     },
     "src/search/evidence-gaps.ts": {
       "filePath": "src/search/evidence-gaps.ts",
-      "contentHash": "b14002cf483f88e4005388faaf5b8516215b97ff2e32d53941da71b6271b757a",
+      "contentHash": "bb81a3ee8abcb1d6c9c496593f2b21b419344bb6bf4a091b7b2add36db37461c",
       "functions": [
         {
           "name": "normalizeGapKey",
@@ -11515,7 +10634,7 @@
           ],
           "returnType": "EvidenceGap[]",
           "exported": true,
-          "lineCount": 72
+          "lineCount": 79
         },
         {
           "name": "getGapOccurrences",
@@ -11593,7 +10712,7 @@
         "getGapSummary",
         "dismissGap"
       ],
-      "totalLines": 329,
+      "totalLines": 336,
       "hasStructuralAnalysis": true
     },
     "src/search/hybrid-search.ts": {
@@ -12485,7 +11604,7 @@
     },
     "src/search/semantic-search-bridge.ts": {
       "filePath": "src/search/semantic-search-bridge.ts",
-      "contentHash": "f244ebbe71ae37ca803d66a5480ed85a2198719c3529d1a3219908bb508284ab",
+      "contentHash": "b6e1b048086231a84f5ee41165b381234c831d5fd0c1faf7a61ed412e9bc9a31",
       "functions": [
         {
           "name": "toSearchResults",
@@ -12514,7 +11633,7 @@
             "initError"
           ],
           "exported": true,
-          "lineCount": 134
+          "lineCount": 136
         }
       ],
       "imports": [
@@ -12561,7 +11680,7 @@
       "exports": [
         "SemanticSearchBridge"
       ],
-      "totalLines": 181,
+      "totalLines": 183,
       "hasStructuralAnalysis": true
     },
     "src/search/session-ndcg.ts": {
@@ -12588,7 +11707,7 @@
     },
     "src/search/sqlite-search-engine.ts": {
       "filePath": "src/search/sqlite-search-engine.ts",
-      "contentHash": "7f0efcbb753bf0fc9aa8b6acc00b0967e7857f8dd506b4b9d764352af071f31e",
+      "contentHash": "c51da1c07d7f2c69ef8f5a970b7f39d8a40d59b6226c021c5a490e1794875378",
       "functions": [
         {
           "name": "attachConfidence",
@@ -12771,12 +11890,12 @@
       "exports": [
         "SqliteSearchEngine"
       ],
-      "totalLines": 1079,
+      "totalLines": 1089,
       "hasStructuralAnalysis": true
     },
     "src/server.ts": {
       "filePath": "src/server.ts",
-      "contentHash": "e713daf1e34cfa3a85dad2d094a126794a041071974c9cd88a893aaf1abf2ed9",
+      "contentHash": "9a4bdfc94f197b0bc46e0570f12a38f36160cdb7bb8dd69d94b72bf8ea445a4c",
       "functions": [
         {
           "name": "createServer",
@@ -12785,7 +11904,7 @@
           ],
           "returnType": "CreateServerResult",
           "exported": true,
-          "lineCount": 1040
+          "lineCount": 1041
         }
       ],
       "classes": [],
@@ -12998,7 +12117,41 @@
       "exports": [
         "createServer"
       ],
-      "totalLines": 1122,
+      "totalLines": 1123,
+      "hasStructuralAnalysis": true
+    },
+    "src/storage/config-editable-keys.ts": {
+      "filePath": "src/storage/config-editable-keys.ts",
+      "contentHash": "b25095fc925d5cc373bd9269779ee90e546aeb5bbbe953f4559bf863b1f09bb3",
+      "functions": [
+        {
+          "name": "findEditableKey",
+          "params": [
+            "path"
+          ],
+          "returnType": "EditableKey | undefined",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "validateOverride",
+          "params": [
+            "path",
+            "value"
+          ],
+          "returnType": "string | null",
+          "exported": true,
+          "lineCount": 25
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [
+        "EDITABLE_KEYS",
+        "findEditableKey",
+        "validateOverride"
+      ],
+      "totalLines": 364,
       "hasStructuralAnalysis": true
     },
     "src/storage/d1/d1-document-store.ts": {
@@ -13580,46 +12733,6 @@
       "totalLines": 173,
       "hasStructuralAnalysis": true
     },
-    "src/storage/d1/migrations/0001_init.sql": {
-      "filePath": "src/storage/d1/migrations/0001_init.sql",
-      "contentHash": "df14d1704dfbe740687c955fd0216aaeaf7def2da2e04369f094fcfd6e7d9dd6",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 176,
-      "hasStructuralAnalysis": true
-    },
-    "src/storage/d1/migrations/0002_quantization_support.sql": {
-      "filePath": "src/storage/d1/migrations/0002_quantization_support.sql",
-      "contentHash": "450bf41e6641677febdc218d57469406859b9a8d07db2ee2bfdbda5fa60bcd57",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 16,
-      "hasStructuralAnalysis": true
-    },
-    "src/storage/d1/migrations/0003_knowledge_fts.sql": {
-      "filePath": "src/storage/d1/migrations/0003_knowledge_fts.sql",
-      "contentHash": "9e3850423bcd98d5d5f9623794181d5d97326be38196cab0ab7caac29cf555cf",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 35,
-      "hasStructuralAnalysis": true
-    },
-    "src/storage/d1/migrations/0004_knowledge_turns.sql": {
-      "filePath": "src/storage/d1/migrations/0004_knowledge_turns.sql",
-      "contentHash": "fb54de1e2c8b949fb336542fe826e75fcfad8a2c0793b64478c0314106d3bf23",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 41,
-      "hasStructuralAnalysis": true
-    },
     "src/storage/d1/schema.ts": {
       "filePath": "src/storage/d1/schema.ts",
       "contentHash": "bdc904726f1dcaca019f4063908a7d84030e1ced116a1b65cf615d36b7919a3e",
@@ -13631,6 +12744,108 @@
         "D1_SCHEMA_VERSION"
       ],
       "totalLines": 255,
+      "hasStructuralAnalysis": true
+    },
+    "src/storage/dashboard-overrides.ts": {
+      "filePath": "src/storage/dashboard-overrides.ts",
+      "contentHash": "b281e0944b75a726ca910d0c5d6c45a9dba7a0d830da0ef26d9fd34c8061c956",
+      "functions": [
+        {
+          "name": "getOverridesFilePath",
+          "params": [],
+          "returnType": "string",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "loadOverrides",
+          "params": [],
+          "returnType": "OverrideMap",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "saveOverrides",
+          "params": [
+            "overrides"
+          ],
+          "returnType": "void",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "patchOverrides",
+          "params": [
+            "patch"
+          ],
+          "returnType": "OverrideMap",
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "applyOverrides",
+          "params": [
+            "base",
+            "overrides"
+          ],
+          "returnType": "T",
+          "exported": true,
+          "lineCount": 7
+        },
+        {
+          "name": "setPath",
+          "params": [
+            "obj",
+            "dotPath",
+            "value"
+          ],
+          "returnType": "void",
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "deepClone",
+          "params": [
+            "value"
+          ],
+          "returnType": "T",
+          "exported": false,
+          "lineCount": 9
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "node:fs",
+          "specifiers": [
+            "existsSync",
+            "readFileSync",
+            "writeFileSync",
+            "mkdirSync"
+          ]
+        },
+        {
+          "source": "node:os",
+          "specifiers": [
+            "homedir"
+          ]
+        },
+        {
+          "source": "node:path",
+          "specifiers": [
+            "join",
+            "dirname"
+          ]
+        }
+      ],
+      "exports": [
+        "getOverridesFilePath",
+        "loadOverrides",
+        "saveOverrides",
+        "patchOverrides",
+        "applyOverrides"
+      ],
+      "totalLines": 117,
       "hasStructuralAnalysis": true
     },
     "src/storage/database-pool.ts": {
@@ -13699,7 +12914,7 @@
     },
     "src/storage/database.ts": {
       "filePath": "src/storage/database.ts",
-      "contentHash": "35d30203753af91a64a3e4d85f71ffb35974696e67acef8c4920e9073b4e298b",
+      "contentHash": "e69c88c142d2ddac80787692f81960e19bc1589f07f4f2308a8c70d3a64341fd",
       "functions": [
         {
           "name": "getDataDir",
@@ -13731,7 +12946,7 @@
           ],
           "returnType": "void",
           "exported": false,
-          "lineCount": 661
+          "lineCount": 665
         },
         {
           "name": "backfillKnowledgeFts",
@@ -13798,7 +13013,7 @@
         "getDbPath",
         "openDatabase"
       ],
-      "totalLines": 847,
+      "totalLines": 851,
       "hasStructuralAnalysis": true
     },
     "src/storage/document-chunk-store.ts": {
@@ -14132,7 +13347,7 @@
     },
     "src/storage/interfaces/knowledge-store.ts": {
       "filePath": "src/storage/interfaces/knowledge-store.ts",
-      "contentHash": "5f8d70cd948243f10c3bd0a5a0d5fa883883dfd0e82dd9b724d6baeb5ae2cff9",
+      "contentHash": "f7eea56ec86c5f87137b3b24cf0cb81c2691f80639e71591a97f8427897789a5",
       "functions": [],
       "classes": [],
       "imports": [
@@ -14144,7 +13359,7 @@
         }
       ],
       "exports": [],
-      "totalLines": 72,
+      "totalLines": 76,
       "hasStructuralAnalysis": true
     },
     "src/storage/interfaces/knowledge-turn-store.ts": {
@@ -14196,7 +13411,7 @@
     },
     "src/storage/interfaces/training-store.ts": {
       "filePath": "src/storage/interfaces/training-store.ts",
-      "contentHash": "ec39a449fc5644e2aaf8ba0df2375b8bd839ee549353690b0625eabd7352edfa",
+      "contentHash": "0466536e9f7770f600d2a9fb35fb51811c5b4c9e2df5382528d78dc37b93cea9",
       "functions": [],
       "classes": [],
       "imports": [
@@ -14211,7 +13426,7 @@
         }
       ],
       "exports": [],
-      "totalLines": 28,
+      "totalLines": 34,
       "hasStructuralAnalysis": true
     },
     "src/storage/legacy-layout.ts": {
@@ -14341,46 +13556,6 @@
         "PgQuantizationStore"
       ],
       "totalLines": 121,
-      "hasStructuralAnalysis": true
-    },
-    "src/storage/pg/migrations/0001_baseline.sql": {
-      "filePath": "src/storage/pg/migrations/0001_baseline.sql",
-      "contentHash": "5b9908729279da5b7a81d2c2a3dc56ff81858b0d46f9be3826c10c532602ce86",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 281,
-      "hasStructuralAnalysis": true
-    },
-    "src/storage/pg/migrations/0004_knowledge_turns.sql": {
-      "filePath": "src/storage/pg/migrations/0004_knowledge_turns.sql",
-      "contentHash": "a18655177b80fecdc722d408f0d8d39b23b71f1c3da2c9b90a52886ae3e189fd",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 34,
-      "hasStructuralAnalysis": true
-    },
-    "src/storage/pg/migrations/0005_training_data_phase0.sql": {
-      "filePath": "src/storage/pg/migrations/0005_training_data_phase0.sql",
-      "contentHash": "ea4c89cdedbee5ce7d45187ca84b166b9e6f5ce1c71e9adcacb64b0e75279913",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 26,
-      "hasStructuralAnalysis": true
-    },
-    "src/storage/pg/migrations/README.md": {
-      "filePath": "src/storage/pg/migrations/README.md",
-      "contentHash": "be411ce6b6eb7c92820823d0229c88c3ede266903e335fe5cf2cc9568e842ef3",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 71,
       "hasStructuralAnalysis": true
     },
     "src/storage/pg/pg-document-chunk-store.ts": {
@@ -15141,7 +14316,7 @@
     },
     "src/storage/pg/pg-training-store.ts": {
       "filePath": "src/storage/pg/pg-training-store.ts",
-      "contentHash": "573ce5e823418dbb1784a63947f2ff1364589a0c39c0da6346ea6e10a0eae41b",
+      "contentHash": "6eb4c173a38d9037d3500bd917551b1f061f144bc195b8adba2369339ece82ee",
       "functions": [],
       "classes": [
         {
@@ -15155,7 +14330,7 @@
           ],
           "properties": [],
           "exported": true,
-          "lineCount": 131
+          "lineCount": 153
         }
       ],
       "imports": [
@@ -15184,7 +14359,7 @@
       "exports": [
         "PgTrainingStore"
       ],
-      "totalLines": 148,
+      "totalLines": 170,
       "hasStructuralAnalysis": true
     },
     "src/storage/pg/pg-types.ts": {
@@ -15649,7 +14824,7 @@
     },
     "src/storage/sqlite-knowledge-store.ts": {
       "filePath": "src/storage/sqlite-knowledge-store.ts",
-      "contentHash": "c6157b7403b55e5507a309b6bffd21747c6ab153e82d0617c144d36b8a164f37",
+      "contentHash": "aa5198ea542b75515f55304400e0da5baf71b06c6bdcf9ad9b49274e1c4623b9",
       "functions": [
         {
           "name": "escapeLike",
@@ -15740,7 +14915,7 @@
             "upsertEmbedding"
           ],
           "exported": true,
-          "lineCount": 841
+          "lineCount": 851
         }
       ],
       "imports": [
@@ -15806,7 +14981,7 @@
         "KnowledgeHistoryRow",
         "SqliteKnowledgeStore"
       ],
-      "totalLines": 1001,
+      "totalLines": 1011,
       "hasStructuralAnalysis": true
     },
     "src/storage/sqlite-knowledge-turn-store.ts": {
@@ -16852,7 +16027,7 @@
     },
     "src/tools/store-document.ts": {
       "filePath": "src/tools/store-document.ts",
-      "contentHash": "7f98a3a554342996b03eeff3181fb15c85e94546ff4db9a77bbb165c973e61b4",
+      "contentHash": "b128b7e2a5cd5f9c40b3c1689e415c5ca6c427649487b3110556b5cef314b883",
       "functions": [
         {
           "name": "handleStoreDocument",
@@ -16873,7 +16048,7 @@
             "overlap"
           ],
           "returnType": "string[]",
-          "exported": false,
+          "exported": true,
           "lineCount": 19
         }
       ],
@@ -16921,14 +16096,15 @@
         }
       ],
       "exports": [
-        "handleStoreDocument"
+        "handleStoreDocument",
+        "chunkText"
       ],
       "totalLines": 237,
       "hasStructuralAnalysis": true
     },
     "src/tools/store-memory.ts": {
       "filePath": "src/tools/store-memory.ts",
-      "contentHash": "3efed31a99f86e7cb4d6118e0e97e7cc386cdc9fb64186bb17b4a7c9f354d57c",
+      "contentHash": "41c91604b3c956b65f48bb6e52dc8ec69ab472c02a558e2446b82a5e2bc0913e",
       "functions": [
         {
           "name": "handleStoreMemory",
@@ -16936,11 +16112,13 @@
             "knowledgeStore",
             "args",
             "db",
-            "entityStore"
+            "entityStore",
+            "documentChunkStore",
+            "documentEmbedder"
           ],
           "returnType": "Promise<string>",
           "exported": true,
-          "lineCount": 112
+          "lineCount": 173
         }
       ],
       "classes": [],
@@ -17007,6 +16185,31 @@
           ]
         },
         {
+          "source": "../storage/document-chunk-store.js",
+          "specifiers": [
+            "DocumentChunkStore",
+            "StoredChunk"
+          ]
+        },
+        {
+          "source": "../extensions/embeddings/document-embedder.js",
+          "specifiers": [
+            "DocumentEmbedder"
+          ]
+        },
+        {
+          "source": "./store-document.js",
+          "specifiers": [
+            "chunkText"
+          ]
+        },
+        {
+          "source": "../config.js",
+          "specifiers": [
+            "CONFIG"
+          ]
+        },
+        {
           "source": "../knowledge/knowledge-store.js",
           "specifiers": [
             "KnowledgeType"
@@ -17016,7 +16219,7 @@
       "exports": [
         "handleStoreMemory"
       ],
-      "totalLines": 148,
+      "totalLines": 213,
       "hasStructuralAnalysis": true
     },
     "src/transports/admin-tenants.ts": {
@@ -17382,14 +16585,14 @@
     },
     "src/transports/multi-tenant-http-transport.ts": {
       "filePath": "src/transports/multi-tenant-http-transport.ts",
-      "contentHash": "d20e0b3461f09d782a11da460090559ccb44bae398a25791851d3071b0cc672c",
+      "contentHash": "a90202854be8b9465f604d9ad2a74ff93dd26a1d7c9776aac3b0cc03ddb3b560",
       "functions": [
         {
           "name": "resolveAuthProxyConfig",
           "params": [],
           "returnType": "AuthProxyConfig",
-          "exported": false,
-          "lineCount": 20
+          "exported": true,
+          "lineCount": 27
         },
         {
           "name": "verifiedHeaderMatches",
@@ -17474,9 +16677,10 @@
         }
       ],
       "exports": [
+        "resolveAuthProxyConfig",
         "startMultiTenantHttpTransport"
       ],
-      "totalLines": 611,
+      "totalLines": 618,
       "hasStructuralAnalysis": true
     },
     "src/transports/npc-acquaintance-store.ts": {
@@ -19504,26 +18708,6 @@
       "totalLines": 125,
       "hasStructuralAnalysis": true
     },
-    "templates/agent-integration-readonly.md": {
-      "filePath": "templates/agent-integration-readonly.md",
-      "contentHash": "68a63f21995d3782047e88df379d1976e583ba694d06b309cde6747be929b27d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 9,
-      "hasStructuralAnalysis": true
-    },
-    "templates/agent-integration-readwrite.md": {
-      "filePath": "templates/agent-integration-readwrite.md",
-      "contentHash": "8bee7199aea543a06e58eddfbfee65a6626fa8e876a37ab1f4b9f674154e4d67",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 11,
-      "hasStructuralAnalysis": true
-    },
     "templates/CLAUDE.md.template": {
       "filePath": "templates/CLAUDE.md.template",
       "contentHash": "79def6ae5a2478a6873ef2c9aaffc8915c9cc8ba0340f6c8a001f6dcd63f5bfd",
@@ -19642,16 +18826,6 @@
       "totalLines": 65,
       "hasStructuralAnalysis": true
     },
-    "templates/cloudflare-d1/tsconfig.json": {
-      "filePath": "templates/cloudflare-d1/tsconfig.json",
-      "contentHash": "3718a7e5ae09f72792650d8b47c2b0a3abaf668bf4a67e8012528a627d046b5d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 17,
-      "hasStructuralAnalysis": true
-    },
     "templates/cloudflare-d1/wrangler.toml.tmpl": {
       "filePath": "templates/cloudflare-d1/wrangler.toml.tmpl",
       "contentHash": "b0628c82403e33bd481b729289410b5f59b9c346ec1c9fe4df632d4f0c0ca1fb",
@@ -19662,16 +18836,6 @@
       "totalLines": 15,
       "hasStructuralAnalysis": false
     },
-    "templates/gcp-cloud-run/Dockerfile.gcp": {
-      "filePath": "templates/gcp-cloud-run/Dockerfile.gcp",
-      "contentHash": "0ac759a58840488b9f02a2cdf9665585d3dc7e13c9df3d4bd3266095e405fe7f",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 28,
-      "hasStructuralAnalysis": false
-    },
     "templates/gcp-cloud-run/entrypoint.sh": {
       "filePath": "templates/gcp-cloud-run/entrypoint.sh",
       "contentHash": "0e83cafb5d21d066de1fb8aed05d2895d6ae62fe449d7af93779ecddf913b1a9",
@@ -19680,116 +18844,6 @@
       "imports": [],
       "exports": [],
       "totalLines": 6,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gcp-cloud-run/litestream.yml": {
-      "filePath": "templates/gcp-cloud-run/litestream.yml",
-      "contentHash": "f8b43f92998a5e291ec87707279eabdbc0785cc5c09aea50edf42429f0645f40",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 7,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gcp-cloud-sql/cloud-run-service.yaml": {
-      "filePath": "templates/gcp-cloud-sql/cloud-run-service.yaml",
-      "contentHash": "d193365b1355591322a221e8802d0aa770223774f26e29e682ccd14189eb233d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 34,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gcp-cloud-sql/Dockerfile.gcp": {
-      "filePath": "templates/gcp-cloud-sql/Dockerfile.gcp",
-      "contentHash": "5871317b5a3eaf34087b2873e79cededc2b01937fdfb49969826690b4883c926",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 21,
-      "hasStructuralAnalysis": false
-    },
-    "templates/gemini-commands/gaps.toml": {
-      "filePath": "templates/gemini-commands/gaps.toml",
-      "contentHash": "ab784e1977f694c8003f7f20c7300e6282b7c3fe567b33f068cb451aa0308106",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 5,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gemini-commands/recall.toml": {
-      "filePath": "templates/gemini-commands/recall.toml",
-      "contentHash": "f01108d49dd2138698d5c3c27e286987ee42b08c9b7070803193466620f9d367",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 5,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gemini-commands/remember.toml": {
-      "filePath": "templates/gemini-commands/remember.toml",
-      "contentHash": "77690dc8b4de7ed4b2049a025cb5aa931abe259237ce83ca5e8101e564e2fc5d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 5,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gemini-commands/strata-status.toml": {
-      "filePath": "templates/gemini-commands/strata-status.toml",
-      "contentHash": "16c145f98ae163f9415f75170e1f88f45cc9882762344a1f32ee83766584165a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 5,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gemini-skills/gaps/SKILL.md": {
-      "filePath": "templates/gemini-skills/gaps/SKILL.md",
-      "contentHash": "f23c3e5103ba9ab421b3ae0ea5e43ca0bbb8643e3938969479d71fc1ada32f0c",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 32,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gemini-skills/recall/SKILL.md": {
-      "filePath": "templates/gemini-skills/recall/SKILL.md",
-      "contentHash": "5da1477a229411c4fc99a69089bfd1886d6f902d0085ee95d80258c3457b8b74",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 30,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gemini-skills/remember/SKILL.md": {
-      "filePath": "templates/gemini-skills/remember/SKILL.md",
-      "contentHash": "57a2b3c8ec9671295709d7d98ebe892638b8dfa461e1f82199177066d1b8655a",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 34,
-      "hasStructuralAnalysis": true
-    },
-    "templates/gemini-skills/strata-status/SKILL.md": {
-      "filePath": "templates/gemini-skills/strata-status/SKILL.md",
-      "contentHash": "5035ef50210e26835e1e6eebc4577b8a45f1f609ae9b826a8d0d4fb5a309b6de",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 33,
       "hasStructuralAnalysis": true
     },
     "templates/GEMINI-strata-tools.md.template": {
@@ -19811,66 +18865,6 @@
       "exports": [],
       "totalLines": 22,
       "hasStructuralAnalysis": false
-    },
-    "templates/skills/gaps.md": {
-      "filePath": "templates/skills/gaps.md",
-      "contentHash": "e89bb360116314e1f68a039a9a92f3d08f8a498a88a495e0b70b2bd9dda7d45c",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 31,
-      "hasStructuralAnalysis": true
-    },
-    "templates/skills/recall.md": {
-      "filePath": "templates/skills/recall.md",
-      "contentHash": "8820a11bd374e60091522fff7fb263b18f88aca512e16b40c7bd4d6bdc0350e6",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 27,
-      "hasStructuralAnalysis": true
-    },
-    "templates/skills/remember.md": {
-      "filePath": "templates/skills/remember.md",
-      "contentHash": "13accbc1941ae68b8e123cc9b9d1e98597bec926d147bca60428520a84eff0e5",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 38,
-      "hasStructuralAnalysis": true
-    },
-    "templates/skills/strata-status.md": {
-      "filePath": "templates/skills/strata-status.md",
-      "contentHash": "c9abf14205adca6f6882afed14396574e96bcfcf3ec13f983ed17da042a09448",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 38,
-      "hasStructuralAnalysis": true
-    },
-    "templates/strata-starter/CLAUDE.md": {
-      "filePath": "templates/strata-starter/CLAUDE.md",
-      "contentHash": "5c52f4efb8f0b89457f472d79151a719b4fdfb64f970cb02a568c235b2c0c587",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 18,
-      "hasStructuralAnalysis": true
-    },
-    "templates/strata-starter/README.md": {
-      "filePath": "templates/strata-starter/README.md",
-      "contentHash": "086e0b133e2df0b2fff0a7bae6e61dc78a103ab546539f419866daf6b2c98fa4",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 58,
-      "hasStructuralAnalysis": true
     },
     "templates/unity/StrataClient.cs": {
       "filePath": "templates/unity/StrataClient.cs",
@@ -20788,6 +19782,458 @@
       "totalLines": 365,
       "hasStructuralAnalysis": true
     },
+    "tests/benchmarks/agent-loop-capture-caller.test.ts": {
+      "filePath": "tests/benchmarks/agent-loop-capture-caller.test.ts",
+      "contentHash": "d61f1ab803b5c7b1c956e5e6ded2cf6bbb47a3452cfb36b11d12601135eae360",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "beforeEach",
+            "afterEach",
+            "vi"
+          ]
+        },
+        {
+          "source": "better-sqlite3",
+          "specifiers": [
+            "Database"
+          ]
+        },
+        {
+          "source": "../../src/storage/database.js",
+          "specifiers": [
+            "openDatabase"
+          ]
+        },
+        {
+          "source": "../../src/extensions/llm-extraction/training-capture.js",
+          "specifiers": [
+            "getTrainingDataCount"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/agent-loop.js",
+          "specifiers": [
+            "CapturePair"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/run-benchmark.js",
+          "specifiers": [
+            "persistCaptureBuffer"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 131,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/agent-loop-capture-gemini.test.ts": {
+      "filePath": "tests/benchmarks/agent-loop-capture-gemini.test.ts",
+      "contentHash": "7c33d0b9c4ddbfec47af4f71f47a44f2074f1e2ff77a1125057f8983bb7b9bdd",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi",
+            "afterEach"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 187,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/agent-loop-capture-openai.test.ts": {
+      "filePath": "tests/benchmarks/agent-loop-capture-openai.test.ts",
+      "contentHash": "dc0a6248215e8c0d5ed2c0b8709929a108ca8926ac305f4b34a01b1ca0c6194d",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi",
+            "beforeEach",
+            "afterEach"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 187,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/agent-loop-capture-types.test.ts": {
+      "filePath": "tests/benchmarks/agent-loop-capture-types.test.ts",
+      "contentHash": "4a2e7b275a35774c2bb34fa71e1d37f118fd02a0b456d2036f978645ee8fb0c7",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/agent-loop.js",
+          "specifiers": [
+            "CapturePair",
+            "AgentLoopResult"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/gemini-agent-loop.js",
+          "specifiers": [
+            "GeminiAgentLoopResult"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 56,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/checkpoint.test.ts": {
+      "filePath": "tests/benchmarks/checkpoint.test.ts",
+      "contentHash": "d8dacadd051a9de9da3b7c3c46c062f43ce263a2a24d30218287dde92334ddf6",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "fs",
+          "specifiers": [
+            "rmSync",
+            "appendFileSync"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/checkpoint.js",
+          "specifiers": [
+            "checkpointPath",
+            "appendResult",
+            "loadCompleted"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 82,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/embedding-cache.test.ts": {
+      "filePath": "tests/benchmarks/embedding-cache.test.ts",
+      "contentHash": "10be412ac1c44118b650fd78a1d1618dc1f9de6632b5e01755afaf7141c0b031",
+      "functions": [
+        {
+          "name": "vec",
+          "params": [
+            "...xs"
+          ],
+          "returnType": "Float32Array",
+          "exported": false,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/embedding-cache.js",
+          "specifiers": [
+            "EmbeddingCacheStore",
+            "CachedEmbedder",
+            "cacheKey"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 99,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/gap-coverage.test.ts": {
+      "filePath": "tests/benchmarks/gap-coverage.test.ts",
+      "contentHash": "89e27a78b16de119725e77fa233de5a26f078ccf34b8919fa793ba4fd5318d37",
+      "functions": [
+        {
+          "name": "makeResult",
+          "params": [
+            "sessionId",
+            "text",
+            "score"
+          ],
+          "returnType": "SearchResult",
+          "exported": false,
+          "lineCount": 12
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi",
+            "afterEach"
+          ]
+        },
+        {
+          "source": "../../src/search/sqlite-search-engine.js",
+          "specifiers": [
+            "SearchResult"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/gap-coverage.js",
+          "specifiers": [
+            "answerWithGapCoverage",
+            "unionAndDedup",
+            "GapCoverageOptions",
+            "GapCoverageDeps"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 158,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/gap-judge-loop.test.ts": {
+      "filePath": "tests/benchmarks/gap-judge-loop.test.ts",
+      "contentHash": "729ca428d17f322a0bdccfb03a3a4c1b47d16fa13e51ca7440f70fbbf2542187",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 54,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/gap-judge.test.ts": {
+      "filePath": "tests/benchmarks/gap-judge.test.ts",
+      "contentHash": "b9a7607ad0ce0b0e9dcce827cd43a302c63417e5e6735859397fdbf3e2cb8ce3",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/gap-judge.js",
+          "specifiers": [
+            "judgeGap",
+            "formatGapInjection",
+            "GapVerdict"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/gemini-agent-loop-vertex.test.ts": {
+      "filePath": "tests/benchmarks/gemini-agent-loop-vertex.test.ts",
+      "contentHash": "e82fee4a92a7429dee3efc634444b3a31d4ec4e9779ebdb5a0c598acf99adebf",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi",
+            "afterEach"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 148,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/ingest-embed-cache-wiring.test.ts": {
+      "filePath": "tests/benchmarks/ingest-embed-cache-wiring.test.ts",
+      "contentHash": "bde29615e8356cf547baa9c607a8cf5a56e91449896ac61093666c83abbc639d",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "afterEach"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/ingest.js",
+          "specifiers": [
+            "configureEmbeddingCache",
+            "getEmbeddingCacheStats"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 17,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/judge-multi-vote.test.ts": {
+      "filePath": "tests/benchmarks/judge-multi-vote.test.ts",
+      "contentHash": "1713d73b8264158abb278ef01883274e4628e1a0e5d312dff83e89ec47a151ee",
+      "functions": [
+        {
+          "name": "makeProvider",
+          "params": [
+            "responses"
+          ],
+          "returnType": "LlmProvider",
+          "exported": false,
+          "lineCount": 7
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/judge.js",
+          "specifiers": [
+            "judgeAnswer"
+          ]
+        },
+        {
+          "source": "../../src/extensions/llm-extraction/llm-provider.js",
+          "specifiers": [
+            "LlmProvider"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 88,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/ku-fusion.test.ts": {
+      "filePath": "tests/benchmarks/ku-fusion.test.ts",
+      "contentHash": "6d40c6095ce8012b070245a01ca005a33f4097307f7c6b1a53349492e49cd4dc",
+      "functions": [
+        {
+          "name": "chunk",
+          "params": [
+            "lmeIdx",
+            "score",
+            "text"
+          ],
+          "returnType": "SearchResult",
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "turnHit",
+          "params": [
+            "lmeIdx",
+            "score",
+            "content"
+          ],
+          "returnType": "KnowledgeTurnHit",
+          "exported": false,
+          "lineCount": 15
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/ku-fusion.js",
+          "specifiers": [
+            "appendUniqueByLane",
+            "rrfFuse"
+          ]
+        },
+        {
+          "source": "../../src/search/sqlite-search-engine.js",
+          "specifiers": [
+            "SearchResult"
+          ]
+        },
+        {
+          "source": "../../src/storage/interfaces/knowledge-turn-store.js",
+          "specifiers": [
+            "KnowledgeTurnHit"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/ingest.js",
+          "specifiers": [
+            "IngestedQuestion"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 133,
+      "hasStructuralAnalysis": true
+    },
     "tests/benchmarks/longmemeval-tirqdp-instrumentation.test.ts": {
       "filePath": "tests/benchmarks/longmemeval-tirqdp-instrumentation.test.ts",
       "contentHash": "b536450186f57da442bfed10ad2c24f76338fb0ee632ced412e2f517f3f8de59",
@@ -20840,6 +20286,438 @@
       ],
       "exports": [],
       "totalLines": 128,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/oai-compatible.test.ts": {
+      "filePath": "tests/benchmarks/oai-compatible.test.ts",
+      "contentHash": "a219b7c784fa6e8f2a8fbe782c72d386e8fa874684cb4f0cd9578ea423750069",
+      "functions": [
+        {
+          "name": "mockFetch",
+          "params": [
+            "response",
+            "status"
+          ],
+          "returnType": "typeof globalThis.fetch",
+          "exported": false,
+          "lineCount": 8
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/providers/oai-compatible.js",
+          "specifiers": [
+            "OaiCompatibleProvider"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 139,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/ollama-bench.test.ts": {
+      "filePath": "tests/benchmarks/ollama-bench.test.ts",
+      "contentHash": "31e575baab79eb348b9ad44c5b5103a0ac2b08eb20df3fe9ff0ae96943d766dd",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/providers/ollama-bench.js",
+          "specifiers": [
+            "createOllamaBenchProvider"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 31,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/provider-factory-vertex.test.ts": {
+      "filePath": "tests/benchmarks/provider-factory-vertex.test.ts",
+      "contentHash": "c64e0d62ee385029d45306e37ba114cb2e4638d907bdf503bd64ce10ba13ae5b",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "beforeEach",
+            "afterEach"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 50,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/provider-factory.test.ts": {
+      "filePath": "tests/benchmarks/provider-factory.test.ts",
+      "contentHash": "5aecb6c76f1ed98d348433704e2b07818a80882f8ebd9811e3c4ed7e7b5611bc",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "beforeEach",
+            "afterEach"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/providers/provider-factory.js",
+          "specifiers": [
+            "createAnswerProvider",
+            "createJudgeProvider"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 108,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/provider-registry.test.ts": {
+      "filePath": "tests/benchmarks/provider-registry.test.ts",
+      "contentHash": "bc60f575604b1b6a83b8c00ab8201225e9bb2d2a9b7bfc60273762e454af9855",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/providers/provider-registry.js",
+          "specifiers": [
+            "PROVIDER_REGISTRY",
+            "resolveRegistryEntry"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 44,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/resolve-variant.test.ts": {
+      "filePath": "tests/benchmarks/resolve-variant.test.ts",
+      "contentHash": "1a1bd48835699de71d6a0dda00522336f3823a4268cd0b6e599277dab3c03b96",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "beforeEach",
+            "afterEach"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/answer.js",
+          "specifiers": [
+            "_resolveVariantForTest"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 59,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/retrieve-no-vector.test.ts": {
+      "filePath": "tests/benchmarks/retrieve-no-vector.test.ts",
+      "contentHash": "45c90b040f5656060fc01f4c6e69fed540366fb4f28d79a09e101856ad289c81",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/retrieve.js",
+          "specifiers": [
+            "retrieveQuestion"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 62,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/run-benchmark-embed-cache-flag.test.ts": {
+      "filePath": "tests/benchmarks/run-benchmark-embed-cache-flag.test.ts",
+      "contentHash": "08a5eab29dc009860b3ecabfd3ad5a0a63ef7013df2669df50ae6ef5de902759",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/run-benchmark.js",
+          "specifiers": [
+            "resolveEmbeddingCacheEnabled"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 15,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/run-benchmark-gap-coverage.test.ts": {
+      "filePath": "tests/benchmarks/run-benchmark-gap-coverage.test.ts",
+      "contentHash": "195ef587d168fcfb1079e59057bf114d86c14626fd159b3ac0e0ffc7b703b4e8",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "afterEach"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/run-benchmark.js",
+          "specifiers": [
+            "parseArgs"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 42,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/run-benchmark-judge-votes.test.ts": {
+      "filePath": "tests/benchmarks/run-benchmark-judge-votes.test.ts",
+      "contentHash": "f26c2107d88253c5924670596d317ab713889d10c9922a4fa7e704c88912992c",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/run-benchmark.js",
+          "specifiers": [
+            "parseArgs"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 44,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/run-benchmark-resume.test.ts": {
+      "filePath": "tests/benchmarks/run-benchmark-resume.test.ts",
+      "contentHash": "edc8c5b2f04fca1781eb07b8e3a7af70c48ea20cbf9474333df98f4e8f985903",
+      "functions": [
+        {
+          "name": "withArgv",
+          "params": [
+            "args",
+            "fn"
+          ],
+          "returnType": "T",
+          "exported": false,
+          "lineCount": 9
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/run-benchmark.js",
+          "specifiers": [
+            "parseArgs"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/run-canary.test.ts": {
+      "filePath": "tests/benchmarks/run-canary.test.ts",
+      "contentHash": "2d64282be4ff7c420b6a5764de9e31b9395937097fff52f5f4682dd42fda6992",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/run-canary.js",
+          "specifiers": [
+            "aggregateCanaryRuns"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 39,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/stratified-set.test.ts": {
+      "filePath": "tests/benchmarks/stratified-set.test.ts",
+      "contentHash": "c0536e5432643ccbdb871f7eb2c730e052140b739343348bdac4ec3a96ee1cfa",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/stratified-set.js",
+          "specifiers": [
+            "pickStratified"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 29,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/summarise-latency.test.ts": {
+      "filePath": "tests/benchmarks/summarise-latency.test.ts",
+      "contentHash": "566d99a20b4894be8a92d7db522d4e86bc6ad9f44fc9b7278d345008ed98e590",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/run-benchmark.js",
+          "specifiers": [
+            "summariseLatency"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 41,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/token-cost.test.ts": {
+      "filePath": "tests/benchmarks/token-cost.test.ts",
+      "contentHash": "b8fce2b75f3c02fd7caa8b79741b7dbf017d54909621df11174d8d36e74325c0",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/token-cost.js",
+          "specifiers": [
+            "MODEL_PRICING",
+            "computeCost",
+            "summariseTokens"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 31,
+      "hasStructuralAnalysis": true
+    },
+    "tests/benchmarks/vertex-backoff.test.ts": {
+      "filePath": "tests/benchmarks/vertex-backoff.test.ts",
+      "contentHash": "be696f3950c6da71bd1abb8657cdb6f5d88390975464b29c50a4cd754db9c4ed",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi"
+          ]
+        },
+        {
+          "source": "../../benchmarks/longmemeval/vertex-backoff.js",
+          "specifiers": [
+            "isVertexRateLimitError",
+            "computeBackoffDelay",
+            "withVertexBackoff"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 126,
       "hasStructuralAnalysis": true
     },
     "tests/cli/backfill-junction.test.ts": {
@@ -22791,6 +22669,47 @@
       "totalLines": 112,
       "hasStructuralAnalysis": true
     },
+    "tests/extensions/llm-extraction/training-counts-reasoning.test.ts": {
+      "filePath": "tests/extensions/llm-extraction/training-counts-reasoning.test.ts",
+      "contentHash": "3884ba96f0f1d83373fa9aeecf4e64487194f4415c8a7b3dedd4459b20b51ea0",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "beforeEach",
+            "afterEach"
+          ]
+        },
+        {
+          "source": "better-sqlite3",
+          "specifiers": [
+            "Database"
+          ]
+        },
+        {
+          "source": "../../../src/storage/database.js",
+          "specifiers": [
+            "openDatabase"
+          ]
+        },
+        {
+          "source": "../../../src/extensions/llm-extraction/training-capture.js",
+          "specifiers": [
+            "saveTrainingPair",
+            "getTrainingDataCount",
+            "getTrainingDataStats"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 103,
+      "hasStructuralAnalysis": true
+    },
     "tests/extensions/llm-extraction/utterance-extractor-prompt.test.ts": {
       "filePath": "tests/extensions/llm-extraction/utterance-extractor-prompt.test.ts",
       "contentHash": "a29f248a645fb7cabbeeea1e6487f609ae2c008f1df5a81754f0654746ea75b7",
@@ -22879,6 +22798,33 @@
       "totalLines": 168,
       "hasStructuralAnalysis": true
     },
+    "tests/extensions/llm-extraction/vertex-gemini-provider.test.ts": {
+      "filePath": "tests/extensions/llm-extraction/vertex-gemini-provider.test.ts",
+      "contentHash": "24182f01dee7602361fc11f8d5cd0759819d13d58865187e655d0b6da181db57",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi",
+            "afterEach"
+          ]
+        },
+        {
+          "source": "../../../src/extensions/llm-extraction/vertex-gemini-provider.js",
+          "specifiers": [
+            "VertexGeminiProvider"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 119,
+      "hasStructuralAnalysis": true
+    },
     "tests/fixtures/capture-golden.sh": {
       "filePath": "tests/fixtures/capture-golden.sh",
       "contentHash": "f089ee4f8544624f33d21939f0bda789fc08443586044fc7bef6b502e108d73c",
@@ -22962,16 +22908,6 @@
       "totalLines": 5,
       "hasStructuralAnalysis": false
     },
-    "tests/fixtures/golden/aider/.aider.chat.history.md": {
-      "filePath": "tests/fixtures/golden/aider/.aider.chat.history.md",
-      "contentHash": "a2ae53be8a567626db3ee07874e4d2d1155d0d7ab686895b71cc9bee538ba48d",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 75,
-      "hasStructuralAnalysis": true
-    },
     "tests/fixtures/golden/claude-code/project-hash/session-001.jsonl": {
       "filePath": "tests/fixtures/golden/claude-code/project-hash/session-001.jsonl",
       "contentHash": "af769491b07527b6b039a23df8b6245251dfe2e2fe8900dbcac813d4cf8a9f0f",
@@ -22982,16 +22918,6 @@
       "totalLines": 7,
       "hasStructuralAnalysis": false
     },
-    "tests/fixtures/golden/cline/task-001/api_conversation_history.json": {
-      "filePath": "tests/fixtures/golden/cline/task-001/api_conversation_history.json",
-      "contentHash": "a605e7b0f978c905931bfd0cfb36d112312698d2cdab0daf933f6f762e3ed49b",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 47,
-      "hasStructuralAnalysis": true
-    },
     "tests/fixtures/golden/codex/sessions/2025/03/05/rollout-abc123.jsonl": {
       "filePath": "tests/fixtures/golden/codex/sessions/2025/03/05/rollout-abc123.jsonl",
       "contentHash": "ffe1860b6fc4374d2a25e4b3c434187c01412b4d7f90c01525c042b2ba9c43f7",
@@ -23001,36 +22927,6 @@
       "exports": [],
       "totalLines": 11,
       "hasStructuralAnalysis": false
-    },
-    "tests/fixtures/golden/gemini-v2/gemini-test-project/chats/session-2026-03-05T20-36-569793f5.json": {
-      "filePath": "tests/fixtures/golden/gemini-v2/gemini-test-project/chats/session-2026-03-05T20-36-569793f5.json",
-      "contentHash": "9d209ac07ea1a3e80dd6a9afac1a3fb6d1d5eb4549636f2b7be4839113462302",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 77,
-      "hasStructuralAnalysis": true
-    },
-    "tests/fixtures/golden/gemini/abc123hash/chats/checkpoint-session1.json": {
-      "filePath": "tests/fixtures/golden/gemini/abc123hash/chats/checkpoint-session1.json",
-      "contentHash": "5d94dba3d5d93f404da88af21ebb51ad75f982aab2509c717df48c7bb8da58ac",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 45,
-      "hasStructuralAnalysis": true
-    },
-    "tests/fixtures/pdfs/README.md": {
-      "filePath": "tests/fixtures/pdfs/README.md",
-      "contentHash": "09358b0b4346078a87a2b3a9e0c3c9dd2529fb58406707e7c335a5d9419fc9bf",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 39,
-      "hasStructuralAnalysis": true
     },
     "tests/hooks/post-tool-failure-hook.test.ts": {
       "filePath": "tests/hooks/post-tool-failure-hook.test.ts",
@@ -27392,6 +27288,67 @@
       "totalLines": 108,
       "hasStructuralAnalysis": true
     },
+    "tests/search/semantic-search-bridge-threshold.test.ts": {
+      "filePath": "tests/search/semantic-search-bridge-threshold.test.ts",
+      "contentHash": "0e9b21d50096b7e179944e204e45a5fd1880feba4601b0d407019b2d41949886",
+      "functions": [
+        {
+          "name": "bridgeWithScores",
+          "params": [
+            "scores"
+          ],
+          "returnType": "SemanticSearchBridge",
+          "exported": false,
+          "lineCount": 17
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../src/search/semantic-search-bridge.js",
+          "specifiers": [
+            "SemanticSearchBridge"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 36,
+      "hasStructuralAnalysis": true
+    },
+    "tests/search/sqlite-search-engine-skip-vector.test.ts": {
+      "filePath": "tests/search/sqlite-search-engine-skip-vector.test.ts",
+      "contentHash": "7e0d08de01d4dfd743121b4bc54f00cfa927382e12c67b5f841a74dee83df855",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi"
+          ]
+        },
+        {
+          "source": "../../src/search/sqlite-search-engine.js",
+          "specifiers": [
+            "SqliteSearchEngine"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 46,
+      "hasStructuralAnalysis": true
+    },
     "tests/search/sqlite-search-engine-turns.test.ts": {
       "filePath": "tests/search/sqlite-search-engine-turns.test.ts",
       "contentHash": "d5c802ddc389062b832ca9dbd64fccfc924ac130f19ab9eff575fb9b15d44f86",
@@ -27740,6 +27697,31 @@
       ],
       "exports": [],
       "totalLines": 1503,
+      "hasStructuralAnalysis": true
+    },
+    "tests/storage/dashboard-overrides.test.ts": {
+      "filePath": "tests/storage/dashboard-overrides.test.ts",
+      "contentHash": "afd491d3eecf99fe7f880b3ccdf46db490c9040e60054c75bb00234e6d2ae4e1",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect"
+          ]
+        },
+        {
+          "source": "../../src/storage/dashboard-overrides.js",
+          "specifiers": [
+            "applyOverrides"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 44,
       "hasStructuralAnalysis": true
     },
     "tests/storage/database-pool.test.ts": {
@@ -28957,6 +28939,45 @@
       "totalLines": 162,
       "hasStructuralAnalysis": true
     },
+    "tests/storage/training-data-reasoning-schema.test.ts": {
+      "filePath": "tests/storage/training-data-reasoning-schema.test.ts",
+      "contentHash": "49b9948f0f24be8908d9ff38116b81f874ffddb10a75e6250a1436ed2f4d03c5",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "beforeEach",
+            "afterEach"
+          ]
+        },
+        {
+          "source": "better-sqlite3",
+          "specifiers": [
+            "Database"
+          ]
+        },
+        {
+          "source": "../../src/storage/database.js",
+          "specifiers": [
+            "openDatabase"
+          ]
+        },
+        {
+          "source": "../../src/extensions/llm-extraction/training-capture.js",
+          "specifiers": [
+            "saveTrainingPair"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 75,
+      "hasStructuralAnalysis": true
+    },
     "tests/tools/pdf-prepare.test.ts": {
       "filePath": "tests/tools/pdf-prepare.test.ts",
       "contentHash": "a96f7cdb34e820896b714c14ed619be63515135a0423787c08f9221e842038f6",
@@ -29407,7 +29428,7 @@
     },
     "tests/tools/store-memory.test.ts": {
       "filePath": "tests/tools/store-memory.test.ts",
-      "contentHash": "3a8318743f7666ba757f9404a49ec71ed80e770517896b88cb8d0441400d9784",
+      "contentHash": "fa85f008a3139bfe7a51f57447d647e21da3058f73eadf801e15a9193b65ed5e",
       "functions": [],
       "classes": [],
       "imports": [
@@ -29441,14 +29462,26 @@
           ]
         },
         {
+          "source": "../../src/storage/document-chunk-store.js",
+          "specifiers": [
+            "DocumentChunkStore"
+          ]
+        },
+        {
           "source": "../../src/tools/store-memory.js",
           "specifiers": [
             "handleStoreMemory"
           ]
+        },
+        {
+          "source": "../../src/config.js",
+          "specifiers": [
+            "CONFIG"
+          ]
         }
       ],
       "exports": [],
-      "totalLines": 133,
+      "totalLines": 249,
       "hasStructuralAnalysis": true
     },
     "tests/transports/admin-tenants.test.ts": {
@@ -29675,6 +29708,34 @@
       ],
       "exports": [],
       "totalLines": 195,
+      "hasStructuralAnalysis": true
+    },
+    "tests/transports/multi-tenant-auth-warning.test.ts": {
+      "filePath": "tests/transports/multi-tenant-auth-warning.test.ts",
+      "contentHash": "1c26aa875af08f61ba9c628495f10aab1f28eedcd699fc0f1e1e96f360d9740e",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "vitest",
+          "specifiers": [
+            "describe",
+            "it",
+            "expect",
+            "vi",
+            "afterEach",
+            "beforeEach"
+          ]
+        },
+        {
+          "source": "../../src/transports/multi-tenant-http-transport.js",
+          "specifiers": [
+            "resolveAuthProxyConfig"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 31,
       "hasStructuralAnalysis": true
     },
     "tests/transports/multi-tenant-http-transport.test.ts": {
@@ -31611,16 +31672,6 @@
       ],
       "exports": [],
       "totalLines": 165,
-      "hasStructuralAnalysis": true
-    },
-    "tsconfig.json": {
-      "filePath": "tsconfig.json",
-      "contentHash": "ab18f1056e082738ad9672710ce06b800031d359ffd62ad5761a7bf9ab17e3ad",
-      "functions": [],
-      "classes": [],
-      "imports": [],
-      "exports": [],
-      "totalLines": 20,
       "hasStructuralAnalysis": true
     },
     "vitest.config.ts": {
