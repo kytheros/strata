@@ -748,6 +748,12 @@ async function main() {
         // Category prompts help IE (+7pp), MS (+6pp), temporal (+3pp) but hurt KU (-10pp)
         // CoN prompt is best for KU (95% vs 85% with category prompt)
         // category-reasoning follows the same routing rule: fall back to chain-of-note for KU.
+        // category-reasoning-isolated is EXEMPT from the KU fallback: it appends the
+        // RECENCY suffix to the KU category prompt to test whether the suffix recovers
+        // the KU gap. Routing to CoN would make the KU arm identical to control and
+        // untestable. NOTE: this means the KU comparison is (category KU + RECENCY suffix)
+        // vs (CoN, via control arm) — two variables — but it is the valid go/no-go signal
+        // for whether isolated RECENCY instruction on the category base is worth pursuing.
         const effectiveVariant: PromptVariant = (
           (promptVariant === "category" || promptVariant === "category-reasoning") &&
           question.question_type === "knowledge-update"

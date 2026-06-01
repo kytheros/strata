@@ -284,7 +284,8 @@ export type PromptVariant =
   | "chain-of-note-openai"
   | "chain-of-note-gemini"
   | "category"
-  | "category-reasoning";
+  | "category-reasoning"
+  | "category-reasoning-isolated";
 
 // ---------------------------------------------------------------------------
 // Enhanced-reasoning suffix (category-reasoning variant)
@@ -310,6 +311,25 @@ Additional reasoning rules (apply to all question types):
 - LIST-THEN-COUNT + DEDUP: For "how many" questions, first list each distinct item with its supporting evidence, merge duplicates that refer to the same real-world event, then state the final count.
 - STEP-BY-STEP DATES: For elapsed-time / duration questions, extract each relevant date explicitly, then compute the difference step by step before answering.
 - COMPLETENESS: Give the complete answer; do not stop mid-list or mid-sentence.`;
+
+// ---------------------------------------------------------------------------
+// Isolated per-type suffixes (category-reasoning-isolated variant)
+//
+// Applied ONLY to the question type each rule targets. Every other type
+// returns a byte-identical prompt to the baseline "category" variant.
+// This isolates causation — only one rule fires per question.
+//
+// Used by the 2026-06-01 Neuromancer two-arm canary (211-question subset:
+//   133 temporal-reasoning + 78 knowledge-update).
+// ---------------------------------------------------------------------------
+
+/** Applied only to temporal-reasoning questions. */
+const ISOLATED_DATES_SUFFIX = `
+DATES: For questions about elapsed time, durations, or chronological ordering, first list each relevant event with its explicit date (resolving relative references such as 'today', 'yesterday', 'last week' against the date of the message in which they appear), then compute the elapsed time or ordering step by step before stating the final answer.`;
+
+/** Applied only to knowledge-update questions. */
+const ISOLATED_RECENCY_SUFFIX = `
+RECENCY: These conversations may record the same fact changing over time. When the user has updated a value (a preference, status, plan, count, or attribute), the correct answer is the MOST RECENT value. Find the latest update in the conversations and answer with it; do not answer with a value that was later superseded.`;
 
 // ---------------------------------------------------------------------------
 // History formatting functions
@@ -524,6 +544,25 @@ export function buildAnswerPrompt(
     return {
       system: delegated.system,
       user: delegated.user + CATEGORY_REASONING_SUFFIX,
+    };
+  }
+
+  // category-reasoning-isolated: appends ONLY the rule that targets this specific
+  // question type. All other types get byte-identical output to the "category" baseline.
+  // This isolates causation so we can measure the DATES rule on temporal-reasoning
+  // and the RECENCY rule on knowledge-update independently — no cross-type confounds.
+  if (variant === "category-reasoning-isolated") {
+    const delegated = buildAnswerPrompt(question, questionDate, context, "category", knowledgeContext, questionType);
+    let suffix = "";
+    if (questionType === "temporal-reasoning") {
+      suffix = ISOLATED_DATES_SUFFIX;
+    } else if (questionType === "knowledge-update") {
+      suffix = ISOLATED_RECENCY_SUFFIX;
+    }
+    // For all other question types: no suffix — byte-identical to "category" baseline.
+    return {
+      system: delegated.system,
+      user: delegated.user + suffix,
     };
   }
 
