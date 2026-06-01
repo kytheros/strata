@@ -283,7 +283,33 @@ export type PromptVariant =
   | "chain-of-note-anthropic"
   | "chain-of-note-openai"
   | "chain-of-note-gemini"
-  | "category";
+  | "category"
+  | "category-reasoning";
+
+// ---------------------------------------------------------------------------
+// Enhanced-reasoning suffix (category-reasoning variant)
+//
+// Appended to each category sub-prompt when --prompt=category-reasoning is
+// passed. The baseline "category" prompt is byte-identical when the flag is
+// off — this suffix is the ONLY change vs baseline.
+//
+// Rules address the five failure buckets identified in the 2026-05-31
+// reasoning-failure analysis:
+//   1. RECENCY      — prefer the latest value when facts conflict over time
+//   2. INFER-IMPLICIT — infer implied answers, don't abstain on near-misses
+//   3. LIST-THEN-COUNT + DEDUP — explicit enumerate-then-count discipline
+//   4. STEP-BY-STEP DATES — surface date arithmetic for temporal questions
+//   5. COMPLETENESS — full answer, no truncation mid-list or mid-sentence
+// ---------------------------------------------------------------------------
+
+const CATEGORY_REASONING_SUFFIX = `
+
+Additional reasoning rules (apply to all question types):
+- RECENCY: If the conversations record multiple values for the same fact at different times (an updated preference, status, count, or plan), the user's current answer is the MOST RECENT value — prefer the latest and ignore superseded earlier ones.
+- INFER-IMPLICIT: If the answer is clearly implied by the context but not stated word-for-word, infer it and answer. Only say the information isn't available when it is genuinely absent from the conversations.
+- LIST-THEN-COUNT + DEDUP: For "how many" questions, first list each distinct item with its supporting evidence, merge duplicates that refer to the same real-world event, then state the final count.
+- STEP-BY-STEP DATES: For elapsed-time / duration questions, extract each relevant date explicitly, then compute the difference step by step before answering.
+- COMPLETENESS: Give the complete answer; do not stop mid-list or mid-sentence.`;
 
 // ---------------------------------------------------------------------------
 // History formatting functions
@@ -487,6 +513,19 @@ export function buildAnswerPrompt(
 
   // -- Category-specific prompts (adapted from OMEGA's longmemeval_official.py) --
   // Route by LongMemEval question_type. Each prompt is empirically optimized for its category.
+
+  // category-reasoning: identical to "category" but appends CATEGORY_REASONING_SUFFIX
+  // to every sub-prompt's user text. The baseline "category" prompt is byte-identical
+  // when this variant is NOT selected — only the appended suffix differs.
+  const isCategoryReasoning = variant === "category-reasoning";
+  if (isCategoryReasoning) {
+    // Delegate to the category logic below by temporarily treating this as "category"
+    const delegated = buildAnswerPrompt(question, questionDate, context, "category", knowledgeContext, questionType);
+    return {
+      system: delegated.system,
+      user: delegated.user + CATEGORY_REASONING_SUFFIX,
+    };
+  }
 
   if (variant === "category" && questionType) {
     // Sort chronologically and format as numbered notes (OMEGA format)

@@ -747,7 +747,11 @@ async function main() {
         // Hybrid prompt routing: category prompts for IE/MS/temporal, CoN for KU
         // Category prompts help IE (+7pp), MS (+6pp), temporal (+3pp) but hurt KU (-10pp)
         // CoN prompt is best for KU (95% vs 85% with category prompt)
-        const effectiveVariant: PromptVariant = (promptVariant === "category" && question.question_type === "knowledge-update")
+        // category-reasoning follows the same routing rule: fall back to chain-of-note for KU.
+        const effectiveVariant: PromptVariant = (
+          (promptVariant === "category" || promptVariant === "category-reasoning") &&
+          question.question_type === "knowledge-update"
+        )
           ? "chain-of-note"
           : promptVariant;
 
