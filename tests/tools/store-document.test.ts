@@ -89,13 +89,17 @@ describe("store_document tool", () => {
     );
   });
 
-  it("returns error when embedder is null", async () => {
+  it("degrades gracefully when embedder is null — stores text doc for FTS5 with a note", async () => {
+    // T20: keyless ingest stores the doc + FTS5-indexes it, surfaces a note instead of an error.
     const result = await handleStoreDocument(store, null, {
-      content: Buffer.from("test").toString("base64"),
+      content: Buffer.from("test content").toString("base64"),
       mime_type: "text/plain",
       title: "No Embedder",
     });
-    expect(result).toContain("requires a Gemini API key");
+    // Should succeed (stored) and contain the keyless note, not an error
+    expect(result).not.toContain("Error:");
+    expect(result).toContain("document semantic search needs GEMINI_API_KEY");
+    expect(result).toContain("No Embedder");
   });
 
   describe("PDF chunking", () => {
