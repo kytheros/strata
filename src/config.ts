@@ -124,7 +124,7 @@ export const CONFIG = {
      * an embedder is present (independent of this flag).
      */
     denseTurnLane: {
-      enabled: process.env.STRATA_DENSE_TURN_LANE === "on",
+      get enabled() { return process.env.STRATA_DENSE_TURN_LANE === "on"; },
       queryTaskType: "RETRIEVAL_QUERY",
       docTaskType: "RETRIEVAL_DOCUMENT",
     },
@@ -385,7 +385,7 @@ export const CONFIG = {
      * benchmark.*.
      */
     denseTurnLane: {
-      mode: (process.env.STRATA_DENSE_TURN_LANE as "off" | "on") ?? "off",
+      get mode(): "off" | "on" { return (process.env.STRATA_DENSE_TURN_LANE as "off" | "on") ?? "off"; },
       maxTurnResults: 10,
     },
   },

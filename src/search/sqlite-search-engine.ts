@@ -142,23 +142,64 @@ export class SqliteSearchEngine {
    * DESC, existential classifier, per-session cap) without remembering
    * to invoke the ranker themselves.
    *
+   * When CONFIG.search.denseTurnLane.enabled is true AND an embedder + vectorSearch
+   * are present, runs an FTS5+vector RRF hybrid, hydrating vector-only hits before
+   * fusion. Degrades to FTS5-only when disabled or no embedder.
+   *
    * Returns `[]` if no turn store is attached — callers that legitimately
    * have no turn data can ignore the return value.
    *
    * Spec: 2026-05-25-unified-turn-lane-surface §3.1.
+   * Spec: 2026-06-02-dense-turn-lane-design §3.4.
    */
   async searchTurns(
     query: string,
     opts: KnowledgeTurnSearchOptions,
   ): Promise<KnowledgeTurnHit[]> {
     if (!this.knowledgeTurnStore) return [];
-    const hits = await this.knowledgeTurnStore.searchByQuery(query, opts);
+
+    // Widen each lane to limit*3 (mirrors searchAsync), fuse, then slice to limit.
+    const wideLimit = opts.limit * 3;
+    const ftsHits = await this.knowledgeTurnStore.searchByQuery(query, { ...opts, limit: wideLimit });
+    let hits: KnowledgeTurnHit[] = ftsHits.slice(0, opts.limit);
+
+    if (CONFIG.search.denseTurnLane.enabled && this.embedder && this.vectorSearch) {
+      try {
+        const queryVec = await this.embedder.embed(query, CONFIG.search.denseTurnLane.queryTaskType);
+        const vectorHits = this.vectorSearch.searchTurnEmbeddings(queryVec, wideLimit, {
+          userId: opts.userId,
+          project: opts.project,
+        });
+        if (vectorHits.length > 0) {
+          // Hydrate: vector-only turn_ids must be fetched before fusion or they
+          // vanish at rehydration (the docMap contract from searchAsync).
+          const byTurnId = new Map<string, KnowledgeTurnHit>();
+          for (const h of ftsHits) byTurnId.set(h.row.turnId, h);
+          const missing = vectorHits.map((v) => v.entryId).filter((id) => !byTurnId.has(id));
+          if (missing.length > 0) {
+            const rows = await this.knowledgeTurnStore.getByIds(missing);
+            for (const r of rows) byTurnId.set(r.turnId, { row: r, score: 0 });
+          }
+          const ftsList = ftsHits.map((h) => ({ docId: h.row.turnId, score: h.score }));
+          const vecList = vectorHits.map((v) => ({ docId: v.entryId, score: v.score }));
+          const fused = reciprocalRankFusion([ftsList, vecList]);
+          const fusedHits: KnowledgeTurnHit[] = [];
+          for (const [turnId, score] of [...fused.entries()].sort((a, b) => b[1] - a[1])) {
+            const hit = byTurnId.get(turnId);
+            if (hit) fusedHits.push({ row: hit.row, score });
+          }
+          hits = fusedHits.slice(0, opts.limit);
+        }
+      } catch (err) {
+        // Dense lane failed — fall back to the FTS5-only slice already in `hits`.
+        console.error("[strata] Dense turn-lane search failed, using FTS5-only:", err);
+      }
+    }
+
     if (
       CONFIG.search.turnRecencyBoost.enabled &&
       (opts.forceBoost === true || isTemporalCurrentStateQuestion(query))
     ) {
-      // Pass force:true when the engine-level forceBoost flag is set, so that
-      // applyTurnRecencyBoost's internal classifier gate is also bypassed.
       return applyTurnRecencyBoost(hits, query, { force: opts.forceBoost === true });
     }
     return hits;
