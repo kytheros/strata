@@ -16,6 +16,7 @@ import type {
 } from "../interfaces/index.js";
 import { parseProcedureDetails } from "../../knowledge/procedure-extractor.js";
 import type { ProcedureDetails } from "../../knowledge/procedure-extractor.js";
+import { resolveActiveEmbeddingModel } from "../../extensions/embeddings/active-model.js";
 
 /** Row shape returned from Postgres queries against the knowledge table. */
 interface PgKnowledgeRow {
@@ -162,7 +163,7 @@ export class PgKnowledgeStore implements IKnowledgeStore {
           `INSERT INTO embeddings (id, embedding, model, created_at, format)
            VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (id) DO UPDATE SET embedding = $2, model = $3, created_at = $4, format = $5`,
-          [entry.id, embeddingData, "gemini-embedding-001", Date.now(), "float32"]
+          [entry.id, embeddingData, resolveActiveEmbeddingModel().model, Date.now(), "float32"]
         );
       })
       .catch((err) => {

@@ -12,6 +12,7 @@ import type { PgPool } from "./pg-types.js";
 import { blobToFloat32, isQuantizedBlob } from "../../extensions/quantization/turbo-quant.js";
 import { quantizedSearch, type QuantizedSearchInput } from "../../extensions/quantization/quantized-search.js";
 import { CONFIG } from "../../config.js";
+import { resolveActiveEmbeddingModel } from "../../extensions/embeddings/active-model.js";
 
 /** A single vector search result. */
 export interface PgVectorSearchResult {
@@ -29,9 +30,15 @@ interface PgEmbeddingRow {
  * PgVectorSearch loads embeddings from Postgres and ranks them using
  * quantized-domain ADC/SDC search for quantized vectors, with cosine
  * similarity fallback for Float32.
+ *
+ * The `activeModel` constructor arg scopes all read queries so cross-provider
+ * residue is never scored. Defaults to resolveActiveEmbeddingModel().model.
  */
 export class PgVectorSearch {
-  constructor(private pool: PgPool) {}
+  private activeModel: string;
+  constructor(private pool: PgPool, activeModel?: string) {
+    this.activeModel = activeModel ?? resolveActiveEmbeddingModel().model;
+  }
 
   /**
    * Search for the most similar knowledge embeddings to the query vector.
@@ -50,9 +57,10 @@ export class PgVectorSearch {
       FROM embeddings e
       JOIN knowledge k ON k.id = e.id
       WHERE LOWER(k.project) LIKE '%' || LOWER($1) || '%'
+        AND e.model = $2
     `;
-    const params: unknown[] = [project];
-    let paramIdx = 2;
+    const params: unknown[] = [project, this.activeModel];
+    let paramIdx = 3;
 
     if (user) {
       sql += ` AND k.user_scope = $${paramIdx}`;
@@ -72,7 +80,8 @@ export class PgVectorSearch {
     limit: number
   ): Promise<PgVectorSearchResult[]> {
     const { rows } = await this.pool.query<PgEmbeddingRow>(
-      "SELECT id, embedding FROM embeddings"
+      "SELECT id, embedding FROM embeddings WHERE model = $1",
+      [this.activeModel]
     );
     return this.rankByCosine(rows, queryVec, limit);
   }
@@ -92,13 +101,15 @@ export class PgVectorSearch {
         `SELECT dc.id as entry_id, dc.embedding
          FROM document_chunks dc
          JOIN stored_documents sd ON sd.id = dc.document_id
-         WHERE LOWER(sd.project) LIKE '%' || LOWER($1) || '%'`,
-        [project]
+         WHERE LOWER(sd.project) LIKE '%' || LOWER($1) || '%'
+           AND dc.model = $2`,
+        [project, this.activeModel]
       );
       rows = result.rows.map((r) => ({ id: r.entry_id, embedding: r.embedding }));
     } else {
       const result = await this.pool.query<{ entry_id: string; embedding: Buffer }>(
-        "SELECT id as entry_id, embedding FROM document_chunks"
+        "SELECT id as entry_id, embedding FROM document_chunks WHERE model = $1",
+        [this.activeModel]
       );
       rows = result.rows.map((r) => ({ id: r.entry_id, embedding: r.embedding }));
     }
