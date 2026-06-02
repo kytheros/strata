@@ -8,6 +8,7 @@
 
 import { GeminiEmbedder, loadGeminiApiKeyFromConfig, tryCreateGeminiEmbedder } from "../embeddings/gemini-embedder.js";
 import { resolveActiveEmbeddingModel } from "../embeddings/active-model.js";
+import { OpenAiCompatibleProvider } from "../embeddings/openai-compatible-embedder.js";
 
 /**
  * Interface for embedding providers.
@@ -68,8 +69,22 @@ export function createEmbeddingProvider(): EmbeddingProvider {
       throw new Error(
         "local embedding model not available — run `strata embeddings pull` (implemented in Task 13)."
       );
-    case "openai-compatible":
-      throw new Error("openai-compatible embedding provider not yet wired (Task 16).");
+    case "openai-compatible": {
+      const baseUrl = process.env.STRATA_EMBEDDING_BASE_URL;
+      const apiKey = process.env.STRATA_EMBEDDING_API_KEY;
+      if (!baseUrl) {
+        throw new Error(
+          "openai-compatible provider requires STRATA_EMBEDDING_BASE_URL " +
+          "(e.g. http://localhost:1234/v1)."
+        );
+      }
+      return new OpenAiCompatibleProvider({
+        baseUrl,
+        model: active.model,
+        dimensions: active.dimensions,
+        apiKey: apiKey || undefined,
+      });
+    }
     default:
       throw new Error(`Unknown embedding provider: ${active.provider}`);
   }
