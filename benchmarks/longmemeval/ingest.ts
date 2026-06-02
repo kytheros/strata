@@ -157,8 +157,10 @@ export async function ingestQuestion(
 
   // Pass embedder to knowledge store so entries get vector embeddings on write
   const knowledgeStore = new SqliteKnowledgeStore(db, embedder);
-  // Turn store for TIR+QDP lane: stores raw turns verbatim for FTS5 retrieval.
-  const turnStore = new SqliteKnowledgeTurnStore(db);
+  // Turn store for the turn-lane: stores raw turns verbatim for FTS5 retrieval
+  // AND (when an embedder is present) a dense vector per turn for the dense
+  // turn-lane (spec 2026-06-02-dense-turn-lane-design).
+  const turnStore = new SqliteKnowledgeTurnStore(db, embedder);
   const searchEngine = new SqliteSearchEngine(docStore, embedder, vectorSearch, entityStore, knowledgeStore);
   // A6 (spec 2026-05-25-unified-turn-lane-surface §3.3): wire the turn store
   // into the engine so retrieve.ts can call engine.searchTurns() and get the
@@ -221,26 +223,22 @@ export async function ingestQuestion(
     }
   }
 
-  // Populate knowledge_turns for the TIR+QDP turn-level retrieval lane.
-  // Each raw turn becomes one row in knowledge_turns / knowledge_turns_fts.
-  // This mirrors how the production incremental indexer writes turns during ingest.
+  // Populate knowledge_turns for the turn-level retrieval lane. One bulkInsert
+  // per session → one embedBatch per session when the embedder is present.
   let turnCount = 0;
   for (let idx = 0; idx < sessions.length; idx++) {
     const turns = sessions[idx];
     const strataSessionId = `longmemeval-${idx}`;
-    const dateStr = dates?.[idx] || "";
-    for (let msgIdx = 0; msgIdx < turns.length; msgIdx++) {
-      const turn = turns[msgIdx];
-      await turnStore.insert({
-        sessionId: strataSessionId,
-        project: "longmemeval",
-        userId: null,
-        speaker: turn.role,     // "user" | "assistant"
-        content: turn.content,
-        messageIndex: msgIdx,
-      });
-      turnCount++;
-    }
+    const inputs = turns.map((turn, msgIdx) => ({
+      sessionId: strataSessionId,
+      project: "longmemeval",
+      userId: null,
+      speaker: turn.role, // "user" | "assistant"
+      content: turn.content,
+      messageIndex: msgIdx,
+    }));
+    await turnStore.bulkInsert(inputs);
+    turnCount += inputs.length;
   }
 
   // Extract knowledge + entities from each session for entity-aware retrieval.
