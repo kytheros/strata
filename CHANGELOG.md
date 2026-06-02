@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Dense turn-lane (benchmark-validated, default off): per-turn vector embeddings
+  in `knowledge_turn_embeddings`, `VectorSearch.searchTurnEmbeddings`, an FTS5+vector
+  RRF hybrid `searchTurns` behind `CONFIG.search.denseTurnLane.enabled`, and an
+  unconditional result-granularity fusion in the LongMemEval `retrieve.ts` behind
+  `CONFIG.benchmark.denseTurnLane.mode`. A single `STRATA_DENSE_TURN_LANE=on`
+  enables the whole lane. New frozen eval `autoresearch/ssa-dense-turn-lane/`.
+  Spec: `specs/2026-06-02-dense-turn-lane-design.md`.
+
 - **`CONFIG.benchmark.kuFusion` config block + `STRATA_KU_FUSION_MODE` env override** — KU-gated retrieval-lane fusion for the LongMemEval benchmark. Three modes: `off` (default — no behavior change), `append` (M1: append unique turn-lane sessions onto chunk-lane results, capped at `maxAppend=5`), `rrf` (M2: RRF fusion across chunk-lane top-100 + turn-lane hits, `rrfK=60`). Fusion fires only when `question_type === "knowledge-update"`; non-KU benchmark questions and all production-tool callers are unaffected. Spec: `specs/2026-05-26-b2-ku-fusion-design.md`.
 - **`benchmarks/longmemeval/ku-fusion.ts`** — pure-function `appendUniqueByLane` (M1) and `rrfFuse` (M2) implementations producing `SearchResult[]`. 9 unit tests covering ordering, dedup, mode gating, and budget enforcement.
 - **`autoresearch/ku-fusion/` AutoResearch target** — frozen eval on the 78 KU question IDs from `longmemeval_oracle.json`. `run-eval.ts` runs the full answer-generation benchmark in full-answer mode (Gemini 2.5 Flash answer + GPT-4o judge) with the selected fusion mode and writes per-run experiment stubs. `STRATA_KU_FUSION_SMOKE_IDS` env override slices to a subset for fast smoke runs without modifying the oracle.
