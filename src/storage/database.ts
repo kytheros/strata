@@ -716,6 +716,24 @@ function initSchema(db: Database.Database): void {
     `);
   }
 
+  // ── Migration 0006: knowledge_turn_embeddings (dense turn-lane) ────────────
+  // Additive. Per-turn vector store keyed by turn_id. Mirrors the `embeddings`
+  // table but kept separate so the entry_id↔knowledge JOIN namespace stays clean
+  // (VectorSearch.search JOINs embeddings.entry_id = knowledge.id; turn_ids are
+  // not knowledge ids). Spec: 2026-06-02-dense-turn-lane-design §3.1.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_turn_embeddings (
+      turn_id    TEXT PRIMARY KEY,
+      embedding  BLOB NOT NULL,
+      model      TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      format     TEXT NOT NULL DEFAULT 'float32'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_knowledge_turn_embeddings_turn
+      ON knowledge_turn_embeddings(turn_id);
+  `);
+
   // ── Migration 0005: projects canonical-slug lookup table ──────────────────
   // Additive. No FK migration of content tables.
   db.exec(`
