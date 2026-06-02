@@ -44,9 +44,12 @@ export async function handleStoreDocument(
     return `Error: Unsupported mime type "${mime_type}". Supported: ${[...SUPPORTED_MIME_TYPES].join(", ")}`;
   }
 
-  if (!embedder) {
-    return "Error: store_document requires a Gemini API key for document embeddings. Set GEMINI_API_KEY.";
-  }
+  // When no embedder is available (no Gemini key or non-Gemini provider without creds),
+  // documents are stored and FTS5-indexed but not vector-embedded.
+  // A note is appended to the response; this is not an error.
+  const keylessNote = !embedder
+    ? "Note: document semantic search needs GEMINI_API_KEY — document stored for FTS5 keyword search only."
+    : null;
 
   // --- Read document ---
   let docBytes: Buffer;
@@ -84,26 +87,45 @@ export async function handleStoreDocument(
       const textChunks = chunkText(text, chunkSize, overlap);
 
       for (let i = 0; i < textChunks.length; i++) {
-        try {
-          const embedding = await embedder.embedText(textChunks[i]);
+        if (keylessNote) {
+          // No embedder available — store text chunk with a zeroed embedding for FTS5.
+          // The document will be keyword-searchable but not vector-searchable.
           chunks.push({
             id: randomUUID(),
             documentId: docId,
             chunkIndex: i,
             content: textChunks[i],
-            embedding,
+            embedding: new Float32Array(1), // placeholder; not used for search
             model: CONFIG.embeddings.documentModel,
-            tokenCount: Math.ceil(textChunks[i].length / 4), // rough estimate
+            tokenCount: Math.ceil(textChunks[i].length / 4),
             createdAt: now,
           });
-        } catch (err) {
-          errors.push(`Chunk ${i}: ${err instanceof Error ? err.message : String(err)}`);
+        } else {
+          try {
+            const embedding = await embedder!.embedText(textChunks[i]);
+            chunks.push({
+              id: randomUUID(),
+              documentId: docId,
+              chunkIndex: i,
+              content: textChunks[i],
+              embedding,
+              model: CONFIG.embeddings.documentModel,
+              tokenCount: Math.ceil(textChunks[i].length / 4), // rough estimate
+              createdAt: now,
+            });
+          } catch (err) {
+            errors.push(`Chunk ${i}: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
       }
     } else if (mime_type === "image/png" || mime_type === "image/jpeg") {
       // --- Single image embedding ---
+      if (keylessNote) {
+        // Images require Gemini multimodal — cannot store without embedder.
+        return `${keylessNote}\nImages require GEMINI_API_KEY for storage. Cannot store image without embedder.`;
+      }
       try {
-        const embedding = await embedder.embedBinary(docBytes, mime_type);
+        const embedding = await embedder!.embedBinary(docBytes, mime_type);
         chunks.push({
           id: randomUUID(),
           documentId: docId,
@@ -130,21 +152,40 @@ export async function handleStoreDocument(
       fullText = pdfResult.fullText;
 
       if (pdfResult.mode === "multimodal") {
-        try {
-          const embedding = await embedder.embedBinary(pdfResult.pdfBytes, mime_type);
-          chunks.push({
-            id: randomUUID(),
-            documentId: docId,
-            chunkIndex: 0,
-            content: pdfResult.fullText || undefined,
-            embedding,
-            model: CONFIG.embeddings.documentModel,
-            pageStart: 1,
-            pageEnd: pdfResult.totalPages,
-            createdAt: now,
-          });
-        } catch (err) {
-          errors.push(`PDF (multimodal, ${pdfResult.totalPages} pages): ${err instanceof Error ? err.message : String(err)}`);
+        if (keylessNote) {
+          // Multimodal PDF requires Gemini — cannot embed without key.
+          // Store a text-only chunk from fullText if available.
+          const text = pdfResult.fullText || "";
+          if (text.trim()) {
+            chunks.push({
+              id: randomUUID(),
+              documentId: docId,
+              chunkIndex: 0,
+              content: text,
+              embedding: new Float32Array(1), // placeholder
+              model: CONFIG.embeddings.documentModel,
+              pageStart: 1,
+              pageEnd: pdfResult.totalPages,
+              createdAt: now,
+            });
+          }
+        } else {
+          try {
+            const embedding = await embedder!.embedBinary(pdfResult.pdfBytes, mime_type);
+            chunks.push({
+              id: randomUUID(),
+              documentId: docId,
+              chunkIndex: 0,
+              content: pdfResult.fullText || undefined,
+              embedding,
+              model: CONFIG.embeddings.documentModel,
+              pageStart: 1,
+              pageEnd: pdfResult.totalPages,
+              createdAt: now,
+            });
+          } catch (err) {
+            errors.push(`PDF (multimodal, ${pdfResult.totalPages} pages): ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
       } else {
         // text-only mode
@@ -154,22 +195,37 @@ export async function handleStoreDocument(
             // Empty page (e.g., image-only scan with no text layer) — skip
             continue;
           }
-          try {
-            const embedding = await embedder.embedText(page.text);
+          if (keylessNote) {
             chunks.push({
               id: randomUUID(),
               documentId: docId,
               chunkIndex: chunkIdx++,
               content: page.text,
-              embedding,
+              embedding: new Float32Array(1), // placeholder
               model: CONFIG.embeddings.documentModel,
               tokenCount: Math.ceil(page.text.length / 4),
               pageStart: page.pageNumber,
               pageEnd: page.pageNumber,
               createdAt: now,
             });
-          } catch (err) {
-            errors.push(`PDF page ${page.pageNumber}: ${err instanceof Error ? err.message : String(err)}`);
+          } else {
+            try {
+              const embedding = await embedder!.embedText(page.text);
+              chunks.push({
+                id: randomUUID(),
+                documentId: docId,
+                chunkIndex: chunkIdx++,
+                content: page.text,
+                embedding,
+                model: CONFIG.embeddings.documentModel,
+                tokenCount: Math.ceil(page.text.length / 4),
+                pageStart: page.pageNumber,
+                pageEnd: page.pageNumber,
+                createdAt: now,
+              });
+            } catch (err) {
+              errors.push(`PDF page ${page.pageNumber}: ${err instanceof Error ? err.message : String(err)}`);
+            }
           }
         }
       }
@@ -180,6 +236,9 @@ export async function handleStoreDocument(
 
   if (chunks.length === 0) {
     const errorDetail = errors.length > 0 ? ` Errors: ${errors.join("; ")}` : "";
+    if (keylessNote) {
+      return `${keylessNote}\nNo text content could be extracted for FTS5 indexing.${errorDetail}`;
+    }
     return `Error: No chunks could be embedded for "${title}".${errorDetail}`;
   }
 
@@ -201,11 +260,20 @@ export async function handleStoreDocument(
 
   // --- Result ---
   const pageInfo = totalPages ? `${totalPages} page${totalPages === 1 ? "" : "s"}, ` : "";
+  const embeddingInfo = keylessNote
+    ? `${chunks.length} chunk${chunks.length === 1 ? "" : "s"} indexed for keyword search`
+    : `${chunks.length} chunk${chunks.length === 1 ? "" : "s"}, ${chunks.length} embedding${chunks.length === 1 ? "" : "s"} generated`;
   const lines = [
-    `Stored "${title}" (${pageInfo}${chunks.length} chunk${chunks.length === 1 ? "" : "s"}, ${chunks.length} embedding${chunks.length === 1 ? "" : "s"} generated)`,
+    `Stored "${title}" (${pageInfo}${embeddingInfo})`,
     `Document ID: ${docId}`,
-    `Searchable via semantic_search and search_history`,
+    keylessNote
+      ? `Searchable via search_history (keyword only)`
+      : `Searchable via semantic_search and search_history`,
   ];
+
+  if (keylessNote) {
+    lines.push(`\n${keylessNote}`);
+  }
 
   if (errors.length > 0) {
     lines.push(`\nWarnings (${errors.length} chunks failed): ${errors.join("; ")}`);

@@ -93,3 +93,24 @@ export function resolveActiveEmbeddingModel(): ActiveEmbeddingModel {
 
   return { provider, model, dimensions };
 }
+
+/**
+ * Decide whether to attempt document chunk embeddings given the active provider
+ * and the availability of Gemini credentials.
+ *
+ * Document embeddings ALWAYS require a Gemini key because they use the multimodal
+ * Gemini Embedding 2 model (not the active text provider). When a non-Gemini text
+ * provider is active and no Gemini key is available, documents are stored and
+ * FTS5-indexed but NOT vector-embedded.
+ *
+ * @param active - The resolved active embedding model (from resolveActiveEmbeddingModel).
+ * @param hasGeminiCreds - Whether a Gemini API key (or GCP project) is configured.
+ * @returns true when document vectors should be generated; false → FTS5-only.
+ */
+export function shouldEmbedDocuments(
+  _active: ActiveEmbeddingModel,
+  hasGeminiCreds: boolean
+): boolean {
+  // Documents need Gemini regardless of the active text provider.
+  return hasGeminiCreds;
+}
