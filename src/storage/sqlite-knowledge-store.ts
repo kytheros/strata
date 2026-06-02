@@ -12,6 +12,7 @@ import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js
 import type { IKnowledgeStore, KnowledgeListOptions } from "./interfaces/index.js";
 import { quantize } from "../extensions/quantization/turbo-quant.js";
 import { CONFIG } from "../config.js";
+import { resolveActiveEmbeddingModel } from "../extensions/embeddings/active-model.js";
 
 // Re-export types from interfaces for backward compatibility
 export type { KnowledgeUpdatePatch, KnowledgeHistoryRow } from "./interfaces/knowledge-store.js";
@@ -332,7 +333,8 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
       .embed(text, "RETRIEVAL_DOCUMENT")
       .then((vec) => {
         const { buf, format } = this.encodeEmbedding(vec);
-        this.upsertEmbedding.run(entry.id, buf, "gemini-embedding-001", Date.now(), format);
+        const activeModel = resolveActiveEmbeddingModel().model;
+        this.upsertEmbedding.run(entry.id, buf, activeModel, Date.now(), format);
       })
       .catch((err) => {
         console.error(`[strata] Failed to embed entry ${entry.id}:`, err);
@@ -408,7 +410,8 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
         const now = Date.now();
         for (let i = 0; i < vectors.length; i++) {
           const { buf, format } = this.encodeEmbedding(vectors[i]);
-          this.upsertEmbedding.run(ids[i], buf, "gemini-embedding-001", now, format);
+          const activeModel = resolveActiveEmbeddingModel().model;
+          this.upsertEmbedding.run(ids[i], buf, activeModel, now, format);
           stored++;
         }
       });
