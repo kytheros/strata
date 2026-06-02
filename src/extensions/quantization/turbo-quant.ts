@@ -98,12 +98,24 @@ export function isQuantizedBlob(blob: Buffer | Uint8Array): boolean {
 /**
  * Transparently dequantize a BLOB if needed, or interpret as raw Float32.
  * This is the read-path function that handles both formats.
+ *
+ * @param blob - The stored embedding blob
+ * @param format - The format column value from the database (authoritative when present).
+ *                 "float32" => raw float32 regardless of blob length (any dimension).
+ *                 "tq1"/"tq2"/"tq4"/"tq8" => quantized, dequantize.
+ *                 undefined/null => legacy row: fall back to byte-length heuristic (Gemini only).
  */
-export function blobToFloat32(blob: Buffer): Float32Array {
-  if (blob.length === FLOAT32_BLOB_SIZE) {
-    // Raw Float32 -- deserialize directly
+export function blobToFloat32(blob: Buffer, format?: string | null): Float32Array {
+  // Format column is authoritative when present.
+  if (format === "float32") {
     return new Float32Array(blob.buffer, blob.byteOffset, blob.byteLength / 4);
   }
-  // Quantized -- dequantize
+  if (format && format.startsWith("tq")) {
+    return dequantize(blob); // existing quantized path
+  }
+  // Legacy rows (format absent): fall back to the historical byte-length rule (Gemini only).
+  if (blob.length === FLOAT32_BLOB_SIZE) {
+    return new Float32Array(blob.buffer, blob.byteOffset, blob.byteLength / 4);
+  }
   return dequantize(blob);
 }
