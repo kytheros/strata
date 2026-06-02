@@ -159,6 +159,9 @@ export class PgKnowledgeStore implements IKnowledgeStore {
         const embeddingData = Buffer.from(
           vec.buffer.slice(vec.byteOffset, vec.byteOffset + vec.byteLength)
         );
+        // PG keeps a single-column PK on embeddings.id; provider coexistence is deferred
+        // (v1) — one embedding model per entry; switching providers re-indexes in place.
+        // See spec §7.1/§18. ON CONFLICT (id) is intentional and consistent with the schema.
         await this.pool.query(
           `INSERT INTO embeddings (id, embedding, model, created_at, format)
            VALUES ($1, $2, $3, $4, $5)

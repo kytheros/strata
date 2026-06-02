@@ -106,7 +106,8 @@ CREATE TABLE IF NOT EXISTS embeddings (
   id TEXT PRIMARY KEY,
   embedding BLOB NOT NULL,
   model TEXT NOT NULL DEFAULT 'gemini-embedding-001',
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  format TEXT NOT NULL DEFAULT 'float32'
 );
 
 -- Entity tracking

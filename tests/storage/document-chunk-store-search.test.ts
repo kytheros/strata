@@ -106,6 +106,39 @@ describe("DocumentChunkStore.searchFts", () => {
   });
 });
 
+// BLOCKER 1 regression: searchDocumentChunks must scope to the DOCUMENT model
+// ('gemini-embedding-2-preview'), not the text embedding model ('gemini-embedding-001').
+// Before the fix, the doc-chunk SQL had `AND dc.model = this.activeModel` (text model),
+// so it always returned [] for document chunks stored under the doc model.
+describe("VectorSearch.searchDocumentChunks — document model scoping", () => {
+  let db: Database.Database;
+
+  beforeAll(() => {
+    db = openDatabase(":memory:");
+    // Insert a stored_document and one chunk with model='gemini-embedding-2-preview'
+    db.prepare(`INSERT INTO stored_documents (id, title, mime_type, project, user, chunk_count, file_size, created_at)
+                VALUES ('sd1', 'guide.pdf', 'application/pdf', 'proj', 'default', 1, 1000, 0)`).run();
+    // 3072-dim float32 blob (matches the document embedder dimension)
+    const v = new Float32Array(3072); v[0] = 1;
+    const blob = Buffer.from(v.buffer, v.byteOffset, v.byteLength);
+    // `format` column added via migration — openDatabase runs migrations so it exists
+    db.prepare(`INSERT INTO document_chunks (id, document_id, content, chunk_index, embedding, model, created_at, format)
+                VALUES ('dc1', 'sd1', 'hello', 0, ?, 'gemini-embedding-2-preview', 0, 'float32')`).run(blob);
+  });
+
+  afterAll(() => db.close());
+
+  it("returns doc-chunk results when model='gemini-embedding-2-preview'", async () => {
+    const { VectorSearch } = await import("../../src/extensions/embeddings/vector-search.js");
+    const vs = new VectorSearch(db); // activeModel defaults to gemini-embedding-001 (text model)
+    const q = new Float32Array(3072); q[0] = 1;
+    const hits = vs.searchDocumentChunks(q, 10);
+    // Before fix: [] because dc.model='gemini-embedding-2-preview' != activeModel='gemini-embedding-001'
+    // After fix: ['dc1'] because searchDocumentChunks uses CONFIG.embeddings.documentModel
+    expect(hits.map((h: any) => h.entryId)).toContain("dc1");
+  });
+});
+
 describe("DocumentChunkStore.getChunkWithMeta", () => {
   let db: Database.Database;
   let store: DocumentChunkStore;

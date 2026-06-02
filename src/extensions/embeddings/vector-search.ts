@@ -84,13 +84,20 @@ export class VectorSearch {
 
   /**
    * Search document chunk embeddings by cosine similarity.
-   * Returns results from the document_chunks table, tagged with source: "document".
+   * Returns results from the document_chunks table.
+   *
+   * IMPORTANT: document chunks are written with the DOCUMENT model
+   * (CONFIG.embeddings.documentModel = 'gemini-embedding-2-preview'), NOT with
+   * the text embedding model (this.activeModel). Scoping by this.activeModel
+   * would silently return [] for all document searches. Always use documentModel here.
    */
   searchDocumentChunks(
     queryVec: Float32Array,
     limit: number,
     project?: string
   ): VectorSearchResult[] {
+    // Document chunks use the document model, not the active text model.
+    const docModel = CONFIG.embeddings.documentModel;
     let rows: EmbeddingRow[];
 
     if (project) {
@@ -102,13 +109,13 @@ export class VectorSearch {
            WHERE LOWER(sd.project) LIKE '%' || LOWER(?) || '%'
              AND dc.model = ?`
         )
-        .all(project, this.activeModel) as EmbeddingRow[];
+        .all(project, docModel) as EmbeddingRow[];
     } else {
       rows = this.db
         .prepare(
           `SELECT id as entry_id, embedding, format FROM document_chunks WHERE model = ?`
         )
-        .all(this.activeModel) as EmbeddingRow[];
+        .all(docModel) as EmbeddingRow[];
     }
 
     return this.rankByCosine(rows, queryVec, limit);

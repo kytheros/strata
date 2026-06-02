@@ -190,7 +190,8 @@ export class D1KnowledgeStore implements IKnowledgeStore {
 
         // Gate quantization on the provider's capability (D1 = Gemini/OpenAI only, never local).
         // supportsQuantization comes from the EmbeddingProvider interface (T2).
-        const supportsQuant = (this.embedder as any)?.supportsQuantization ?? true;
+        // Default false: only explicit supportsQuantization=true (GeminiEmbeddingProvider) quantizes.
+        const supportsQuant = (this.embedder as any)?.supportsQuantization ?? false;
         if (supportsQuant && CONFIG.quantization.enabled) {
           const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
           const quantized = quantize(vec, bitWidth);

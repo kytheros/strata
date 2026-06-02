@@ -375,7 +375,10 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
    * Never calls quantize() on a non-Gemini provider (which may not be 3072-dim).
    */
   private encodeEmbedding(vec: Float32Array): { buf: Buffer; format: string } {
-    const supportsQuant = (this.embedder as any)?.supportsQuantization ?? true;
+    // Default false: unknown embedders (e.g. raw GeminiEmbedder without the flag) should
+    // NOT quantize — only explicit supportsQuantization=true (GeminiEmbeddingProvider) does.
+    // In production, initEmbedder injects a full EmbeddingProvider which sets this correctly.
+    const supportsQuant = (this.embedder as any)?.supportsQuantization ?? false;
     return encodeEmbeddingFor(vec, supportsQuant);
   }
 

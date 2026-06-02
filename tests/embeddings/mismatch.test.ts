@@ -16,4 +16,14 @@ describe("detectEmbeddingMismatch", () => {
     expect(r.activeModelVectors).toBe(0);
     expect(r.otherModelVectors).toBe(1);
   });
+
+  it("does not flag mismatch when corpus has no vectors at all", () => {
+    const db = openDatabase(":memory:");
+    // No entries, no embeddings — empty corpus is not a mismatch.
+    const r = detectEmbeddingMismatch(db, "nomic-embed-text-v1.5");
+    db.close();
+    expect(r.mismatch).toBe(false);
+    expect(r.activeModelVectors).toBe(0);
+    expect(r.otherModelVectors).toBe(0);
+  });
 });

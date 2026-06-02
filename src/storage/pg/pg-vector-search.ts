@@ -24,6 +24,7 @@ export interface PgVectorSearchResult {
 interface PgEmbeddingRow {
   id: string;
   embedding: Buffer;
+  format?: string | null;
 }
 
 /**
@@ -53,7 +54,7 @@ export class PgVectorSearch {
     user?: string
   ): Promise<PgVectorSearchResult[]> {
     let sql = `
-      SELECT e.id, e.embedding
+      SELECT e.id, e.embedding, e.format
       FROM embeddings e
       JOIN knowledge k ON k.id = e.id
       WHERE LOWER(k.project) LIKE '%' || LOWER($1) || '%'
@@ -80,7 +81,7 @@ export class PgVectorSearch {
     limit: number
   ): Promise<PgVectorSearchResult[]> {
     const { rows } = await this.pool.query<PgEmbeddingRow>(
-      "SELECT id, embedding FROM embeddings WHERE model = $1",
+      "SELECT id, embedding, format FROM embeddings WHERE model = $1",
       [this.activeModel]
     );
     return this.rankByCosine(rows, queryVec, limit);
@@ -88,30 +89,36 @@ export class PgVectorSearch {
 
   /**
    * Search document chunk embeddings by cosine similarity.
+   *
+   * IMPORTANT: document chunks are written with the DOCUMENT model
+   * (CONFIG.embeddings.documentModel = 'gemini-embedding-2-preview'), NOT with
+   * the text embedding model (this.activeModel). Always scope to documentModel here.
    */
   async searchDocumentChunks(
     queryVec: Float32Array,
     limit: number,
     project?: string
   ): Promise<PgVectorSearchResult[]> {
+    // Document chunks use the document model, not the active text model.
+    const docModel = CONFIG.embeddings.documentModel;
     let rows: PgEmbeddingRow[];
 
     if (project) {
-      const result = await this.pool.query<{ entry_id: string; embedding: Buffer }>(
-        `SELECT dc.id as entry_id, dc.embedding
+      const result = await this.pool.query<{ entry_id: string; embedding: Buffer; format?: string }>(
+        `SELECT dc.id as entry_id, dc.embedding, dc.format
          FROM document_chunks dc
          JOIN stored_documents sd ON sd.id = dc.document_id
          WHERE LOWER(sd.project) LIKE '%' || LOWER($1) || '%'
            AND dc.model = $2`,
-        [project, this.activeModel]
+        [project, docModel]
       );
-      rows = result.rows.map((r) => ({ id: r.entry_id, embedding: r.embedding }));
+      rows = result.rows.map((r) => ({ id: r.entry_id, embedding: r.embedding, format: r.format }));
     } else {
-      const result = await this.pool.query<{ entry_id: string; embedding: Buffer }>(
-        "SELECT id as entry_id, embedding FROM document_chunks WHERE model = $1",
-        [this.activeModel]
+      const result = await this.pool.query<{ entry_id: string; embedding: Buffer; format?: string }>(
+        "SELECT id as entry_id, embedding, format FROM document_chunks WHERE model = $1",
+        [docModel]
       );
-      rows = result.rows.map((r) => ({ id: r.entry_id, embedding: r.embedding }));
+      rows = result.rows.map((r) => ({ id: r.entry_id, embedding: r.embedding, format: r.format }));
     }
 
     return this.rankByCosine(rows, queryVec, limit);
@@ -125,36 +132,43 @@ export class PgVectorSearch {
   ): PgVectorSearchResult[] {
     if (rows.length === 0) return [];
 
-    // Partition by format
+    // Partition by format: use format column (authoritative) or byte-length heuristic for legacy.
     const quantizedInputs: QuantizedSearchInput[] = [];
-    const float32Rows: { id: string; buf: Buffer }[] = [];
+    const float32Rows: { id: string; buf: Buffer; format?: string | null }[] = [];
 
     for (const row of rows) {
       const buf = Buffer.isBuffer(row.embedding)
         ? row.embedding
         : Buffer.from(row.embedding as unknown as ArrayBuffer);
 
-      if (isQuantizedBlob(buf)) {
+      const fmt = row.format ?? null;
+      const isQuantized = fmt ? fmt.startsWith("tq") : isQuantizedBlob(buf);
+      if (isQuantized) {
         quantizedInputs.push({ entryId: row.id, blob: buf });
       } else {
-        float32Rows.push({ id: row.id, buf });
+        float32Rows.push({ id: row.id, buf, format: fmt });
       }
     }
 
     const results: PgVectorSearchResult[] = [];
 
+    // Dimension guard for quantized path: quantized blobs are ALWAYS Gemini-3072.
+    const geminiDim = CONFIG.quantization.embeddingDim;
+    const quantizedForThisQuery = queryVec.length === geminiDim ? quantizedInputs : [];
+
     // Fast path: quantized-domain ADC/SDC search
-    if (quantizedInputs.length > 0 && CONFIG.quantization.enabled) {
+    if (quantizedForThisQuery.length > 0 && CONFIG.quantization.enabled) {
       const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
-      const qResults = quantizedSearch(queryVec, quantizedInputs, limit, bitWidth);
+      const qResults = quantizedSearch(queryVec, quantizedForThisQuery, limit, bitWidth);
       for (const r of qResults) {
         results.push({ entryId: r.entryId, score: r.score });
       }
-    } else if (quantizedInputs.length > 0) {
+    } else if (quantizedForThisQuery.length > 0) {
       // Quantization disabled -- dequantize and use cosine
-      for (const item of quantizedInputs) {
+      for (const item of quantizedForThisQuery) {
         try {
           const vec = blobToFloat32(item.blob as Buffer);
+          if (vec.length !== queryVec.length) continue;
           const score = cosineSimilarity(queryVec, vec);
           if (score > 0.0) results.push({ entryId: item.entryId, score });
         } catch {
@@ -163,10 +177,12 @@ export class PgVectorSearch {
       }
     }
 
-    // Fallback path: Float32 cosine similarity
+    // Fallback path: Float32 cosine similarity (format-aware decode via T4)
     for (const row of float32Rows) {
       try {
-        const vec = new Float32Array(row.buf.buffer, row.buf.byteOffset, row.buf.byteLength / 4);
+        const vec = blobToFloat32(row.buf, row.format);
+        // Dimension guard: skip cross-provider / wrong-dimension residue
+        if (vec.length !== queryVec.length) continue;
         const score = cosineSimilarity(queryVec, vec);
         if (score > 0.0) results.push({ entryId: row.id, score });
       } catch {

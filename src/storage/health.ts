@@ -30,11 +30,12 @@ function row1(db: Database.Database, sql: string): number {
 function embeddingCoverage(db: Database.Database): HealthCheck {
   const total = row1(db, "SELECT COUNT(*) AS c FROM knowledge");
   // Scope to the active model so switching providers shows the real coverage gap.
+  // Use a parameterized query to avoid SQL injection via model name.
   const activeModel = resolveActiveEmbeddingModel().model;
-  const withEmb = row1(
-    db,
-    `SELECT COUNT(*) AS c FROM knowledge WHERE id IN (SELECT entry_id FROM embeddings WHERE model = '${activeModel.replace(/'/g, "''")}')`
-  );
+  const withEmbRow = db
+    .prepare("SELECT COUNT(*) AS c FROM knowledge WHERE id IN (SELECT entry_id FROM embeddings WHERE model = ?)")
+    .get(activeModel) as { c: number } | undefined;
+  const withEmb = withEmbRow?.c ?? 0;
   const value = total === 0 ? 1 : withEmb / total;
   const { ok, warn } = CONFIG.health.thresholds.embedding_coverage;
   return {
