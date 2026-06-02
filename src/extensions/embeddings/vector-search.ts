@@ -20,6 +20,7 @@ export interface VectorSearchResult {
 interface EmbeddingRow {
   entry_id: string;
   embedding: Buffer;
+  format?: string | null;
 }
 
 /**
@@ -43,7 +44,7 @@ export class VectorSearch {
     // Load all embeddings for this project by joining with the knowledge table
     const rows = this.db
       .prepare(
-        `SELECT e.entry_id, e.embedding
+        `SELECT e.entry_id, e.embedding, e.format
          FROM embeddings e
          JOIN knowledge k ON k.id = e.entry_id
          WHERE LOWER(k.project) LIKE '%' || LOWER(?) || '%'`
@@ -63,7 +64,7 @@ export class VectorSearch {
     limit: number
   ): VectorSearchResult[] {
     const rows = this.db
-      .prepare(`SELECT entry_id, embedding FROM embeddings`)
+      .prepare(`SELECT entry_id, embedding, format FROM embeddings`)
       .all() as EmbeddingRow[];
 
     return this.rankByCosine(rows, queryVec, limit);
@@ -83,7 +84,7 @@ export class VectorSearch {
     if (project) {
       rows = this.db
         .prepare(
-          `SELECT dc.id as entry_id, dc.embedding
+          `SELECT dc.id as entry_id, dc.embedding, dc.format
            FROM document_chunks dc
            JOIN stored_documents sd ON sd.id = dc.document_id
            WHERE LOWER(sd.project) LIKE '%' || LOWER(?) || '%'`
@@ -92,7 +93,7 @@ export class VectorSearch {
     } else {
       rows = this.db
         .prepare(
-          `SELECT id as entry_id, embedding FROM document_chunks`
+          `SELECT id as entry_id, embedding, format FROM document_chunks`
         )
         .all() as EmbeddingRow[];
     }
@@ -146,12 +147,14 @@ export class VectorSearch {
   ): VectorSearchResult[] {
     if (rows.length === 0) return [];
 
-    // Partition by format
+    // Partition by format: use format column (authoritative) or fall back to byte-length heuristic.
     const quantizedInputs: QuantizedSearchInput[] = [];
     const float32Rows: EmbeddingRow[] = [];
 
     for (const row of rows) {
-      if (isQuantizedBlob(row.embedding)) {
+      const fmt = row.format ?? null;
+      const isQuantized = fmt ? fmt.startsWith("tq") : isQuantizedBlob(row.embedding);
+      if (isQuantized) {
         quantizedInputs.push({ entryId: row.entry_id, blob: row.embedding });
       } else {
         float32Rows.push(row);
@@ -171,6 +174,8 @@ export class VectorSearch {
       // Quantization disabled — dequantize and use cosine
       for (const item of quantizedInputs) {
         const vec = blobToFloat32(item.blob as Buffer);
+        // Dimension guard: skip cross-provider residue
+        if (vec.length !== queryVec.length) continue;
         const score = cosineSimilarity(queryVec, vec);
         if (score > 0.0) results.push({ entryId: item.entryId, score });
       }
@@ -178,8 +183,9 @@ export class VectorSearch {
 
     // Fallback path: Float32 cosine similarity
     for (const row of float32Rows) {
-      const buf = row.embedding;
-      const vec = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
+      const vec = blobToFloat32(row.embedding, row.format);
+      // Dimension guard: skip cross-provider / wrong-dimension residue
+      if (vec.length !== queryVec.length) continue;
       const score = cosineSimilarity(queryVec, vec);
       if (score > 0.0) results.push({ entryId: row.entry_id, score });
     }
