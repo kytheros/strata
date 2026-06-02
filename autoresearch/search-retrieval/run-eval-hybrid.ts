@@ -13,7 +13,7 @@ import { openDatabase } from "../../src/storage/database.js";
 import { SqliteDocumentStore } from "../../src/storage/sqlite-document-store.js";
 import { HybridSearchEngine } from "../../src/search/hybrid-search.js";
 import { VectorStore } from "../../src/extensions/vector-search/vector-store.js";
-import { GeminiEmbedder } from "../../src/extensions/embeddings/gemini-embedder.js";
+import { createEmbeddingProvider } from "../../src/extensions/vector-search/embedding-provider.js";
 import { computeImportance } from "../../src/knowledge/importance.js";
 import { SqliteSearchEngine } from "../../src/search/sqlite-search-engine.js";
 
@@ -131,13 +131,7 @@ function loadEnv(): void {
 async function runHybridEval(): Promise<void> {
   loadEnv();
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error("GEMINI_API_KEY not set. Cannot run hybrid eval.");
-    process.exit(1);
-  }
-
-  console.log("=== Hybrid Search Eval (FTS5 + Gemini Embeddings) ===\n");
+  console.log("=== Hybrid Search Eval (FTS5 + Embedding Provider) ===\n");
 
   // 1. Setup database and seed documents
   const db = openDatabase(":memory:");
@@ -174,27 +168,21 @@ async function runHybridEval(): Promise<void> {
   }
 
   // 2. Create embedder and embed all corpus entries
-  console.log("Embedding 30 corpus entries via Gemini...");
-  const embedder = new GeminiEmbedder({ apiKey });
+  console.log("Embedding 30 corpus entries via active embedding provider...");
+  const embedder = createEmbeddingProvider();
 
   const texts = CORPUS.map((e) => e.text);
   const vectors = await embedder.embedBatch(texts, "RETRIEVAL_DOCUMENT");
 
   // 3. Store vectors
-  const vectorStore = new VectorStore(db, embedder.dimensions);
+  const vectorStore = new VectorStore(db, embedder.dimensions, embedder.modelName);
   for (let i = 0; i < docIds.length; i++) {
     vectorStore.addVector(docIds[i], vectors[i]);
   }
   console.log(`Stored ${vectorStore.getVectorCount()} vectors (${embedder.dimensions}-dim)\n`);
 
-  // 4. Create HybridSearchEngine — wraps GeminiEmbedder as EmbeddingProvider
-  const embeddingProvider = {
-    embed: (text: string, taskType?: string) => embedder.embed(text, taskType),
-    embedBatch: (texts: string[], taskType?: string) => embedder.embedBatch(texts, taskType),
-    dimensions: embedder.dimensions,
-    modelName: "gemini-embedding-001",
-  };
-  const hybridEngine = new HybridSearchEngine(store, vectorStore, embeddingProvider);
+  // 4. Create HybridSearchEngine — embedder is already a full EmbeddingProvider
+  const hybridEngine = new HybridSearchEngine(store, vectorStore, embedder);
 
   // 5. Run queries
   const results: Array<{
