@@ -68,6 +68,10 @@ Usage:
   strata distill deactivate               Disable local model distillation mode
   strata distill setup                    One-step Gemma 4 local inference setup
   strata distill test                     Verify local inference pipeline
+  strata embeddings status                Show active embedding provider + vector coverage
+  strata embeddings use <provider>        Switch embedding provider (gemini|local|openai-compatible)
+  strata embeddings reindex               Re-embed knowledge entries under active model
+  strata embeddings pull                  Download model weights (not yet available)
   strata deploy cloudflare                Deploy Strata to Cloudflare Workers + D1
   strata deploy gcp                       Deploy Strata to GCP Cloud Run
   strata deploy gcp --multi-tenant        Deploy multi-tenant Strata on Cloud Run + Cloud SQL
@@ -938,6 +942,41 @@ async function main(): Promise<void> {
           console.log("  setup         One-step Gemma 4 local inference setup");
           console.log("  test          Verify local inference pipeline");
           process.exit(subcommand ? 1 : 0);
+      }
+      break;
+    }
+    case "embeddings": {
+      const embeddingsSubcommand = args[0];
+      const embeddingsArgs = args.slice(1);
+      const {
+        runEmbeddingsStatus,
+        runEmbeddingsUse,
+        runEmbeddingsReindex,
+        runEmbeddingsPull,
+      } = await import("./cli/embeddings.js");
+
+      switch (embeddingsSubcommand) {
+        case "status":
+          await runEmbeddingsStatus(embeddingsArgs, flags);
+          break;
+        case "use":
+          await runEmbeddingsUse(embeddingsArgs, flags);
+          break;
+        case "reindex":
+          await runEmbeddingsReindex(embeddingsArgs, flags);
+          break;
+        case "pull":
+          await runEmbeddingsPull(embeddingsArgs, flags);
+          break;
+        default:
+          console.log("Usage: strata embeddings <status|use|reindex|pull>");
+          console.log("");
+          console.log("Subcommands:");
+          console.log("  status    Show active provider, model, dimensions, and vector coverage");
+          console.log("  use       Switch active embedding provider (writes config.json)");
+          console.log("  reindex   Re-embed knowledge entries under the active model");
+          console.log("  pull      Download model weights (not yet available)");
+          process.exit(embeddingsSubcommand ? 1 : 0);
       }
       break;
     }
