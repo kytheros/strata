@@ -388,6 +388,33 @@ function initSchema(db: Database.Database): void {
     }
   }
 
+  // Migration: embeddings PK entry_id -> (entry_id, model) to allow per-model coexistence.
+  const embedPk = db.prepare(
+    "SELECT 1 FROM pragma_table_info('embeddings') WHERE name = 'model' AND pk > 0"
+  ).get();
+  if (!embedPk) {
+    db.pragma("foreign_keys = OFF");
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE embeddings_new (
+          entry_id TEXT NOT NULL,
+          embedding BLOB NOT NULL,
+          model TEXT NOT NULL DEFAULT 'gemini-embedding-001',
+          created_at INTEGER NOT NULL,
+          format TEXT NOT NULL DEFAULT 'float32',
+          PRIMARY KEY (entry_id, model)
+        );
+        INSERT OR IGNORE INTO embeddings_new (entry_id, embedding, model, created_at, format)
+          SELECT entry_id, embedding, COALESCE(model,'gemini-embedding-001'), created_at, COALESCE(format,'float32') FROM embeddings;
+        DROP TABLE embeddings;
+        ALTER TABLE embeddings_new RENAME TO embeddings;
+        CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
+      `);
+    });
+    migrate();
+    db.pragma("foreign_keys = ON");
+  }
+
   // Training data for local model distillation
   db.exec(`
     CREATE TABLE IF NOT EXISTS training_data (
