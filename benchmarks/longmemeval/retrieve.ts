@@ -18,6 +18,7 @@ import type { LongMemQuestion, RetrievalResult } from "./types.js";
 import { questionTypeToAbility } from "./types.js";
 import { CONFIG } from "../../src/config.js";
 import { appendUniqueByLane, rrfFuse } from "./ku-fusion.js";
+import { fuseDenseTurnLane } from "./dense-turn-fusion.js";
 
 // ---------------------------------------------------------------------------
 // Date-range search for temporal reasoning (benchmark-only)
@@ -264,6 +265,15 @@ export async function retrieveQuestion(
         CONFIG.benchmark.kuFusion.rrfK,
       );
     }
+  }
+
+  // Dense turn-lane fusion (spec 2026-06-02-dense-turn-lane-design §3.5).
+  // Unconditional (all question types); result-granularity; default off.
+  // `turnHits` is already the FTS5+vector hybrid when STRATA_DENSE_TURN_LANE=on
+  // (CONFIG.search.denseTurnLane.enabled flips searchTurns to hybrid). Byte-
+  // identical to today when mode === "off".
+  if (CONFIG.benchmark.denseTurnLane.mode === "on" && !precomputedResults) {
+    results = fuseDenseTurnLane(results, turnHits, CONFIG.benchmark.denseTurnLane.maxTurnResults);
   }
 
   // A6 (spec 2026-05-25-unified-turn-lane-surface §3.3): side-by-side

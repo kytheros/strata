@@ -69,6 +69,8 @@ benchmarks/longmemeval/providers/*
 # Resumability: per-question checkpoint helper (ticket: longmemeval-resumability).
 # data/checkpoints/ is under the gitignored data/ dir — checkpoint files not committed.
 !benchmarks/longmemeval/checkpoint.ts
+# Dense turn-lane fusion helper (spec 2026-06-02-dense-turn-lane-design §3.5).
+!benchmarks/longmemeval/dense-turn-fusion.ts
 # Benchmark embedding cache — large, regenerable, never commit
 benchmarks/longmemeval/cache/embedding-cache.db
 benchmarks/longmemeval/cache/embedding-cache.db-wal

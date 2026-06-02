@@ -234,6 +234,21 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
     return rows.map(rowToKnowledgeTurn);
   }
 
+  // ── getByIds ─────────────────────────────────────────────────────────────────
+
+  async getByIds(turnIds: string[]): Promise<KnowledgeTurnRow[]> {
+    if (turnIds.length === 0) return [];
+    // PG parameterized IN clause via $1, $2, ... $N
+    const placeholders = turnIds.map((_, i) => `$${i + 1}`).join(", ");
+    const { rows } = await this.pool.query(
+      `SELECT turn_id, session_id, project, user_id, speaker, content, message_index, created_at
+         FROM knowledge_turns
+        WHERE turn_id IN (${placeholders})`,
+      turnIds,
+    );
+    return rows.map(rowToKnowledgeTurn);
+  }
+
   // ── deleteBySessionId ────────────────────────────────────────────────────────
 
   async deleteBySessionId(sessionId: string): Promise<void> {
