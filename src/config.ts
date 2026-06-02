@@ -392,8 +392,16 @@ export const CONFIG = {
 
   // Embeddings model configuration
   embeddings: {
+    /** Active embedding provider: "gemini" (default), "local", or "openai-compatible" */
+    provider: (process.env.STRATA_EMBEDDING_PROVIDER as "gemini" | "local" | "openai-compatible") || "gemini",
     /** Model for text embeddings (conversation chunks, knowledge entries) */
     model: process.env.STRATA_EMBEDDING_MODEL || "gemini-embedding-001",
+    /** Override the active model's dimension count */
+    dimensions: process.env.STRATA_EMBEDDING_DIMENSIONS ? Number(process.env.STRATA_EMBEDDING_DIMENSIONS) : undefined,
+    /** Base URL for openai-compatible provider */
+    baseUrl: process.env.STRATA_EMBEDDING_BASE_URL || undefined,
+    /** API key for openai-compatible provider */
+    apiKey: process.env.STRATA_EMBEDDING_API_KEY || undefined,
     /** Model for document embeddings (PDFs, images via Gemini Embedding 2) */
     documentModel: process.env.STRATA_DOCUMENT_EMBEDDING_MODEL || "gemini-embedding-2-preview",
     /** Maximum document file size in bytes (default: 50MB) */
