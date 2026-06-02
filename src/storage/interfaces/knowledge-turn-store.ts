@@ -93,6 +93,12 @@ export interface IKnowledgeTurnStore {
   getBySessionId(sessionId: string): Promise<KnowledgeTurnRow[]>;
 
   /**
+   * Retrieve turns by their turn_ids (any order). Used by the dense turn-lane
+   * to hydrate vector-only hits that the FTS5 lane did not surface.
+   */
+  getByIds(turnIds: string[]): Promise<KnowledgeTurnRow[]>;
+
+  /**
    * Delete all turns belonging to a session.
    * The FTS5 delete trigger keeps `knowledge_turns_fts` consistent.
    */

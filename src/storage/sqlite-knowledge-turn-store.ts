@@ -22,6 +22,9 @@ import type {
   KnowledgeTurnHit,
   KnowledgeTurnSearchOptions,
 } from "./interfaces/knowledge-turn-store.js";
+import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js";
+import { quantize } from "../extensions/quantization/turbo-quant.js";
+import { CONFIG } from "../config.js";
 
 // ── FTS query sanitizer ───────────────────────────────────────────────────────
 
@@ -70,15 +73,22 @@ function rowToKnowledgeTurn(row: Record<string, unknown>): KnowledgeTurnRow {
 
 export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
   private readonly db: Database.Database;
+  private readonly embedder: GeminiEmbedder | null;
 
   // Cached prepared statements — scoped to the instance, never module-level (D2)
   private readonly stmtInsert: Database.Statement;
   private readonly stmtCount: Database.Statement;
   private readonly stmtGetBySession: Database.Statement;
   private readonly stmtDeleteBySession: Database.Statement;
+  private readonly stmtDeleteEmbBySession: Database.Statement;
+  private readonly upsertTurnEmbedding: Database.Statement;
 
-  constructor(db: Database.Database) {
+  /** In-flight embedding promises from single inserts (awaited by flushPendingEmbeddings). */
+  private pendingEmbeddings: Set<Promise<void>> = new Set();
+
+  constructor(db: Database.Database, embedder?: GeminiEmbedder | null) {
     this.db = db;
+    this.embedder = embedder ?? null;
 
     this.stmtInsert = db.prepare(`
       INSERT INTO knowledge_turns
@@ -87,9 +97,7 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
         (@turn_id, @session_id, @project, @user_id, @speaker, @content, @message_index, @created_at)
     `);
 
-    this.stmtCount = db.prepare(
-      `SELECT COUNT(*) AS cnt FROM knowledge_turns`
-    );
+    this.stmtCount = db.prepare(`SELECT COUNT(*) AS cnt FROM knowledge_turns`);
 
     this.stmtGetBySession = db.prepare(`
       SELECT * FROM knowledge_turns
@@ -100,6 +108,43 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
     this.stmtDeleteBySession = db.prepare(
       `DELETE FROM knowledge_turns WHERE session_id = ?`
     );
+
+    this.stmtDeleteEmbBySession = db.prepare(
+      `DELETE FROM knowledge_turn_embeddings
+       WHERE turn_id IN (SELECT turn_id FROM knowledge_turns WHERE session_id = ?)`
+    );
+
+    this.upsertTurnEmbedding = db.prepare(
+      "INSERT OR REPLACE INTO knowledge_turn_embeddings (turn_id, embedding, model, created_at, format) VALUES (?, ?, ?, ?, ?)"
+    );
+  }
+
+  /** Encode a Float32 embedding into storage format (quantized or raw float32). */
+  private encodeEmbedding(vec: Float32Array): { buf: Buffer; format: string } {
+    if (CONFIG.quantization.enabled) {
+      const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
+      const quantized = quantize(vec, bitWidth);
+      return { buf: Buffer.from(quantized), format: `tq${bitWidth}` };
+    }
+    return { buf: Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength), format: "float32" };
+  }
+
+  /** Embed a set of (turnId, content) pairs and upsert in one transaction. Never throws. */
+  private async embedTurns(ids: string[], contents: string[]): Promise<void> {
+    if (!this.embedder || ids.length === 0) return;
+    try {
+      const vectors = await this.embedder.embedBatch(contents, CONFIG.search.denseTurnLane.docTaskType);
+      const txn = this.db.transaction(() => {
+        const now = Date.now();
+        for (let i = 0; i < vectors.length; i++) {
+          const { buf, format } = this.encodeEmbedding(vectors[i]);
+          this.upsertTurnEmbedding.run(ids[i], buf, "gemini-embedding-001", now, format);
+        }
+      });
+      txn();
+    } catch (err) {
+      console.error(`[strata] Failed to embed ${ids.length} turns:`, err);
+    }
   }
 
   // ── insert ─────────────────────────────────────────────────────────────────
@@ -116,7 +161,21 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
       message_index: turn.messageIndex,
       created_at: turn.createdAt ?? Date.now(),
     });
+    if (this.embedder) {
+      const p = this.embedTurns([turnId], [turn.content]).finally(() => {
+        this.pendingEmbeddings.delete(p);
+      });
+      this.pendingEmbeddings.add(p);
+    }
     return turnId;
+  }
+
+  /** Await all in-flight single-insert embeddings. */
+  async flushPendingEmbeddings(): Promise<number> {
+    const count = this.pendingEmbeddings.size;
+    if (count === 0) return 0;
+    await Promise.all([...this.pendingEmbeddings]);
+    return count;
   }
 
   // ── bulkInsert ─────────────────────────────────────────────────────────────
@@ -140,6 +199,9 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
       }
     });
     insertMany();
+    if (this.embedder && turns.length > 0) {
+      await this.embedTurns(ids, turns.map((t) => t.content));
+    }
     return ids;
   }
 
@@ -205,11 +267,25 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
     return rows.map(rowToKnowledgeTurn);
   }
 
+  // ── getByIds ───────────────────────────────────────────────────────────────
+
+  async getByIds(turnIds: string[]): Promise<KnowledgeTurnRow[]> {
+    if (turnIds.length === 0) return [];
+    const placeholders = turnIds.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(`SELECT * FROM knowledge_turns WHERE turn_id IN (${placeholders})`)
+      .all(...turnIds) as Record<string, unknown>[];
+    return rows.map(rowToKnowledgeTurn);
+  }
+
   // ── deleteBySessionId ──────────────────────────────────────────────────────
 
   async deleteBySessionId(sessionId: string): Promise<void> {
-    this.stmtDeleteBySession.run(sessionId);
-    // The knowledge_turns_ad trigger automatically removes from knowledge_turns_fts.
+    const del = this.db.transaction(() => {
+      this.stmtDeleteEmbBySession.run(sessionId); // embeddings first (turn rows still present)
+      this.stmtDeleteBySession.run(sessionId);    // FTS kept consistent by the ad trigger
+    });
+    del();
   }
 
   // ── count ──────────────────────────────────────────────────────────────────
