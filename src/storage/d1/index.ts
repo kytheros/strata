@@ -79,31 +79,45 @@ export async function createD1Storage(options: D1StorageOptions | StorageOptions
  * Checks the index_meta table for a schema_version key.
  */
 async function initD1Schema(db: D1Database): Promise<void> {
+  let schemaUpToDate = false;
   try {
     const versionRow = await db
       .prepare("SELECT value FROM index_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
 
     if (versionRow && versionRow.value === D1_SCHEMA_VERSION) {
-      return; // Schema is up to date
+      schemaUpToDate = true;
     }
   } catch {
     // Table doesn't exist yet — proceed with schema creation
   }
 
-  // D1's exec() can fail on multi-line statements and SQL comments.
-  // Split the schema into individual statements and execute each via
-  // prepare().run() for maximum compatibility across D1 implementations.
-  const statements = splitSchemaStatements(D1_SCHEMA);
-  for (const stmt of statements) {
-    await db.exec(stmt);
+  if (!schemaUpToDate) {
+    // D1's exec() can fail on multi-line statements and SQL comments.
+    // Split the schema into individual statements and execute each via
+    // prepare().run() for maximum compatibility across D1 implementations.
+    const statements = splitSchemaStatements(D1_SCHEMA);
+    for (const stmt of statements) {
+      await db.exec(stmt);
+    }
+
+    // Record the schema version
+    await db
+      .prepare("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('schema_version', ?)")
+      .bind(D1_SCHEMA_VERSION)
+      .run();
   }
 
-  // Record the schema version
-  await db
-    .prepare("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('schema_version', ?)")
-    .bind(D1_SCHEMA_VERSION)
-    .run();
+  // Normalizing migration: rename 'text-embedding-004' rows to 'gemini-embedding-001'
+  // (legacy default from 0001_init.sql before this reconciliation).
+  // Runs every startup to catch DBs that were already at D1_SCHEMA_VERSION.
+  try {
+    await db
+      .prepare("UPDATE embeddings SET model = 'gemini-embedding-001' WHERE model = 'text-embedding-004'")
+      .run();
+  } catch {
+    // Safe to ignore — embeddings table may not exist on first init
+  }
 }
 
 /**

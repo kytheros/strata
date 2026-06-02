@@ -23,6 +23,7 @@ import { parseProcedureDetails } from "../../knowledge/procedure-extractor.js";
 import type { ProcedureDetails } from "../../knowledge/procedure-extractor.js";
 import { quantize } from "../../extensions/quantization/turbo-quant.js";
 import { CONFIG } from "../../config.js";
+import { resolveActiveEmbeddingModel } from "../../extensions/embeddings/active-model.js";
 
 /** Row shape returned from D1 queries against the knowledge table. */
 interface D1KnowledgeRow {
@@ -187,7 +188,10 @@ export class D1KnowledgeStore implements IKnowledgeStore {
         let embeddingData: ArrayBuffer;
         let format: string;
 
-        if (CONFIG.quantization.enabled) {
+        // Gate quantization on the provider's capability (D1 = Gemini/OpenAI only, never local).
+        // supportsQuantization comes from the EmbeddingProvider interface (T2).
+        const supportsQuant = (this.embedder as any)?.supportsQuantization ?? true;
+        if (supportsQuant && CONFIG.quantization.enabled) {
           const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
           const quantized = quantize(vec, bitWidth);
           embeddingData = quantized.buffer.slice(
@@ -203,11 +207,13 @@ export class D1KnowledgeStore implements IKnowledgeStore {
           format = "float32";
         }
 
+        // Stamp the active model (not the hardcoded literal).
+        const activeModel = resolveActiveEmbeddingModel().model;
         await this.db
           .prepare(
             "INSERT OR REPLACE INTO embeddings (id, embedding, model, created_at, format) VALUES (?, ?, ?, ?, ?)"
           )
-          .bind(entry.id, embeddingData, "gemini-embedding-001", Date.now(), format)
+          .bind(entry.id, embeddingData, activeModel, Date.now(), format)
           .run();
       })
       .catch((err) => {

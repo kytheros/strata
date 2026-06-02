@@ -6,6 +6,9 @@
  * pipeline, falls back to cosine similarity for Float32 vectors.
  *
  * D1 returns ArrayBuffer for BLOB columns (simpler than better-sqlite3's Buffer).
+ *
+ * The `activeModel` constructor arg scopes all reads to the active model so
+ * cross-provider residue is never scored. D1 stays Gemini/OpenAI-only (no local).
  */
 
 import type { D1Database } from "./d1-types.js";
@@ -13,6 +16,7 @@ import { blobToFloat32 } from "../../extensions/quantization/turbo-quant.js";
 import { quantizedSearch, type QuantizedSearchInput } from "../../extensions/quantization/quantized-search.js";
 import { HEADER_VERSION } from "../../extensions/quantization/codec.js";
 import { CONFIG } from "../../config.js";
+import { resolveActiveEmbeddingModel } from "../../extensions/embeddings/active-model.js";
 
 const FLOAT32_3072_SIZE = 3072 * 4; // 12,288 bytes
 
@@ -26,14 +30,21 @@ export interface D1VectorSearchResult {
 interface D1EmbeddingRow {
   id: string;
   embedding: ArrayBuffer;
+  format?: string | null;
 }
 
 /**
  * D1VectorSearch loads embeddings from D1 and ranks them using quantized-domain
  * ADC/SDC search for quantized vectors, with cosine similarity fallback for Float32.
+ *
+ * All read queries are scoped to `activeModel` (defaults to resolveActiveEmbeddingModel().model).
  */
 export class D1VectorSearch {
-  constructor(private db: D1Database) {}
+  private activeModel: string;
+
+  constructor(private db: D1Database, activeModel?: string) {
+    this.activeModel = activeModel ?? resolveActiveEmbeddingModel().model;
+  }
 
   /**
    * Search for the most similar embeddings to the query vector.
@@ -48,12 +59,13 @@ export class D1VectorSearch {
     user?: string
   ): Promise<D1VectorSearchResult[]> {
     let sql = `
-      SELECT e.id, e.embedding
+      SELECT e.id, e.embedding, e.format
       FROM embeddings e
       JOIN knowledge k ON k.id = e.id
       WHERE LOWER(k.project) LIKE '%' || LOWER(?) || '%'
+        AND e.model = ?
     `;
-    const params: unknown[] = [project];
+    const params: unknown[] = [project, this.activeModel];
 
     if (user) {
       sql += " AND k.user = ?";
@@ -65,42 +77,55 @@ export class D1VectorSearch {
 
     if (rows.length === 0) return [];
 
-    // Partition by format
+    return this.rankByCosine(rows, queryVec, limit);
+  }
+
+  /** Rank D1 embedding rows using quantized or float32 cosine similarity. */
+  private rankByCosine(
+    rows: D1EmbeddingRow[],
+    queryVec: Float32Array,
+    limit: number
+  ): D1VectorSearchResult[] {
+    // Partition by format: use format column (authoritative) or legacy header-byte heuristic.
     const quantizedInputs: QuantizedSearchInput[] = [];
-    const float32Rows: { id: string; buf: Buffer }[] = [];
+    const float32Rows: { id: string; buf: Buffer; format?: string | null }[] = [];
 
     for (const row of rows) {
       const buf = row.embedding instanceof ArrayBuffer
         ? Buffer.from(row.embedding)
         : Buffer.from(new Uint8Array(row.embedding as unknown as number[]));
 
-      // Detect quantized blobs by header byte (0x01) AND non-Float32 size.
-      // This avoids misclassifying small test vectors as quantized.
-      const isQuantized = buf.length !== FLOAT32_3072_SIZE
-        && buf.length >= 4
-        && buf[0] === HEADER_VERSION;
+      const fmt = row.format ?? null;
+      const isQuantized = fmt
+        ? fmt.startsWith("tq")
+        : (buf.length !== FLOAT32_3072_SIZE && buf.length >= 4 && buf[0] === HEADER_VERSION);
 
       if (isQuantized) {
         quantizedInputs.push({ entryId: row.id, blob: buf });
       } else {
-        float32Rows.push({ id: row.id, buf });
+        float32Rows.push({ id: row.id, buf, format: fmt });
       }
     }
 
     const results: D1VectorSearchResult[] = [];
 
+    // Dimension guard for quantized path (always Gemini-3072).
+    const geminiDim = CONFIG.quantization.embeddingDim;
+    const quantizedForThisQuery = queryVec.length === geminiDim ? quantizedInputs : [];
+
     // Fast path: quantized-domain ADC/SDC search
-    if (quantizedInputs.length > 0 && CONFIG.quantization.enabled) {
+    if (quantizedForThisQuery.length > 0 && CONFIG.quantization.enabled) {
       const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
-      const qResults = quantizedSearch(queryVec, quantizedInputs, limit, bitWidth);
+      const qResults = quantizedSearch(queryVec, quantizedForThisQuery, limit, bitWidth);
       for (const r of qResults) {
         results.push({ entryId: r.entryId, score: r.score });
       }
-    } else if (quantizedInputs.length > 0) {
+    } else if (quantizedForThisQuery.length > 0) {
       // Quantization disabled — dequantize and use cosine
-      for (const item of quantizedInputs) {
+      for (const item of quantizedForThisQuery) {
         try {
           const vec = blobToFloat32(item.blob as Buffer);
+          if (vec.length !== queryVec.length) continue;
           const score = cosineSimilarity(queryVec, vec);
           if (score > 0.0) results.push({ entryId: item.entryId, score });
         } catch {
@@ -109,10 +134,12 @@ export class D1VectorSearch {
       }
     }
 
-    // Fallback path: Float32 cosine similarity
+    // Fallback path: Float32 cosine similarity (format-aware decode via T4)
     for (const row of float32Rows) {
       try {
-        const vec = new Float32Array(row.buf.buffer, row.buf.byteOffset, row.buf.byteLength / 4);
+        const vec = blobToFloat32(row.buf, row.format);
+        // Dimension guard: skip cross-provider / wrong-dimension residue
+        if (vec.length !== queryVec.length) continue;
         const score = cosineSimilarity(queryVec, vec);
         if (score > 0.0) results.push({ entryId: row.id, score });
       } catch {

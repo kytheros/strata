@@ -1130,9 +1130,10 @@ describe("D1 Storage Integration", () => {
         .bind("vec-entry-2", new Uint8Array(vec2.buffer).buffer, "test-model", Date.now())
         .run();
 
-      // Search with a query vector close to vec1
+      // Search with a query vector close to vec1.
+      // Pass "test-model" as the active model to match the inserted embeddings.
       const queryVec = new Float32Array([0.9, 0.1, 0.0, 0.0]);
-      const vectorSearch = new D1VectorSearch(db);
+      const vectorSearch = new D1VectorSearch(db, "test-model");
       const results = await vectorSearch.search(queryVec, "vec-project", 10, USER_A);
 
       expect(results.length).toBeGreaterThanOrEqual(1);
@@ -1159,7 +1160,7 @@ describe("D1 Storage Integration", () => {
 
       // Query is orthogonal: cosine similarity = 0
       const queryVec = new Float32Array([1.0, 0.0, 0.0, 0.0]);
-      const vectorSearch = new D1VectorSearch(db);
+      const vectorSearch = new D1VectorSearch(db, "test-model");
       const results = await vectorSearch.search(queryVec, "vec-proj2", 10, USER_A);
 
       // Orthogonal vectors have score = 0, which is excluded
@@ -1184,7 +1185,7 @@ describe("D1 Storage Integration", () => {
           .run();
       }
 
-      const vectorSearch = new D1VectorSearch(db);
+      const vectorSearch = new D1VectorSearch(db, "test-model");
       const results = await vectorSearch.search(vec, "project-alpha", 10, USER_A);
       expect(results).toHaveLength(1);
       expect(results[0].entryId).toBe("vec-p1");
@@ -1497,6 +1498,37 @@ describe("D1 Storage Integration", () => {
 
       const all = await storage.documents.getAllDocuments();
       expect(all).toHaveLength(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // T11: D1 model default reconciliation
+  // -------------------------------------------------------------------------
+
+  describe("D1 embeddings model reconciliation (T11)", () => {
+    it("normalizes legacy 'text-embedding-004' rows to 'gemini-embedding-001' on init", async () => {
+      // Insert a legacy row with the old default model name directly into the
+      // already-initialized DB (schema is present, including the embeddings table).
+      await db
+        .prepare("INSERT OR REPLACE INTO embeddings (id, embedding, model, created_at, format) VALUES (?, ?, 'text-embedding-004', 0, 'float32')")
+        .bind("legacy-row", new Uint8Array(12288))
+        .run();
+
+      // Verify it was written with the old model name.
+      const before = await db
+        .prepare("SELECT model FROM embeddings WHERE id = 'legacy-row'")
+        .first<{ model: string }>();
+      expect(before?.model).toBe("text-embedding-004");
+
+      // Re-run createD1Storage on the SAME db handle — triggers the normalizing UPDATE.
+      await storage.close();
+      storage = await createD1Storage({ d1: db, userId: USER_A });
+
+      const after = await db
+        .prepare("SELECT model FROM embeddings WHERE id = 'legacy-row'")
+        .first<{ model: string }>();
+      // Row should have been renamed by the normalizing migration.
+      expect(after?.model).toBe("gemini-embedding-001");
     });
   });
 });

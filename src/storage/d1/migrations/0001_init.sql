@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS index_meta (
 CREATE TABLE IF NOT EXISTS embeddings (
   id TEXT PRIMARY KEY,
   embedding BLOB NOT NULL,
-  model TEXT NOT NULL DEFAULT 'text-embedding-004',
+  model TEXT NOT NULL DEFAULT 'gemini-embedding-001',
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
