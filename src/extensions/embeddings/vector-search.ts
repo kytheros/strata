@@ -163,18 +163,30 @@ export class VectorSearch {
 
     const results: VectorSearchResult[] = [];
 
+    // Dimension guard for quantized path: quantized blobs are ALWAYS Gemini-3072.
+    // A non-3072-dim query cannot belong to this space — evict all quantized inputs
+    // rather than letting quantizedSearch() ADC-score with a mismatched query.
+    const geminiEmbeddingDim = CONFIG.quantization.embeddingDim; // 3072
+    const quantizedForThisQuery =
+      queryVec.length === geminiEmbeddingDim ? quantizedInputs : [];
+    if (quantizedInputs.length > 0 && quantizedForThisQuery.length === 0) {
+      process.stderr.write(
+        `[strata] Evicted ${quantizedInputs.length} quantized blob(s): query dim ${queryVec.length} != stored dim ${geminiEmbeddingDim}\n`
+      );
+    }
+
     // Fast path: quantized-domain search (ADC/SDC)
-    if (quantizedInputs.length > 0 && CONFIG.quantization.enabled) {
+    if (quantizedForThisQuery.length > 0 && CONFIG.quantization.enabled) {
       const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
-      const qResults = quantizedSearch(queryVec, quantizedInputs, limit, bitWidth);
+      const qResults = quantizedSearch(queryVec, quantizedForThisQuery, limit, bitWidth);
       for (const r of qResults) {
         results.push({ entryId: r.entryId, score: r.score });
       }
-    } else if (quantizedInputs.length > 0) {
+    } else if (quantizedForThisQuery.length > 0) {
       // Quantization disabled — dequantize and use cosine
-      for (const item of quantizedInputs) {
+      for (const item of quantizedForThisQuery) {
         const vec = blobToFloat32(item.blob as Buffer);
-        // Dimension guard: skip cross-provider residue
+        // Dimension guard: skip cross-provider residue (belt-and-suspenders)
         if (vec.length !== queryVec.length) continue;
         const score = cosineSimilarity(queryVec, vec);
         if (score > 0.0) results.push({ entryId: item.entryId, score });

@@ -6,7 +6,7 @@
  * callers already catch → FTS5 fallback, so behavior stays safe.
  */
 
-import { GeminiEmbedder, loadGeminiApiKeyFromConfig } from "../embeddings/gemini-embedder.js";
+import { GeminiEmbedder, loadGeminiApiKeyFromConfig, tryCreateGeminiEmbedder } from "../embeddings/gemini-embedder.js";
 import { resolveActiveEmbeddingModel } from "../embeddings/active-model.js";
 
 /**
@@ -79,7 +79,6 @@ export function createEmbeddingProvider(): EmbeddingProvider {
  * Async version that uses tryCreateGeminiEmbedder for full auth cascade probing.
  * Returns null if no credentials are found.
  */
-import { tryCreateGeminiEmbedder } from "../embeddings/gemini-embedder.js";
 export async function createEmbeddingProviderAsync(): Promise<EmbeddingProvider | null> {
   const embedder = await tryCreateGeminiEmbedder();
   if (!embedder) return null;
