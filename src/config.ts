@@ -113,6 +113,21 @@ export const CONFIG = {
     turnPerSessionCap: {
       enabled: true,
     },
+
+    /**
+     * Dense turn-lane (spec 2026-06-02-dense-turn-lane-design). When enabled,
+     * SqliteSearchEngine.searchTurns fuses an FTS5 turn lane with a vector
+     * (cosine) turn lane via RRF, giving each turn its own dense signal.
+     * Requires an embedder + VectorSearch on the engine; degrades to FTS5-only
+     * when absent. Default OFF; the LongMemEval SSA eval flips it via
+     * STRATA_DENSE_TURN_LANE=on. Turn embeddings are written at ingest whenever
+     * an embedder is present (independent of this flag).
+     */
+    denseTurnLane: {
+      enabled: process.env.STRATA_DENSE_TURN_LANE === "on",
+      queryTaskType: "RETRIEVAL_QUERY",
+      docTaskType: "RETRIEVAL_DOCUMENT",
+    },
   },
 
   // Indexing
@@ -356,6 +371,22 @@ export const CONFIG = {
       maxAppend: 5,
       widerNetLimit: 100,
       rrfK: 60,
+    },
+
+    /**
+     * Dense turn-lane fusion into the answer context (spec 2026-06-02).
+     *   "off" — turn hits not fused into chunk results (production-equivalent).
+     *   "on"  — RRF-fuse the (hybrid) turn hits into the chunk SearchResult[]
+     *           at result granularity, for ALL question types.
+     * Reads the SAME env as CONFIG.search.denseTurnLane.enabled, so a single
+     * STRATA_DENSE_TURN_LANE=on turns the whole lane on — both the engine-side
+     * hybrid AND this fusion — eliminating the "FTS-only fusion" footgun (a
+     * dense turn signal must exist before fusing it). Production never reads
+     * benchmark.*.
+     */
+    denseTurnLane: {
+      mode: (process.env.STRATA_DENSE_TURN_LANE as "off" | "on") ?? "off",
+      maxTurnResults: 10,
     },
   },
 
