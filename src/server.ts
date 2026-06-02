@@ -38,7 +38,10 @@ import type { IEntityStore, IEventStore } from "./storage/interfaces/index.js";
 import { GeminiProvider } from "./extensions/llm-extraction/gemini-provider.js";
 import { RealtimeWatcher } from "./watcher/realtime-watcher.js";
 import { IncrementalIndexer } from "./watcher/incremental-indexer.js";
-import { tryCreateGeminiEmbedder, loadGeminiApiKeyFromConfig } from "./extensions/embeddings/gemini-embedder.js";
+import { loadGeminiApiKeyFromConfig } from "./extensions/embeddings/gemini-embedder.js";
+import { createEmbeddingProvider } from "./extensions/vector-search/embedding-provider.js";
+import { resolveActiveEmbeddingModel } from "./extensions/embeddings/active-model.js";
+import { detectEmbeddingMismatch } from "./extensions/embeddings/mismatch.js";
 import { handleStoreDocument } from "./tools/store-document.js";
 import { DocumentChunkStore } from "./storage/document-chunk-store.js";
 import { DocumentEmbedder } from "./extensions/embeddings/document-embedder.js";
@@ -183,14 +186,36 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
 
     embedderInitPromise = (async () => {
       try {
-        const embedder = await tryCreateGeminiEmbedder();
-        if (embedder) {
-          // Inject the embedder into the knowledge store for write-side embedding.
+        const provider = createEmbeddingProvider();
+        if (provider) {
+          // Inject the provider into the knowledge store for write-side embedding.
           // Only works for SqliteKnowledgeStore (has embedder field); D1 store handles this internally.
           if (indexManager) {
-            (indexManager.knowledge as any).embedder = embedder; // eslint-disable-line @typescript-eslint/no-explicit-any
+            (indexManager.knowledge as any).embedder = provider; // eslint-disable-line @typescript-eslint/no-explicit-any
           }
-          console.error("[strata] Semantic search: active (Gemini embeddings)");
+
+          // Mismatch check: warn when the corpus has vectors for other models but none
+          // for the currently active model (user switched providers without reindexing).
+          if (indexManager?.db) {
+            const active = resolveActiveEmbeddingModel();
+            const mismatch = detectEmbeddingMismatch(indexManager.db, active.model);
+            if (mismatch.mismatch) {
+              process.stderr.write(
+                `[strata] WARNING: active model '${active.model}' has 0 vectors; ` +
+                `${mismatch.otherModelVectors} stored under other model(s). ` +
+                `Run \`strata embeddings reindex\` to rebuild. Serving FTS5-only.\n`
+              );
+              // Leave embedder null on the knowledge store so semantic search degrades to FTS5.
+              if (indexManager) {
+                (indexManager.knowledge as any).embedder = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+              }
+            } else {
+              const providerLabel = active.provider === "gemini" ? "Gemini" : active.provider;
+              console.error(`[strata] Semantic search: active (${providerLabel} embeddings)`);
+            }
+          } else {
+            console.error("[strata] Semantic search: active (embeddings)");
+          }
         } else {
           console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
         }

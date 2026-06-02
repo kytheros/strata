@@ -18,7 +18,8 @@ describe("deriveHealth", () => {
     const now = Date.now();
     for (let i = 0; i < 10; i++) {
       db.prepare("INSERT INTO knowledge (id, type, project, session_id, timestamp, summary, details, tags, related_files, importance) VALUES (?, 'fact', 'p', 's1', ?, 'a', 'b', '[]', '[]', 0.5)").run(`k${i}`, now);
-      db.prepare("INSERT INTO embeddings (entry_id, embedding, model, created_at, format) VALUES (?, x'00', 'test', ?, 'f32')").run(`k${i}`, now);
+      // Use the default active model so embedding-coverage health check counts these rows.
+      db.prepare("INSERT INTO embeddings (entry_id, embedding, model, created_at, format) VALUES (?, x'00', 'gemini-embedding-001', ?, 'f32')").run(`k${i}`, now);
     }
     db.prepare("INSERT INTO documents (id, session_id, project, tool, text, role, timestamp, tool_names, token_count, message_index, importance) VALUES ('d1','s1','p','x','hi','user',?,'[]',1,0,0.1)").run(now);
     db.prepare("INSERT INTO summaries (session_id, project, tool, topic, start_time, end_time, message_count, tools_used, data) VALUES ('s1','p','x','t',?,?,1,'[]','{}')").run(now, now);

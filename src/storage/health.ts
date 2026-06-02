@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { CONFIG } from "../config.js";
+import { resolveActiveEmbeddingModel } from "../extensions/embeddings/active-model.js";
 
 export type CheckStatus = "ok" | "warn" | "err";
 
@@ -28,7 +29,12 @@ function row1(db: Database.Database, sql: string): number {
 
 function embeddingCoverage(db: Database.Database): HealthCheck {
   const total = row1(db, "SELECT COUNT(*) AS c FROM knowledge");
-  const withEmb = row1(db, "SELECT COUNT(*) AS c FROM knowledge WHERE id IN (SELECT entry_id FROM embeddings)");
+  // Scope to the active model so switching providers shows the real coverage gap.
+  const activeModel = resolveActiveEmbeddingModel().model;
+  const withEmb = row1(
+    db,
+    `SELECT COUNT(*) AS c FROM knowledge WHERE id IN (SELECT entry_id FROM embeddings WHERE model = '${activeModel.replace(/'/g, "''")}')`
+  );
   const value = total === 0 ? 1 : withEmb / total;
   const { ok, warn } = CONFIG.health.thresholds.embedding_coverage;
   return {
