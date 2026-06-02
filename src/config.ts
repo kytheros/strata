@@ -385,7 +385,7 @@ export const CONFIG = {
      * benchmark.*.
      */
     denseTurnLane: {
-      get mode(): "off" | "on" { return (process.env.STRATA_DENSE_TURN_LANE as "off" | "on") ?? "off"; },
+      get mode(): "off" | "on" { return (process.env.STRATA_DENSE_TURN_LANE ?? "off") as "off" | "on"; },
       maxTurnResults: 10,
     },
   },

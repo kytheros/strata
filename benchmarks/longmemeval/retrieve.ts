@@ -208,6 +208,7 @@ export async function retrieveQuestion(
     userId: undefined,
     project: undefined,
     limit: 20,
+    skipVector: noVector,
   });
 
   // Use precomputed results if provided, otherwise run search

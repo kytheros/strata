@@ -163,7 +163,7 @@ export class SqliteSearchEngine {
     const ftsHits = await this.knowledgeTurnStore.searchByQuery(query, { ...opts, limit: wideLimit });
     let hits: KnowledgeTurnHit[] = ftsHits.slice(0, opts.limit);
 
-    if (CONFIG.search.denseTurnLane.enabled && this.embedder && this.vectorSearch) {
+    if (CONFIG.search.denseTurnLane.enabled && this.embedder && this.vectorSearch && !opts.skipVector) {
       try {
         const queryVec = await this.embedder.embed(query, CONFIG.search.denseTurnLane.queryTaskType);
         const vectorHits = this.vectorSearch.searchTurnEmbeddings(queryVec, wideLimit, {

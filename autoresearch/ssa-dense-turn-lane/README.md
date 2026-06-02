@@ -15,6 +15,11 @@ other categories.
   knowledge_update, abstention) ON vs OFF — must stay flat within judge noise.
 
 ## Run
+
+Run the OFF and ON arms **sequentially (not concurrently)** — the result parser
+uses a newest-by-mtime picker (`results-<timestamp>.json`) and the filename does
+NOT contain the `--run-id`; concurrent runs would make the picker unreliable.
+
 ```
 STRATA_DENSE_TURN_LANE=off npx tsx autoresearch/ssa-dense-turn-lane/run-eval.ts
 STRATA_DENSE_TURN_LANE=on  npx tsx autoresearch/ssa-dense-turn-lane/run-eval.ts

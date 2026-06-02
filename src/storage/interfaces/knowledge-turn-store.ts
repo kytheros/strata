@@ -67,6 +67,11 @@ export interface KnowledgeTurnSearchOptions {
    * Default: false.
    */
   forceBoost?: boolean;
+  /**
+   * When true, skip the dense vector lane even if enabled — honors the
+   * benchmark's --no-vector flag so cost-free FTS5-only runs are unaffected.
+   */
+  skipVector?: boolean;
 }
 
 export interface IKnowledgeTurnStore {

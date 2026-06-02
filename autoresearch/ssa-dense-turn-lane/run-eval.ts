@@ -64,6 +64,9 @@ function main(): void {
     shell: process.platform === "win32" ? "cmd.exe" : (true as unknown as string),
   });
 
+  // Newest-by-mtime picker: the result JSON filename is "results-<timestamp>.json" —
+  // it does NOT contain the --run-id (only the checkpoint file does). Run arms
+  // SEQUENTIALLY (not concurrently) so this picker always finds the correct file.
   const newest = readdirSync(DATA_DIR)
     .filter((f) => f.startsWith("results-") && f.endsWith(".json"))
     .map((f) => ({ f, mtime: statSync(join(DATA_DIR, f)).mtimeMs }))
