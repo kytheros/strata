@@ -1,11 +1,13 @@
 /**
- * Embedding provider interface and Gemini-based implementation for vector search.
+ * Embedding provider interface and factory for vector search.
  *
- * Gemini is the sole embedding provider. If no Gemini credentials are available,
- * createEmbeddingProvider() throws and callers fall back to FTS5-only search.
+ * createEmbeddingProvider() dispatches on CONFIG.embeddings.provider (via resolveActiveEmbeddingModel).
+ * Gemini is the default provider. local and openai-compatible are not yet wired (throw a clear error);
+ * callers already catch → FTS5 fallback, so behavior stays safe.
  */
 
-import { GeminiEmbedder, tryCreateGeminiEmbedder, loadGeminiApiKeyFromConfig } from "../embeddings/gemini-embedder.js";
+import { GeminiEmbedder, loadGeminiApiKeyFromConfig } from "../embeddings/gemini-embedder.js";
+import { resolveActiveEmbeddingModel } from "../embeddings/active-model.js";
 
 /**
  * Interface for embedding providers.
@@ -19,6 +21,8 @@ export interface EmbeddingProvider {
   readonly dimensions: number;
   /** Model name identifier. */
   readonly modelName: string;
+  /** Whether this provider supports TurboQuant quantization (Gemini only). */
+  readonly supportsQuantization: boolean;
 }
 
 /**
@@ -27,6 +31,7 @@ export interface EmbeddingProvider {
 class GeminiEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions = 3072;
   readonly modelName = "gemini-embedding-001";
+  readonly supportsQuantization = true;
 
   constructor(private embedder: GeminiEmbedder) {}
 
@@ -40,34 +45,41 @@ class GeminiEmbeddingProvider implements EmbeddingProvider {
 }
 
 /**
- * Create a Gemini-based embedding provider.
+ * Create an embedding provider based on the active provider config.
  *
- * Attempts to create a GeminiEmbedder synchronously using GEMINI_API_KEY
- * or GOOGLE_CLOUD_PROJECT env vars. Throws if no credentials are available.
+ * Dispatches on STRATA_EMBEDDING_PROVIDER (via resolveActiveEmbeddingModel).
+ * Throws if credentials are missing or the provider is not yet wired.
  * Callers should catch and fall back to FTS5-only search.
  */
 export function createEmbeddingProvider(): EmbeddingProvider {
-  const apiKey = loadGeminiApiKeyFromConfig();
-  const project = process.env.GOOGLE_CLOUD_PROJECT;
-  const region = process.env.GOOGLE_CLOUD_LOCATION || "us-central1";
-
-  if (apiKey) {
-    return new GeminiEmbeddingProvider(new GeminiEmbedder({ apiKey }));
+  const active = resolveActiveEmbeddingModel();
+  switch (active.provider) {
+    case "gemini": {
+      const apiKey = loadGeminiApiKeyFromConfig();
+      const project = process.env.GOOGLE_CLOUD_PROJECT;
+      const region = process.env.GOOGLE_CLOUD_LOCATION || "us-central1";
+      if (apiKey) return new GeminiEmbeddingProvider(new GeminiEmbedder({ apiKey }));
+      if (project) return new GeminiEmbeddingProvider(new GeminiEmbedder({ project, region }));
+      throw new Error(
+        "No Gemini embedding credentials available. Set GEMINI_API_KEY to enable semantic search."
+      );
+    }
+    case "local":
+      throw new Error(
+        "local embedding model not available — run `strata embeddings pull` (implemented in Task 13)."
+      );
+    case "openai-compatible":
+      throw new Error("openai-compatible embedding provider not yet wired (Task 16).");
+    default:
+      throw new Error(`Unknown embedding provider: ${active.provider}`);
   }
-
-  if (project) {
-    return new GeminiEmbeddingProvider(new GeminiEmbedder({ project, region }));
-  }
-
-  throw new Error(
-    "No Gemini embedding credentials available. Set GEMINI_API_KEY or configure in the dashboard to enable semantic search."
-  );
 }
 
 /**
  * Async version that uses tryCreateGeminiEmbedder for full auth cascade probing.
  * Returns null if no credentials are found.
  */
+import { tryCreateGeminiEmbedder } from "../embeddings/gemini-embedder.js";
 export async function createEmbeddingProviderAsync(): Promise<EmbeddingProvider | null> {
   const embedder = await tryCreateGeminiEmbedder();
   if (!embedder) return null;
