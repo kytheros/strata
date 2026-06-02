@@ -76,6 +76,29 @@ function sanitizeFtsQuery(query: string): string {
   return tokens.join(" ");
 }
 
+/**
+ * Pure encoding function: select quantized or raw float32 based on the provider's
+ * capability flag. This is the single place that gates quantization on the provider,
+ * not on the global CONFIG.quantization.enabled flag (which remains unchanged).
+ *
+ * Exported for testing and for use in the reindex pipeline (T18).
+ *
+ * @param vec - The Float32Array embedding to encode.
+ * @param supportsQuantization - From EmbeddingProvider.supportsQuantization (T2).
+ *   Only Gemini returns true; local and openai-compatible return false.
+ */
+export function encodeEmbeddingFor(
+  vec: Float32Array,
+  supportsQuantization: boolean
+): { buf: Buffer; format: string } {
+  if (supportsQuantization && CONFIG.quantization.enabled) {
+    const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
+    const quantized = quantize(vec, bitWidth);
+    return { buf: Buffer.from(quantized), format: `tq${bitWidth}` };
+  }
+  return { buf: Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength), format: "float32" };
+}
+
 export class SqliteKnowledgeStore implements IKnowledgeStore {
   private defaultUser: string;
 
@@ -347,19 +370,13 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
   }
 
   /**
-   * Encode a Float32Array embedding into the storage format
-   * (quantized or raw float32) along with the format tag.
+   * Encode a Float32Array embedding into the storage format, routing through
+   * the exported encodeEmbeddingFor with the embedder's quantization flag.
+   * Never calls quantize() on a non-Gemini provider (which may not be 3072-dim).
    */
   private encodeEmbedding(vec: Float32Array): { buf: Buffer; format: string } {
-    if (CONFIG.quantization.enabled) {
-      const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
-      const quantized = quantize(vec, bitWidth);
-      return { buf: Buffer.from(quantized), format: `tq${bitWidth}` };
-    }
-    return {
-      buf: Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength),
-      format: "float32",
-    };
+    const supportsQuant = (this.embedder as any)?.supportsQuantization ?? true;
+    return encodeEmbeddingFor(vec, supportsQuant);
   }
 
   /**
