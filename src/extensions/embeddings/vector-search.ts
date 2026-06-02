@@ -9,6 +9,7 @@ import type Database from "better-sqlite3";
 import { blobToFloat32, isQuantizedBlob } from "../quantization/turbo-quant.js";
 import { quantizedSearch, type QuantizedSearchInput } from "../quantization/quantized-search.js";
 import { CONFIG } from "../../config.js";
+import { resolveActiveEmbeddingModel } from "./active-model.js";
 
 /** A single vector search result */
 export interface VectorSearchResult {
@@ -26,9 +27,18 @@ interface EmbeddingRow {
 /**
  * VectorSearch loads embeddings from SQLite and ranks them by cosine similarity
  * against a query vector. Loads embeddings lazily per-call (no cross-call cache).
+ *
+ * The `activeModel` constructor arg scopes all knowledge-lane reads (search,
+ * searchAll, searchDocumentChunks) to only that model's vectors. Defaults to
+ * resolveActiveEmbeddingModel().model so legacy callers without the arg are
+ * automatically correct. searchTurnEmbeddings is excluded (dense-turn-lane owned).
  */
 export class VectorSearch {
-  constructor(private db: Database.Database) {}
+  private activeModel: string;
+  constructor(private db: Database.Database, activeModel?: string) {
+    // Default to the currently-active model if not supplied.
+    this.activeModel = activeModel ?? resolveActiveEmbeddingModel().model;
+  }
 
   /**
    * Search for the most similar embeddings to the query vector.
@@ -41,15 +51,17 @@ export class VectorSearch {
     project: string,
     limit: number
   ): VectorSearchResult[] {
-    // Load all embeddings for this project by joining with the knowledge table
+    // Load all embeddings for this project by joining with the knowledge table,
+    // scoped to the active model so cross-provider residue is never scored.
     const rows = this.db
       .prepare(
         `SELECT e.entry_id, e.embedding, e.format
          FROM embeddings e
          JOIN knowledge k ON k.id = e.entry_id
-         WHERE LOWER(k.project) LIKE '%' || LOWER(?) || '%'`
+         WHERE LOWER(k.project) LIKE '%' || LOWER(?) || '%'
+           AND e.model = ?`
       )
-      .all(project) as EmbeddingRow[];
+      .all(project, this.activeModel) as EmbeddingRow[];
 
     return this.rankByCosine(rows, queryVec, limit);
   }
@@ -64,8 +76,8 @@ export class VectorSearch {
     limit: number
   ): VectorSearchResult[] {
     const rows = this.db
-      .prepare(`SELECT entry_id, embedding, format FROM embeddings`)
-      .all() as EmbeddingRow[];
+      .prepare(`SELECT entry_id, embedding, format FROM embeddings WHERE model = ?`)
+      .all(this.activeModel) as EmbeddingRow[];
 
     return this.rankByCosine(rows, queryVec, limit);
   }
@@ -87,15 +99,16 @@ export class VectorSearch {
           `SELECT dc.id as entry_id, dc.embedding, dc.format
            FROM document_chunks dc
            JOIN stored_documents sd ON sd.id = dc.document_id
-           WHERE LOWER(sd.project) LIKE '%' || LOWER(?) || '%'`
+           WHERE LOWER(sd.project) LIKE '%' || LOWER(?) || '%'
+             AND dc.model = ?`
         )
-        .all(project) as EmbeddingRow[];
+        .all(project, this.activeModel) as EmbeddingRow[];
     } else {
       rows = this.db
         .prepare(
-          `SELECT id as entry_id, embedding, format FROM document_chunks`
+          `SELECT id as entry_id, embedding, format FROM document_chunks WHERE model = ?`
         )
-        .all() as EmbeddingRow[];
+        .all(this.activeModel) as EmbeddingRow[];
     }
 
     return this.rankByCosine(rows, queryVec, limit);
