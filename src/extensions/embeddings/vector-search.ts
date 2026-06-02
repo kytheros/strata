@@ -100,6 +100,44 @@ export class VectorSearch {
     return this.rankByCosine(rows, queryVec, limit);
   }
 
+  /**
+   * Search turn embeddings (knowledge_turn_embeddings) by cosine similarity,
+   * scoped to a user_id (and optionally project) via a JOIN to knowledge_turns.
+   * Mirrors searchDocumentChunks. Reuses rankByCosine (quantized/float32).
+   * Spec: 2026-06-02-dense-turn-lane-design §3.3.
+   */
+  searchTurnEmbeddings(
+    queryVec: Float32Array,
+    limit: number,
+    opts?: { userId?: string | null; project?: string | null }
+  ): VectorSearchResult[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (opts && opts.userId !== undefined) {
+      if (opts.userId === null) {
+        conditions.push("t.user_id IS NULL");
+      } else {
+        conditions.push("t.user_id = ?");
+        params.push(opts.userId);
+      }
+    }
+    if (opts && opts.project !== undefined && opts.project !== null) {
+      conditions.push("t.project = ?");
+      params.push(opts.project);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(
+        `SELECT te.turn_id AS entry_id, te.embedding
+         FROM knowledge_turn_embeddings te
+         JOIN knowledge_turns t ON t.turn_id = te.turn_id
+         ${where}`
+      )
+      .all(...params) as EmbeddingRow[];
+
+    return this.rankByCosine(rows, queryVec, limit);
+  }
+
   /** Rank embedding rows — dispatches quantized blobs to fast path */
   private rankByCosine(
     rows: EmbeddingRow[],
