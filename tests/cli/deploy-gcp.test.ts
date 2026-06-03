@@ -99,7 +99,9 @@ describe("checkPrerequisites", () => {
         msg.includes("gcloud CLI not found") || msg.includes("Not authenticated")
       ).toBe(true);
     }
-  });
+  // timeout=20000: checkPrerequisites() runs execSync("gcloud --version", {timeout:15_000});
+  // the default vitest 5s timeout fires before gcloud's 15s OS-level timeout on CI.
+  }, 20000);
 });
 
 // ─── Mode selection logic ───

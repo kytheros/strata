@@ -381,7 +381,9 @@ describe.skipIf(!hasAnyData)("CLI Smoke Test (real data)", () => {
       output.includes("Gemini") ||
       output.includes("Aider")
     ).toBe(true);
-  });
+  // timeout=30000: `strata status` spawns a child process; the default vitest
+  // 5s timeout fires before the CLI completes on a loaded CI runner.
+  }, 30000);
 
   it("search command works against existing index", async () => {
     // Use the real data dir (not a fresh one) so we don't rebuild the index
