@@ -15,7 +15,7 @@ function unit(axis: number, dim = 768): Float32Array {
 }
 
 describe("VectorSearch.searchTurnEmbeddings model scoping", () => {
-  it("returns only turns matching the active model", () => {
+  it("returns only turns matching the active model", async () => {
     const db = openDatabase(":memory:");
     const now = Date.now();
 
@@ -36,7 +36,7 @@ describe("VectorSearch.searchTurnEmbeddings model scoping", () => {
 
     // VectorSearch scoped to nomic model — should only return tb
     const vs = new VectorSearch(db, "nomic-embed-text-v1.5");
-    const hits = vs.searchTurnEmbeddings(unit(0), 10, { userId: "userA" });
+    const hits = await vs.searchTurnEmbeddings(unit(0), 10, { userId: "userA" });
 
     db.close();
 

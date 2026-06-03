@@ -15,7 +15,7 @@ function unit(axis: number, dim = 3072): Float32Array {
 }
 
 describe("VectorSearch.searchTurnEmbeddings", () => {
-  it("ranks turns by cosine and enforces user scoping", () => {
+  it("ranks turns by cosine and enforces user scoping", async () => {
     const db = openDatabase(":memory:");
     const now = Date.now();
     const insTurn = db.prepare(
@@ -37,7 +37,7 @@ describe("VectorSearch.searchTurnEmbeddings", () => {
     // After T3's model-scoping, the default active model ("gemini-embedding-001")
     // would filter out all "m"-stamped embeddings.
     const vs = new VectorSearch(db, "m");
-    const hits = vs.searchTurnEmbeddings(unit(5), 10, { userId: "userA" });
+    const hits = await vs.searchTurnEmbeddings(unit(5), 10, { userId: "userA" });
     db.close();
 
     expect(hits.map((h) => h.entryId)).toEqual(["ta"]); // tb cosine 0 filtered; tc excluded by user scope
