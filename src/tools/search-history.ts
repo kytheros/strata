@@ -14,6 +14,7 @@ import { formatProvenanceHandle } from "../utils/format-provenance.js";
 import { fuseCommunityLanes } from "../search/recall-fusion-community.js";
 import type { CommunityChunkResult } from "../search/recall-fusion-community.js";
 import { recallQdpCommunity } from "../search/recall-qdp-community.js";
+import { fuseDenseTurnLane } from "../search/dense-turn-fusion.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -256,12 +257,61 @@ export async function handleSearchHistory(
     ? "\nnote: retrieval_strategy \"tirqdp\" requested but turn store is unavailable — fell back to legacy BM25+chunk path."
     : null;
 
-  if (effectiveTirqdp === "tirqdp" && turnStore) {
+  if (CONFIG.search.denseTurnLane.enabled && turnStore) {
+    // ── Dense turn-lane path (spec 2026-06-03-dense-turn-lane-production-design §3.6) ──
+    // Activated when: CONFIG.search.denseTurnLane.enabled (default ON when provider present)
+    // AND a turn store is available. Uses result-granularity RRF fusion via fuseDenseTurnLane,
+    // with NO QDP coverage floor applied to turns (the validated mechanism).
+    //
+    // Bypasses the QDP coverage floor for turn hits — vector-only hits (zero lexical overlap
+    // with the query) survive fusion. This is the core correctness guard: applying the
+    // QDP floor would silently delete exactly the dense-lane wins.
+
+    // Chunk lane: existing search path (semantic bridge or FTS5)
+    const chunkLane = asyncSearch
+      ? await asyncSearch(query, searchOptions)
+      : await engine.search(query, searchOptions);
+
+    // Also merge knowledge entries into chunk lane (same as legacy and tirqdp paths)
+    let mergedChunkLane = chunkLane;
+    if (knowledgeStore) {
+      const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        mergedChunkLane = [...mergedChunkLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+      }
+    } else if (db) {
+      const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        mergedChunkLane = [...mergedChunkLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, Math.min(searchOptions.limit ?? 20, 100));
+      }
+    }
+
+    // Turn lane: FTS5+vector hybrid via engine.searchTurns (dense guard fires when
+    // engine has embedder+vectorSearch set by initEmbedder).
+    engine.setKnowledgeTurnStore(turnStore);
+    const limit = Math.min(searchOptions.limit ?? 20, 100);
+    const turnHits = await engine.searchTurns(args.query, {
+      userId: searchOptions.user ?? undefined,
+      project: searchOptions.project,
+      limit,
+    });
+
+    // Result-granularity RRF fusion — turns enter as source:"turn" SearchResults.
+    // NO QDP coverage floor applied (validated mechanism; the floor would eat the win).
+    results = fuseDenseTurnLane(mergedChunkLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults)
+      .slice(0, limit);
+
+  } else if (effectiveTirqdp === "tirqdp" && turnStore) {
     // ── TIR+QDP path (TIRQDP-2.1) ────────────────────────────────────────────
     // When the effective strategy is tirqdp and a turn store is available, fuse
     // the chunk lane (existing search results) and the turn lane
     // (knowledge_turns FTS hits) via RRF, then apply QDP pruning.
     // Activated by: CONFIG.search.useTirQdp=true (auto), or retrieval_strategy="tirqdp".
+    // NOTE: This branch only runs when the dense-turn-lane is OFF (kill-switch).
 
     // Chunk lane: existing search path (semantic bridge or FTS5)
     const chunkSearchResults = asyncSearch
