@@ -2,11 +2,18 @@
 import { describe, it, expect } from "vitest";
 import { openDatabase } from "../../src/storage/database.js";
 import { SqliteKnowledgeTurnStore } from "../../src/storage/sqlite-knowledge-turn-store.js";
-import type { GeminiEmbedder } from "../../src/extensions/embeddings/gemini-embedder.js";
+import type { EmbeddingProvider } from "../../src/extensions/vector-search/embedding-provider.js";
 
-function fakeEmbedder(dim = 3072): GeminiEmbedder {
+// Updated to EmbeddingProvider interface (T4: turn store adopts EmbeddingProvider contracts).
+function fakeEmbedder(dim = 3072): EmbeddingProvider {
   const v = () => { const a = new Float32Array(dim); a[0] = 1; return a; };
-  return { dimensions: dim, embed: async () => v(), embedBatch: async (t: string[]) => t.map(v) } as unknown as GeminiEmbedder;
+  return {
+    dimensions: dim,
+    modelName: "gemini-embedding-001",
+    supportsQuantization: false,
+    embed: async () => v(),
+    embedBatch: async (t: string[]) => t.map(v),
+  } as unknown as EmbeddingProvider;
 }
 const countEmb = (db: any) =>
   (db.prepare("SELECT COUNT(*) AS c FROM knowledge_turn_embeddings").get() as { c: number }).c;
