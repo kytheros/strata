@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dense turn-lane live for SQLite single-tenant (PR1: Foundation + SQLite).** The
+  validated +3.6pp retrieval win (task-avg 80.81→84.43%, SSA 76.8→98.2%) is now
+  wired into the production `search_history` path. When an embedding provider is
+  present, turns are written and embedded during `buildFullIndex`/`incrementalUpdate`
+  and fused via result-granularity RRF in `handleSearchHistory` without applying the
+  QDP coverage floor to turn hits (the mechanism validated on 500Q). Kill-switch:
+  `STRATA_DENSE_TURN_LANE=off`. Backfill for existing history: `strata rebuild-turns`.
+  Spec: `specs/2026-06-03-dense-turn-lane-production-design.md`. Closes all 5 dark axes
+  listed in spec §1: no-turn-write, engine-no-dense-guard, no-turn-store-in-search,
+  wrong-fusion-path, unadopted-embedder-contracts.
+
 - Dense turn-lane (benchmark-validated, default off): per-turn vector embeddings
   in `knowledge_turn_embeddings`, `VectorSearch.searchTurnEmbeddings`, an FTS5+vector
   RRF hybrid `searchTurns` behind `CONFIG.search.denseTurnLane.enabled`, and an

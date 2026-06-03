@@ -5,24 +5,34 @@ import { SqliteDocumentStore } from "../../src/storage/sqlite-document-store.js"
 import { SqliteKnowledgeTurnStore } from "../../src/storage/sqlite-knowledge-turn-store.js";
 import { SqliteSearchEngine } from "../../src/search/sqlite-search-engine.js";
 import { VectorSearch } from "../../src/extensions/embeddings/vector-search.js";
-import type { GeminiEmbedder } from "../../src/extensions/embeddings/gemini-embedder.js";
+import type { EmbeddingProvider } from "../../src/extensions/vector-search/embedding-provider.js";
+
+// Updated to EmbeddingProvider interface (T4: turn store + engine now use EmbeddingProvider).
+// modelName must match what VectorSearch uses as its activeModel (defaults to gemini-embedding-001).
+const TEST_MODEL = "gemini-embedding-001";
 
 // Query embeds to axis 7. The gold turn ("the capital is Paris") has NO lexical
 // overlap with the query ("which city") but is embedded to axis 7 → vector-only hit.
-function makeEmbedder(dim = 3072): GeminiEmbedder {
+function makeEmbedder(dim = 3072): EmbeddingProvider {
   const vecFor = (text: string): Float32Array => {
     const v = new Float32Array(dim);
     if (text.includes("which city") || text.toLowerCase().includes("capital is paris")) v[7] = 1;
     else v[3] = 1;
     return v;
   };
-  return { dimensions: dim, embed: async (t: string) => vecFor(t), embedBatch: async (t: string[]) => t.map(vecFor) } as unknown as GeminiEmbedder;
+  return {
+    dimensions: dim,
+    modelName: TEST_MODEL,
+    supportsQuantization: false,
+    embed: async (t: string) => vecFor(t),
+    embedBatch: async (t: string[]) => t.map(vecFor),
+  } as unknown as EmbeddingProvider;
 }
 
 // Multi-axis embedder for recency test: maps sessionId keywords to distinct axes.
 // "sessionA" → axis 1, "sessionB" → axis 2, "sessionC" → axis 3, query → axis 1
 // (so all sessions are relevant; ordering comes from recency, not score).
-function makeMultiAxisEmbedder(dim = 3072): GeminiEmbedder {
+function makeMultiAxisEmbedder(dim = 3072): EmbeddingProvider {
   const vecFor = (text: string): Float32Array => {
     const v = new Float32Array(dim);
     if (text.includes("sessionA") || text.includes("queryA")) v[1] = 1;
@@ -31,7 +41,13 @@ function makeMultiAxisEmbedder(dim = 3072): GeminiEmbedder {
     else v[0] = 1;
     return v;
   };
-  return { dimensions: dim, embed: async (t: string) => vecFor(t), embedBatch: async (t: string[]) => t.map(vecFor) } as unknown as GeminiEmbedder;
+  return {
+    dimensions: dim,
+    modelName: TEST_MODEL,
+    supportsQuantization: false,
+    embed: async (t: string) => vecFor(t),
+    embedBatch: async (t: string[]) => t.map(vecFor),
+  } as unknown as EmbeddingProvider;
 }
 
 describe("searchTurns hybrid", () => {
