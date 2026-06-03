@@ -13,8 +13,8 @@ import { parseQuery, type QueryFilters } from "./query-processor.js";
 import type { DocumentChunk } from "../indexing/document-store.js";
 import { applyBoosts, applyFilters, reciprocalRankFusion, aggregateToSessionScores, applySessionBoosts, applyTurnRecencyBoost, type RankedResult, type SessionScore } from "./result-ranker.js";
 import { CONFIG } from "../config.js";
-import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js";
-import type { VectorSearch, VectorSearchResult } from "../extensions/embeddings/vector-search.js";
+import type { IVectorSearch, VectorSearchResult } from "../extensions/embeddings/vector-search.js";
+import type { EmbeddingProvider } from "../extensions/vector-search/embedding-provider.js";
 import type { IEntityStore } from "../storage/interfaces/entity-store.js";
 import type { IKnowledgeStore } from "../storage/interfaces/knowledge-store.js";
 import type { IEventStore } from "../storage/interfaces/event-store.js";
@@ -93,8 +93,8 @@ function toSearchResults(ranked: RankedResult[], limit: number, docChunkIds?: Se
 }
 
 export class SqliteSearchEngine {
-  private embedder: GeminiEmbedder | null;
-  private vectorSearch: VectorSearch | null;
+  private embedder: EmbeddingProvider | null;
+  private vectorSearch: IVectorSearch | null;
   private entityStore: IEntityStore | null;
   private knowledgeStore: IKnowledgeStore | null;
   private eventStore: IEventStore | null = null;
@@ -104,8 +104,8 @@ export class SqliteSearchEngine {
 
   constructor(
     private documentStore: IDocumentStore,
-    embedder?: GeminiEmbedder | null,
-    vectorSearch?: VectorSearch | null,
+    embedder?: EmbeddingProvider | null,
+    vectorSearch?: IVectorSearch | null,
     entityStore?: IEntityStore | null,
     knowledgeStore?: IKnowledgeStore | null
   ) {
@@ -134,6 +134,12 @@ export class SqliteSearchEngine {
   setKnowledgeTurnStore(store: IKnowledgeTurnStore): void {
     this.knowledgeTurnStore = store;
   }
+
+  /** Inject an embedding provider after construction (lazy init). */
+  setEmbedder(embedder: EmbeddingProvider | null): void { this.embedder = embedder; }
+
+  /** Inject a vector search after construction (lazy init). */
+  setVectorSearch(vs: IVectorSearch | null): void { this.vectorSearch = vs; }
 
   /**
    * Turn-lane retrieval. Composes `turnStore.searchByQuery` with the
