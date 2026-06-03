@@ -21,12 +21,17 @@ export interface VectorSearchResult {
  * Minimal interface for vector search backends (SQLite, Postgres, D1).
  * PRs 2–4 add Postgres/D1 implementations behind this interface.
  * Spec: 2026-06-03-dense-turn-lane-production-design §3.1.
+ *
+ * All methods return Promise<VectorSearchResult[]> so async backends
+ * (Postgres pool, D1 HTTP) can implement this interface without
+ * synchronous workarounds. The SQLite impl wraps sync better-sqlite3
+ * calls in async methods — no behaviour change.
  */
 export interface IVectorSearch {
-  search(queryVec: Float32Array, project: string, limit: number): VectorSearchResult[];
-  searchAll(queryVec: Float32Array, limit: number): VectorSearchResult[];
-  searchDocumentChunks(queryVec: Float32Array, limit: number, project?: string): VectorSearchResult[];
-  searchTurnEmbeddings(queryVec: Float32Array, limit: number, opts?: { userId?: string | null; project?: string | null }): VectorSearchResult[];
+  search(queryVec: Float32Array, project: string, limit: number): Promise<VectorSearchResult[]>;
+  searchAll(queryVec: Float32Array, limit: number): Promise<VectorSearchResult[]>;
+  searchDocumentChunks(queryVec: Float32Array, limit: number, project?: string): Promise<VectorSearchResult[]>;
+  searchTurnEmbeddings(queryVec: Float32Array, limit: number, opts?: { userId?: string | null; project?: string | null }): Promise<VectorSearchResult[]>;
 }
 
 /** Row shape from the embeddings table */
@@ -58,11 +63,11 @@ export class VectorSearch implements IVectorSearch {
    * Returns results sorted by descending cosine similarity, limited to `limit`.
    * Entries with score < 0.0 are excluded.
    */
-  search(
+  async search(
     queryVec: Float32Array,
     project: string,
     limit: number
-  ): VectorSearchResult[] {
+  ): Promise<VectorSearchResult[]> {
     // Load all embeddings for this project by joining with the knowledge table,
     // scoped to the active model so cross-provider residue is never scored.
     const rows = this.db
@@ -83,10 +88,10 @@ export class VectorSearch implements IVectorSearch {
    * Useful when embeddings are stored for document chunks (not knowledge entries)
    * or when the database is scoped per-query (e.g., benchmarks with isolated DBs).
    */
-  searchAll(
+  async searchAll(
     queryVec: Float32Array,
     limit: number
-  ): VectorSearchResult[] {
+  ): Promise<VectorSearchResult[]> {
     const rows = this.db
       .prepare(`SELECT entry_id, embedding, format FROM embeddings WHERE model = ?`)
       .all(this.activeModel) as EmbeddingRow[];
@@ -103,11 +108,11 @@ export class VectorSearch implements IVectorSearch {
    * the text embedding model (this.activeModel). Scoping by this.activeModel
    * would silently return [] for all document searches. Always use documentModel here.
    */
-  searchDocumentChunks(
+  async searchDocumentChunks(
     queryVec: Float32Array,
     limit: number,
     project?: string
-  ): VectorSearchResult[] {
+  ): Promise<VectorSearchResult[]> {
     // Document chunks use the document model, not the active text model.
     const docModel = CONFIG.embeddings.documentModel;
     let rows: EmbeddingRow[];
@@ -139,11 +144,11 @@ export class VectorSearch implements IVectorSearch {
    * Mirrors searchDocumentChunks. Reuses rankByCosine (quantized/float32).
    * Spec: 2026-06-02-dense-turn-lane-design §3.3.
    */
-  searchTurnEmbeddings(
+  async searchTurnEmbeddings(
     queryVec: Float32Array,
     limit: number,
     opts?: { userId?: string | null; project?: string | null }
-  ): VectorSearchResult[] {
+  ): Promise<VectorSearchResult[]> {
     const conditions: string[] = [];
     const params: unknown[] = [];
 
