@@ -42,6 +42,9 @@ import { loadGeminiApiKeyFromConfig } from "./extensions/embeddings/gemini-embed
 import { createEmbeddingProvider } from "./extensions/vector-search/embedding-provider.js";
 import { resolveActiveEmbeddingModel } from "./extensions/embeddings/active-model.js";
 import { detectEmbeddingMismatch } from "./extensions/embeddings/mismatch.js";
+import { VectorSearch } from "./extensions/embeddings/vector-search.js";
+import { SqliteKnowledgeTurnStore } from "./storage/sqlite-knowledge-turn-store.js";
+import type { IKnowledgeTurnStore } from "./storage/interfaces/knowledge-turn-store.js";
 import { handleStoreDocument } from "./tools/store-document.js";
 import { DocumentChunkStore } from "./storage/document-chunk-store.js";
 import { DocumentEmbedder } from "./extensions/embeddings/document-embedder.js";
@@ -175,6 +178,10 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
   // On D1 path, db is null — bridge will gracefully degrade (no vector search).
   const semanticBridge = new SemanticSearchBridge(storage.documents, indexManager?.db ?? null);
 
+  // Dense turn-lane: turn store wired by initEmbedder() when a provider is present.
+  // Exposed to handleSearchHistory via closure (6th arg). Null until initEmbedder resolves.
+  let denseTurnStore: IKnowledgeTurnStore | null = null;
+
   // -- Eager embedder initialization for write-side embedding --
   // Starts immediately at server creation so the embedder is available for
   // any code path that stores knowledge entries (file-watcher indexing,
@@ -209,9 +216,28 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
               if (indexManager) {
                 (indexManager.knowledge as any).embedder = null; // eslint-disable-line @typescript-eslint/no-explicit-any
               }
+              // Null the engine embedder so the dense turn lane also degrades consistently.
+              searchEngine.setEmbedder(null);
             } else {
               const providerLabel = active.provider === "gemini" ? "Gemini" : active.provider;
               console.error(`[strata] Semantic search: active (${providerLabel} embeddings)`);
+
+              // Dense turn-lane wiring (spec 2026-06-03-dense-turn-lane-production §3.2).
+              // Wire engine + turn store only when provider is present and lane is enabled.
+              // CONFIG.search.denseTurnLane.enabled defaults ON; kill-switch = STRATA_DENSE_TURN_LANE=off.
+              if (CONFIG.search.denseTurnLane.enabled) {
+                const vectorSearch = new VectorSearch(indexManager.db);
+                const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, provider);
+                searchEngine.setEmbedder(provider);
+                searchEngine.setVectorSearch(vectorSearch);
+                searchEngine.setKnowledgeTurnStore(turnStore);
+                denseTurnStore = turnStore;
+                // Also wire the turn store into the batch indexer so turns are written
+                // on buildFullIndex/incrementalUpdate (Task 7 adds setTurnStore to SqliteIndexManager).
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (indexManager as any).setTurnStore(turnStore);
+                console.error("[strata] Dense turn-lane: active");
+              }
             }
           } else {
             console.error("[strata] Semantic search: active (embeddings)");
@@ -355,7 +381,7 @@ Example: Browse all sessions from the last 7 days — query: "", after_date: "7d
       }
 
       await ensureIndex();
-      const result = await handleSearchHistory(searchEngine, args, indexManager?.db, asyncSearch, storage.knowledge);
+      const result = await handleSearchHistory(searchEngine, args, indexManager?.db, asyncSearch, storage.knowledge, denseTurnStore ?? undefined);
 
       searchCache.set(key, result);
       onToolCall?.("search_history", args as Record<string, unknown>, Date.now() - start);
