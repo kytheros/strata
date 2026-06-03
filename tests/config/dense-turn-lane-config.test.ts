@@ -3,9 +3,10 @@ import { describe, it, expect } from "vitest";
 import { CONFIG } from "../../src/config.js";
 
 describe("dense turn-lane config", () => {
-  it("search.denseTurnLane defaults to disabled with conversational task types", () => {
-    // STRATA_DENSE_TURN_LANE is unset in the test env → enabled === false.
-    expect(CONFIG.search.denseTurnLane.enabled).toBe(false);
+  it("search.denseTurnLane defaults to enabled (default ON since PR1) with conversational task types", () => {
+    // STRATA_DENSE_TURN_LANE is unset in the test env → enabled === true (default ON).
+    // Kill-switch: STRATA_DENSE_TURN_LANE=off.
+    expect(CONFIG.search.denseTurnLane.enabled).toBe(true);
     expect(CONFIG.search.denseTurnLane.queryTaskType).toBe("RETRIEVAL_QUERY");
     expect(CONFIG.search.denseTurnLane.docTaskType).toBe("RETRIEVAL_DOCUMENT");
   });

@@ -115,18 +115,21 @@ export const CONFIG = {
     },
 
     /**
-     * Dense turn-lane (spec 2026-06-02-dense-turn-lane-design). When enabled,
+     * Dense turn-lane (spec 2026-06-03-dense-turn-lane-production-design). When enabled,
      * SqliteSearchEngine.searchTurns fuses an FTS5 turn lane with a vector
      * (cosine) turn lane via RRF, giving each turn its own dense signal.
      * Requires an embedder + VectorSearch on the engine; degrades to FTS5-only
-     * when absent. Default OFF; the LongMemEval SSA eval flips it via
-     * STRATA_DENSE_TURN_LANE=on. Turn embeddings are written at ingest whenever
+     * when absent. Default ON when a provider is present; kill-switch via
+     * STRATA_DENSE_TURN_LANE=off. Turn embeddings are written at ingest whenever
      * an embedder is present (independent of this flag).
      */
     denseTurnLane: {
-      get enabled() { return process.env.STRATA_DENSE_TURN_LANE === "on"; },
+      /** Default ON (unset or any value other than "off"). Kill-switch: STRATA_DENSE_TURN_LANE=off. */
+      get enabled() { return process.env.STRATA_DENSE_TURN_LANE !== "off"; },
       queryTaskType: "RETRIEVAL_QUERY",
       docTaskType: "RETRIEVAL_DOCUMENT",
+      /** Max turn results to include in read-side fusion (mirrors benchmark.denseTurnLane.maxTurnResults). */
+      maxTurnResults: 10,
     },
   },
 
