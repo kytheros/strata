@@ -188,9 +188,27 @@ export async function runRebuildTurns(
   const { SqliteIndexManager } = await import(
     "../indexing/sqlite-index-manager.js"
   );
+  const { createEmbeddingProvider } = await import(
+    "../extensions/vector-search/embedding-provider.js"
+  );
+  const { reindexTurns } = await import(
+    "../extensions/embeddings/reindex-turns.js"
+  );
+
+  // Try to create an embedding provider for write-side vector embedding.
+  // Falls back to null (FTS5-only) when no credentials are configured.
+  let provider = null;
+  try {
+    provider = createEmbeddingProvider();
+    if (provider) {
+      console.log(`[strata] rebuild-turns: embedding provider active (${provider.modelName})`);
+    }
+  } catch {
+    // No credentials — turn write will be FTS5-only
+  }
 
   const db = openDatabase();
-  const turnStore = new SqliteKnowledgeTurnStore(db);
+  const turnStore = new SqliteKnowledgeTurnStore(db, provider);
 
   // SqliteIndexManager owns the parser registry
   const indexManager = new SqliteIndexManager();
@@ -206,6 +224,17 @@ export async function runRebuildTurns(
         `${result.turnsWritten} turns ${dryRun ? "found (dry-run)" : "written"} ` +
         `in ${result.elapsedMs}ms`
     );
+
+    // Backfill embeddings for any pre-existing turns that weren't embedded during rebuild.
+    // This handles users who had turns written without a provider (FTS5-only) and now have one.
+    if (provider && !dryRun) {
+      console.log("[strata] rebuild-turns: backfilling turn embeddings...");
+      const reindexResult = await reindexTurns(db, provider);
+      console.log(
+        `[strata] rebuild-turns: backfill complete — ${reindexResult.embedded} embedded, ` +
+        `${reindexResult.failed} failed`
+      );
+    }
   } finally {
     indexManager.close();
     db.close();
