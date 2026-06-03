@@ -147,6 +147,7 @@ export class VectorSearch {
       params.push(opts.project);
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    // nosemgrep: sql-injection-template-literal -- $where is built from constant SQL clause strings only; all user values bind as ? placeholders in params
     const rows = this.db
       .prepare(
         `SELECT te.turn_id AS entry_id, te.embedding

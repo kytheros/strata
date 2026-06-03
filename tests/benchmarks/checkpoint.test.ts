@@ -28,7 +28,7 @@ describe("checkpointPath", () => {
 
 describe("appendResult / loadCompleted", () => {
   it("roundtrip: single record can be reloaded by questionId", () => {
-    const runId = `test-${Date.now()}-roundtrip`;
+    const runId = `test-${Date.now()}-roundtrip`; // nosemgrep: mcp-weak-session-id -- test run-id for file artifact uniqueness, not a security token
     const record = { questionId: "q1", verdict: "CORRECT", score: 1.0 };
     appendResult(runId, record);
 
@@ -40,7 +40,7 @@ describe("appendResult / loadCompleted", () => {
   });
 
   it("multiple appends accumulate across three records", () => {
-    const runId = `test-${Date.now()}-multi`;
+    const runId = `test-${Date.now()}-multi`; // nosemgrep: mcp-weak-session-id -- test run-id for file artifact uniqueness, not a security token
     appendResult(runId, { questionId: "q1", verdict: "CORRECT" });
     appendResult(runId, { questionId: "q2", verdict: "INCORRECT" });
     appendResult(runId, { questionId: "q3", verdict: "CORRECT" });
@@ -62,7 +62,7 @@ describe("appendResult / loadCompleted", () => {
   });
 
   it("tolerates a corrupt (partial) trailing line without throwing", () => {
-    const runId = `test-${Date.now()}-corrupt`;
+    const runId = `test-${Date.now()}-corrupt`; // nosemgrep: mcp-weak-session-id -- test run-id for file artifact uniqueness, not a security token
     // Write a valid record first
     appendResult(runId, { questionId: "q1", verdict: "CORRECT" });
 

@@ -24,6 +24,7 @@ describe("reindexEmbeddings", () => {
     const db = openDatabase(":memory:");
     // Seed 5 entries so there is work to do
     for (let i = 0; i < 5; i++) {
+      // nosemgrep: sql-injection-template-literal -- test fixture; SQL is entirely constant, only the bound parameter (?) varies
       db.prepare(`INSERT INTO knowledge (id, type, project, session_id, timestamp, summary, details)
                   VALUES (?,  'fact','p','s',0,'sum','det')`).run(`fail-${i}`);
     }

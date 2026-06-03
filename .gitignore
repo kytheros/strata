@@ -13,6 +13,7 @@ benchmarks/*
 !benchmarks/longmemeval-tirqdp-baseline.ts
 !benchmarks/locomo/
 benchmarks/locomo/.venv/
+benchmarks/locomo/.venv311.bak/
 benchmarks/locomo/__pycache__/
 !benchmarks/longmemeval/
 benchmarks/longmemeval/*

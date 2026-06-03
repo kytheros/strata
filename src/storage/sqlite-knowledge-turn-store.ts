@@ -286,6 +286,7 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
   async getByIds(turnIds: string[]): Promise<KnowledgeTurnRow[]> {
     if (turnIds.length === 0) return [];
     const placeholders = turnIds.map(() => "?").join(", ");
+    // nosemgrep: sql-injection-template-literal -- $placeholders is always "?,?,…" (one ? per id); values bind via ...turnIds spread, no user data in the SQL string
     const rows = this.db
       .prepare(`SELECT * FROM knowledge_turns WHERE turn_id IN (${placeholders})`)
       .all(...turnIds) as Record<string, unknown>[];

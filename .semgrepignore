@@ -8,3 +8,5 @@ research/
 coverage/
 test-results/
 playwright-report/
+# Python venv backups — large regenerable directories, not source code
+benchmarks/locomo/.venv311.bak/

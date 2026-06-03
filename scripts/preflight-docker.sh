@@ -31,7 +31,8 @@ set -e
 
 SEMGREP_IMAGE="returntocorp/semgrep:1.95.0"
 TFLINT_IMAGE="ghcr.io/terraform-linters/tflint:v0.51.1"
-CHECKOV_IMAGE="bridgecrewio/checkov:3.2.255"
+# Bridgecrew moved from Docker Hub to GHCR; the docker.io ref now returns "pull access denied".
+CHECKOV_IMAGE="ghcr.io/bridgecrewio/checkov:3.2.255"
 
 # ── 0. Sanity: Docker daemon must be up ─────────────────────────────────
 if ! docker info >/dev/null 2>&1; then
@@ -50,8 +51,10 @@ failures=""
 
 # ── 1. Semgrep SAST ─────────────────────────────────────────────────────
 # Mirrors .github/workflows/security.yml's semgrep step exactly.
+# MSYS_NO_PATHCONV=1: prevents Git Bash on Windows from rewriting -w /src
+# into "C:/Program Files/Git/src", which makes docker run fail immediately.
 echo "→ semgrep ($SEMGREP_IMAGE)"
-if ! docker run --rm \
+if ! MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$REPO_ROOT:/src" \
   -w /src \
   "$SEMGREP_IMAGE" \
@@ -71,9 +74,10 @@ fi
 # downloads plugins (the AWS ruleset is several MB); the per-run cost is
 # acceptable here because this is a heavy gate. To cache plugins across
 # runs, mount $HOME/.tflint.d into the container.
+# MSYS_NO_PATHCONV=1: prevents Git Bash path rewriting on Windows (see semgrep note above).
 if [ -d "templates/aws" ]; then
   echo "→ tflint ($TFLINT_IMAGE)"
-  if ! docker run --rm \
+  if ! MSYS_NO_PATHCONV=1 docker run --rm \
     -v "$REPO_ROOT/templates/aws:/data" \
     -w /data \
     -e GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
@@ -87,9 +91,10 @@ fi
 
 # ── 3. Checkov IaC scan (templates/aws only) ────────────────────────────
 # Mirrors .github/workflows/aws-template-ci.yml's checkov step.
+# MSYS_NO_PATHCONV=1: prevents Git Bash path rewriting on Windows (see semgrep note above).
 if [ -d "templates/aws" ]; then
   echo "→ checkov ($CHECKOV_IMAGE)"
-  if ! docker run --rm \
+  if ! MSYS_NO_PATHCONV=1 docker run --rm \
     -v "$REPO_ROOT/templates/aws:/tf" \
     "$CHECKOV_IMAGE" \
     --directory /tf \
