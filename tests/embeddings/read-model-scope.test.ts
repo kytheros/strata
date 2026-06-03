@@ -4,7 +4,7 @@ import { openDatabase } from "../../src/storage/database.js";
 import { VectorSearch } from "../../src/extensions/embeddings/vector-search.js";
 
 describe("VectorSearch model scoping", () => {
-  it("returns only active-model vectors", () => {
+  it("returns only active-model vectors", async () => {
     const db = openDatabase(":memory:");
     db.prepare(`INSERT INTO knowledge (id, type, project, session_id, timestamp, summary, details)
                 VALUES ('e1','fact','p','s',0,'s','d')`).run();
@@ -17,7 +17,7 @@ describe("VectorSearch model scoping", () => {
                 VALUES ('e2','fact','p','s',0,'s','d')`).run();
     ins.run("e2", blob, "gemini-embedding-001");
     const vs = new VectorSearch(db, "nomic-embed-text-v1.5");
-    const hits = vs.searchAll(new Float32Array(v), 10);
+    const hits = await vs.searchAll(new Float32Array(v), 10);
     db.close();
     expect(hits.map((h) => h.entryId)).toEqual(["e1"]); // e2 (gemini) excluded
   });

@@ -132,7 +132,7 @@ describe("VectorSearch.searchDocumentChunks — document model scoping", () => {
     const { VectorSearch } = await import("../../src/extensions/embeddings/vector-search.js");
     const vs = new VectorSearch(db); // activeModel defaults to gemini-embedding-001 (text model)
     const q = new Float32Array(3072); q[0] = 1;
-    const hits = vs.searchDocumentChunks(q, 10);
+    const hits = await vs.searchDocumentChunks(q, 10);
     // Before fix: [] because dc.model='gemini-embedding-2-preview' != activeModel='gemini-embedding-001'
     // After fix: ['dc1'] because searchDocumentChunks uses CONFIG.embeddings.documentModel
     expect(hits.map((h: any) => h.entryId)).toContain("dc1");
