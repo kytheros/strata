@@ -233,9 +233,8 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
                 searchEngine.setKnowledgeTurnStore(turnStore);
                 denseTurnStore = turnStore;
                 // Also wire the turn store into the batch indexer so turns are written
-                // on buildFullIndex/incrementalUpdate (Task 7 adds setTurnStore to SqliteIndexManager).
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (indexManager as any).setTurnStore(turnStore);
+                // on buildFullIndex/incrementalUpdate (Task 7).
+                indexManager.setTurnStore(turnStore);
                 console.error("[strata] Dense turn-lane: active");
               }
             }
