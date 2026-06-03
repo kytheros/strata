@@ -146,6 +146,12 @@ export class VectorSearch implements IVectorSearch {
   ): VectorSearchResult[] {
     const conditions: string[] = [];
     const params: unknown[] = [];
+
+    // Model scope: only return turn vectors under the active model (prevents
+    // dimension mismatches and mixed-model recall loss after provider switches).
+    conditions.push("te.model = ?");
+    params.push(this.activeModel);
+
     if (opts && opts.userId !== undefined) {
       if (opts.userId === null) {
         conditions.push("t.user_id IS NULL");
@@ -162,7 +168,7 @@ export class VectorSearch implements IVectorSearch {
     // nosemgrep: sql-injection-template-literal -- $where is built from constant SQL clause strings only; all user values bind as ? placeholders in params
     const rows = this.db
       .prepare(
-        `SELECT te.turn_id AS entry_id, te.embedding
+        `SELECT te.turn_id AS entry_id, te.embedding, te.format
          FROM knowledge_turn_embeddings te
          JOIN knowledge_turns t ON t.turn_id = te.turn_id
          ${where}`

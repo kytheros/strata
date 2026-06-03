@@ -33,7 +33,10 @@ describe("VectorSearch.searchTurnEmbeddings", () => {
     insTurn.run("tc", "s2", "p", "userB", "assistant", "gamma", 0, now);
     insEmb.run("tc", f32Blob(5), "m", now);
 
-    const vs = new VectorSearch(db);
+    // Pass explicit model matching the test's inserted embeddings (model "m").
+    // After T3's model-scoping, the default active model ("gemini-embedding-001")
+    // would filter out all "m"-stamped embeddings.
+    const vs = new VectorSearch(db, "m");
     const hits = vs.searchTurnEmbeddings(unit(5), 10, { userId: "userA" });
     db.close();
 
