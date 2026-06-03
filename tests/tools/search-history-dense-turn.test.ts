@@ -69,7 +69,7 @@ describe("handleSearchHistory dense-turn fusion branch", () => {
     expect(result).toContain("xyzzy plugh");
   });
 
-  it("falls back to legacy behavior when dense lane is off", async () => {
+  it("does not surface turn hits when dense lane is off", async () => {
     process.env.STRATA_DENSE_TURN_LANE = "off"; // kill-switch
 
     const result = await handleSearchHistory(
@@ -82,6 +82,29 @@ describe("handleSearchHistory dense-turn fusion branch", () => {
     );
 
     // When lane is off, zero-overlap turn must NOT appear (no turn fusion)
+    expect(result).not.toContain("xyzzy plugh");
+  });
+
+  it("does not surface turn hits when retrieval_strategy='legacy' even with dense lane ON (BLOCKER guard)", async () => {
+    // Dense lane defaults ON (STRATA_DENSE_TURN_LANE unset).
+    // retrieval_strategy:"legacy" is documented to force BM25+chunk regardless of config —
+    // the dense branch must be bypassed entirely.
+    delete process.env.STRATA_DENSE_TURN_LANE;
+
+    const result = await handleSearchHistory(
+      fakeEngine(),
+      {
+        query: "electromagnetic flux capacitor",
+        limit: 10,
+        retrieval_strategy: "legacy",
+      },
+      undefined,
+      undefined,
+      undefined,
+      fakeTurnStore(), // turnStore present — dense lane would fire without the guard
+    );
+
+    // The zero-overlap turn must NOT appear — legacy forces BM25+chunk only
     expect(result).not.toContain("xyzzy plugh");
   });
 });

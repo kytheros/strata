@@ -257,11 +257,15 @@ export async function handleSearchHistory(
     ? "\nnote: retrieval_strategy \"tirqdp\" requested but turn store is unavailable — fell back to legacy BM25+chunk path."
     : null;
 
-  if (CONFIG.search.denseTurnLane.enabled && turnStore) {
+  if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
     // ── Dense turn-lane path (spec 2026-06-03-dense-turn-lane-production-design §3.6) ──
     // Activated when: CONFIG.search.denseTurnLane.enabled (default ON when provider present)
-    // AND a turn store is available. Uses result-granularity RRF fusion via fuseDenseTurnLane,
-    // with NO QDP coverage floor applied to turns (the validated mechanism).
+    // AND a turn store is available AND the caller has not explicitly requested "legacy".
+    // We check args.retrieval_strategy (raw caller input) NOT the resolved `strategy` variable.
+    // `strategy` can equal "legacy" when auto-resolves to legacy via useTirQdp=false, which
+    // must NOT suppress the dense lane — only an explicit retrieval_strategy:"legacy" should.
+    // The "legacy" param is documented to "force BM25+chunk regardless of config flag" —
+    // honouring that promise requires skipping the dense branch entirely.
     //
     // Bypasses the QDP coverage floor for turn hits — vector-only hits (zero lexical overlap
     // with the query) survive fusion. This is the core correctness guard: applying the
