@@ -1182,7 +1182,15 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("Benchmark failed:", err);
-  process.exit(1);
-});
+// Guard: only run main() when this file is the direct entry point, not when imported
+// by tests (e.g. tests/benchmarks/run-benchmark-*.test.ts import parseArgs).
+// Without this guard, main() fires on import, can't find benchmark data files,
+// and calls process.exit(1) — vitest catches that as a test failure.
+const isMain = process.argv[1]?.endsWith("run-benchmark.ts") ||
+               process.argv[1]?.endsWith("run-benchmark.js");
+if (isMain) {
+  main().catch((err) => {
+    console.error("Benchmark failed:", err);
+    process.exit(1);
+  });
+}
