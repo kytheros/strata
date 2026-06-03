@@ -13,7 +13,10 @@ import { hadamardTransform, inverseHadamardTransform, zeroPad, trimPad } from ".
 import { getCodebook, quantizeScalar, dequantizeScalar, type BitWidth } from "./lloyd-max.js";
 import { packIndices, unpackIndices, encodeBlob, decodeBlob, HEADER_VERSION } from "./codec.js";
 
-const FLOAT32_BLOB_SIZE = CONFIG.quantization.embeddingDim * 4; // 12288
+// Evaluated lazily at call time to avoid module-load-order crashes when
+// CONFIG is partially mocked in tests (e.g. quantization key absent).
+// Value is always CONFIG.quantization.embeddingDim * 4 = 12288 in production.
+const float32BlobSize = () => CONFIG.quantization.embeddingDim * 4;
 
 /**
  * Quantize a Float32Array embedding to a compact binary BLOB.
@@ -92,7 +95,7 @@ export function dequantize(blob: Uint8Array | Buffer): Float32Array {
  * - Quantized BLOBs are always smaller (2,052 at 4-bit, etc.)
  */
 export function isQuantizedBlob(blob: Buffer | Uint8Array): boolean {
-  return blob.length !== FLOAT32_BLOB_SIZE;
+  return blob.length !== float32BlobSize();
 }
 
 /**
@@ -114,7 +117,7 @@ export function blobToFloat32(blob: Buffer, format?: string | null): Float32Arra
     return dequantize(blob); // existing quantized path
   }
   // Legacy rows (format absent): fall back to the historical byte-length rule (Gemini only).
-  if (blob.length === FLOAT32_BLOB_SIZE) {
+  if (blob.length === float32BlobSize()) {
     return new Float32Array(blob.buffer, blob.byteOffset, blob.byteLength / 4);
   }
   return dequantize(blob);
