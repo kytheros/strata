@@ -17,6 +17,18 @@ export interface VectorSearchResult {
   score: number;
 }
 
+/**
+ * Minimal interface for vector search backends (SQLite, Postgres, D1).
+ * PRs 2–4 add Postgres/D1 implementations behind this interface.
+ * Spec: 2026-06-03-dense-turn-lane-production-design §3.1.
+ */
+export interface IVectorSearch {
+  search(queryVec: Float32Array, project: string, limit: number): VectorSearchResult[];
+  searchAll(queryVec: Float32Array, limit: number): VectorSearchResult[];
+  searchDocumentChunks(queryVec: Float32Array, limit: number, project?: string): VectorSearchResult[];
+  searchTurnEmbeddings(queryVec: Float32Array, limit: number, opts?: { userId?: string | null; project?: string | null }): VectorSearchResult[];
+}
+
 /** Row shape from the embeddings table */
 interface EmbeddingRow {
   entry_id: string;
@@ -33,7 +45,7 @@ interface EmbeddingRow {
  * resolveActiveEmbeddingModel().model so legacy callers without the arg are
  * automatically correct. searchTurnEmbeddings is excluded (dense-turn-lane owned).
  */
-export class VectorSearch {
+export class VectorSearch implements IVectorSearch {
   private activeModel: string;
   constructor(private db: Database.Database, activeModel?: string) {
     // Default to the currently-active model if not supplied.
