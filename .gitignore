@@ -72,6 +72,12 @@ benchmarks/longmemeval/providers/*
 !benchmarks/longmemeval/checkpoint.ts
 # Dense turn-lane fusion helper (spec 2026-06-02-dense-turn-lane-design §3.5).
 !benchmarks/longmemeval/dense-turn-fusion.ts
+# Pro-pipeline benchmark module — LLM extraction + knowledge retrieval for LongMemEval.
+!benchmarks/longmemeval/pro-pipeline.ts
+# Query planning / decomposition / expansion helpers imported by run-benchmark.ts.
+!benchmarks/longmemeval/planned-search.ts
+!benchmarks/longmemeval/query-decomposer.ts
+!benchmarks/longmemeval/query-expansion.ts
 # Benchmark embedding cache — large, regenerable, never commit
 benchmarks/longmemeval/cache/embedding-cache.db
 benchmarks/longmemeval/cache/embedding-cache.db-wal
