@@ -101,10 +101,13 @@ describe("LongMemEval benchmark TIRQDP instrumentation (Stage 1.5)", () => {
     }
   });
 
-  // ── 3. flag=off produces no source:"turn" in results ──────────────────
+  // ── 3. flag-off (both useTirQdp=false AND dense lane off) → no source:"turn" ──
+  // Updated for PR1: dense-turn-lane now defaults ON, so both the tirqdp flag
+  // AND the dense-turn-lane kill-switch must be off to suppress turn sources.
 
-  it("handleSearchHistory with useTirQdp=false has no source:turn results", async () => {
+  it("handleSearchHistory with both tirqdp and dense-turn-lane disabled has no source:turn results", async () => {
     CONFIG.search.useTirQdp = false;
+    process.env.STRATA_DENSE_TURN_LANE = "off"; // kill-switch
 
     const question = makeFixtureQuestion();
     const ingested = await ingestQuestion(question);
@@ -121,6 +124,7 @@ describe("LongMemEval benchmark TIRQDP instrumentation (Stage 1.5)", () => {
 
       expect(result).not.toContain('"source":"turn"');
     } finally {
+      delete process.env.STRATA_DENSE_TURN_LANE;
       closeIngested(ingested);
     }
   });
