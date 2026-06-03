@@ -169,7 +169,16 @@ async function runHybridEval(): Promise<void> {
 
   // 2. Create embedder and embed all corpus entries
   console.log("Embedding 30 corpus entries via active embedding provider...");
-  const embedder = createEmbeddingProvider();
+  let embedder;
+  try {
+    embedder = createEmbeddingProvider();
+  } catch (err: any) {
+    console.error(`[run-eval-hybrid] Embedding provider unavailable: ${err.message}`);
+    console.error("[run-eval-hybrid] Score: N/A (no embedding provider — FTS5 fallback only)");
+    console.error("[run-eval-hybrid] Falling back to FTS5-only baseline (no vector lane).");
+    console.error("[run-eval-hybrid] Run `run-eval.ts` for FTS5-only scores.");
+    return;
+  }
 
   const texts = CORPUS.map((e) => e.text);
   const vectors = await embedder.embedBatch(texts, "RETRIEVAL_DOCUMENT");

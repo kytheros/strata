@@ -22,9 +22,12 @@ const PROVIDER_DEFAULTS: Record<string, { model: string; dimensions: number }> =
 };
 
 /**
- * Read the `embeddings` block from ~/.strata/config.json.
+ * Read the `embeddings` block from the active config.json.
+ * Resolves the same path as `getConfigPath()` in cli/embeddings.ts + cli/distill.ts:
+ *   STRATA_DATA_DIR/config.json  (when STRATA_DATA_DIR is set)
+ *   homedir()/.strata/config.json  (default)
  * Returns an empty object if the file is absent, unreadable, or malformed — never throws.
- * Reads homedir() at call time so tests can override HOME/USERPROFILE.
+ * Reads process.env and homedir() at call time so tests can override either.
  */
 export function loadEmbeddingsConfigFromFile(): Partial<{
   provider: string;
@@ -32,7 +35,10 @@ export function loadEmbeddingsConfigFromFile(): Partial<{
   dimensions: number;
 }> {
   try {
-    const configPath = join(homedir(), ".strata", "config.json");
+    const configPath = join(
+      process.env.STRATA_DATA_DIR || join(homedir(), ".strata"),
+      "config.json"
+    );
     if (!existsSync(configPath)) return {};
     const raw = JSON.parse(readFileSync(configPath, "utf-8"));
     if (raw && typeof raw === "object" && raw.embeddings && typeof raw.embeddings === "object") {
@@ -106,6 +112,11 @@ export function resolveActiveEmbeddingModel(): ActiveEmbeddingModel {
  * @param active - The resolved active embedding model (from resolveActiveEmbeddingModel).
  * @param hasGeminiCreds - Whether a Gemini API key (or GCP project) is configured.
  * @returns true when document vectors should be generated; false → FTS5-only.
+ *
+ * @internal This is a pure predicate available for tests and future callers.
+ * The actual document-ingest gate in `store-document.ts` uses `!embedder` directly
+ * (the embedder is constructed from `geminiKey` in `server.ts`, which is the same
+ * condition). Keep both consistent if either is changed.
  */
 export function shouldEmbedDocuments(
   _active: ActiveEmbeddingModel,

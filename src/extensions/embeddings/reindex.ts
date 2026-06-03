@@ -19,7 +19,6 @@ const BATCH_SIZE = 50;
 
 export interface ReindexResult {
   embedded: number;
-  skipped: number;
   failed: number;
 }
 
@@ -66,8 +65,11 @@ export async function reindexEmbeddings(
   `);
 
   let embedded = 0;
-  let skipped = 0;
   let failed = 0;
+  // Abort flag: when set, the outer while-loop exits. This is the fix for the
+  // critical infinite-loop bug where `break` inside the inner `for` only exited
+  // the batch loop, leaving the outer loop to re-query the same failing rows.
+  let shouldAbort = false;
 
   // Process in batches until no unembedded entries remain
   while (true) {
@@ -89,26 +91,28 @@ export async function reindexEmbeddings(
       } catch (err) {
         console.error(`[strata] reindex: failed to embed entry ${row.id}:`, err);
         failed++;
-        // Skip this entry so we don't loop forever
-        // Insert a sentinel? No — just skip. Next batch re-query will re-find it.
-        // To avoid infinite loop on persistent failures, we break if too many fail.
+        // Abort when there are too many failures with no successes — persistent
+        // provider error. Set the outer-loop escape flag then break the inner for.
         if (failed > 10 && failed > embedded) {
           console.error("[strata] reindex: too many failures, aborting.");
+          shouldAbort = true;
           break;
         }
       }
     }
-    skipped = 0; // already-embedded entries never appear in the query
 
     // Update progress
     db.prepare(`
       UPDATE migration_state SET migrated_vectors = ? WHERE id = 'embeddings-reindex'
     `).run(embedded);
+
+    // Exit the outer loop when a persistent-failure abort was triggered.
+    if (shouldAbort) break;
   }
 
   db.prepare(`
     UPDATE migration_state SET status = 'complete', completed_at = ? WHERE id = 'embeddings-reindex'
   `).run(Date.now());
 
-  return { embedded, skipped, failed };
+  return { embedded, failed };
 }

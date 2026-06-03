@@ -189,7 +189,6 @@ export async function runEmbeddingsReindex(
 
     console.log(`Reindex complete:`);
     console.log(`  Embedded: ${result.embedded}`);
-    console.log(`  Skipped (already done): ${result.skipped}`);
     console.log(`  Failed: ${result.failed}`);
   } catch (e: any) {
     console.log(`Reindex error: ${e.message}`);
