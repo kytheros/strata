@@ -244,6 +244,13 @@ export async function startMultiTenantHttpTransport(
     await evictIfNeeded();
 
     const mcpServer = createUserServer(userId);
+    // Wire the embedder + dense turn-lane store BEFORE returning — otherwise the
+    // user's first tool call can trigger ensureIndex before the eager (fire-and-
+    // forget) initEmbedder() resolves, and indexFileWithParser drops every turn
+    // write for that first index run (permanent: those turns never get embedded).
+    // initEmbedder is idempotent (returns the same in-flight promise), so this
+    // just awaits the work createServer already kicked off.
+    await mcpServer.initEmbedder();
 
     const entry: UserEntry = {
       userId,
