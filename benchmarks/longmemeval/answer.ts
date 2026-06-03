@@ -877,6 +877,7 @@ export function deduplicateToSessions(results: SearchResult[]): SearchResult[] {
     if (!existing) {
       sessions.set(r.sessionId, {
         ...r,
+        toolNames: r.toolNames ?? [],
         texts: [r.text],
       });
     } else {
@@ -889,8 +890,9 @@ export function deduplicateToSessions(results: SearchResult[]): SearchResult[] {
       if (r.timestamp < existing.timestamp) {
         existing.timestamp = r.timestamp;
       }
-      // Merge tool names
-      for (const t of r.toolNames) {
+      // Merge tool names — guard against undefined toolNames (e.g. from
+      // searchSessionLevel chunks that arrive reordered by dense-turn fusion).
+      for (const t of (r.toolNames ?? [])) {
         if (!existing.toolNames.includes(t)) {
           existing.toolNames.push(t);
         }
@@ -1296,13 +1298,25 @@ export async function withRetry<T>(
     try {
       return await fn();
     } catch (error) {
-      const isRetryable =
+      const isRateLimitOrOverload =
         error instanceof LlmError &&
         (error.statusCode === 429 || error.statusCode === 500 || error.statusCode === 529);
+      // Also retry transient network errors (fetch failed / ENOTFOUND / ECONNRESET)
+      // which surface as LlmError with statusCode === undefined and a message
+      // containing "fetch failed", "ENOTFOUND", or "ECONNRESET".
+      const isNetworkError =
+        error instanceof LlmError &&
+        error.statusCode === undefined &&
+        /fetch failed|ENOTFOUND|ECONNRESET|ETIMEDOUT/i.test(String(error.message));
+      const isRetryable = isRateLimitOrOverload || isNetworkError;
       if (isRetryable && attempt < maxRetries) {
         const delay = baseDelayMs * Math.pow(2, attempt);
-        const reason = error.statusCode === 429 ? "Rate limited" : "Overloaded";
-        console.log(`  ${reason}, retrying in ${delay}ms...`);
+        const reason = error.statusCode === 429
+          ? "Rate limited"
+          : isNetworkError
+            ? "Network error"
+            : "Overloaded";
+        console.log(`  ${reason}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
         await sleep(delay);
         continue;
       }

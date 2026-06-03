@@ -129,16 +129,30 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
     return { buf: Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength), format: "float32" };
   }
 
-  /** Embed a set of (turnId, content) pairs and upsert in one transaction. Never throws. */
+  /** Embed a set of (turnId, content) pairs and upsert in one transaction. Never throws.
+   * Filters out empty/whitespace-only content before calling embedBatch — the Gemini
+   * embedding API returns 400 for empty content, which would drop all vectors in the
+   * whole batch (silent recall loss). Empty turns have nothing meaningful to embed. */
   private async embedTurns(ids: string[], contents: string[]): Promise<void> {
     if (!this.embedder || ids.length === 0) return;
     try {
-      const vectors = await this.embedder.embedBatch(contents, CONFIG.search.denseTurnLane.docTaskType);
+      // Filter to non-empty content only, preserving id↔content alignment.
+      const filteredIds: string[] = [];
+      const filteredContents: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        if (contents[i].trim().length > 0) {
+          filteredIds.push(ids[i]);
+          filteredContents.push(contents[i]);
+        }
+      }
+      if (filteredIds.length === 0) return;
+
+      const vectors = await this.embedder.embedBatch(filteredContents, CONFIG.search.denseTurnLane.docTaskType);
       const txn = this.db.transaction(() => {
         const now = Date.now();
         for (let i = 0; i < vectors.length; i++) {
           const { buf, format } = this.encodeEmbedding(vectors[i]);
-          this.upsertTurnEmbedding.run(ids[i], buf, "gemini-embedding-001", now, format);
+          this.upsertTurnEmbedding.run(filteredIds[i], buf, "gemini-embedding-001", now, format);
         }
       });
       txn();
