@@ -22,8 +22,8 @@ import type {
   KnowledgeTurnHit,
   KnowledgeTurnSearchOptions,
 } from "./interfaces/knowledge-turn-store.js";
-import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js";
-import { quantize } from "../extensions/quantization/turbo-quant.js";
+import type { EmbeddingProvider } from "../extensions/vector-search/embedding-provider.js";
+import { encodeEmbeddingFor } from "./sqlite-knowledge-store.js";
 import { CONFIG } from "../config.js";
 
 // ── FTS query sanitizer ───────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ function rowToKnowledgeTurn(row: Record<string, unknown>): KnowledgeTurnRow {
 
 export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
   private readonly db: Database.Database;
-  private readonly embedder: GeminiEmbedder | null;
+  private readonly embedder: EmbeddingProvider | null;
 
   // Cached prepared statements — scoped to the instance, never module-level (D2)
   private readonly stmtInsert: Database.Statement;
@@ -86,7 +86,7 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
   /** In-flight embedding promises from single inserts (awaited by flushPendingEmbeddings). */
   private pendingEmbeddings: Set<Promise<void>> = new Set();
 
-  constructor(db: Database.Database, embedder?: GeminiEmbedder | null) {
+  constructor(db: Database.Database, embedder?: EmbeddingProvider | null) {
     this.db = db;
     this.embedder = embedder ?? null;
 
@@ -119,16 +119,6 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
     );
   }
 
-  /** Encode a Float32 embedding into storage format (quantized or raw float32). */
-  private encodeEmbedding(vec: Float32Array): { buf: Buffer; format: string } {
-    if (CONFIG.quantization.enabled) {
-      const bitWidth = CONFIG.quantization.bitWidth as 1 | 2 | 4 | 8;
-      const quantized = quantize(vec, bitWidth);
-      return { buf: Buffer.from(quantized), format: `tq${bitWidth}` };
-    }
-    return { buf: Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength), format: "float32" };
-  }
-
   /** Embed a set of (turnId, content) pairs and upsert in one transaction. Never throws.
    * Filters out empty/whitespace-only content before calling embedBatch — the Gemini
    * embedding API returns 400 for empty content, which would drop all vectors in the
@@ -148,11 +138,16 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
       if (filteredIds.length === 0) return;
 
       const vectors = await this.embedder.embedBatch(filteredContents, CONFIG.search.denseTurnLane.docTaskType);
+      const modelName = this.embedder.modelName;
+      const supportsQuantization = this.embedder.supportsQuantization;
       const txn = this.db.transaction(() => {
         const now = Date.now();
         for (let i = 0; i < vectors.length; i++) {
-          const { buf, format } = this.encodeEmbedding(vectors[i]);
-          this.upsertTurnEmbedding.run(filteredIds[i], buf, "gemini-embedding-001", now, format);
+          // Use encodeEmbeddingFor (provider-gated quantization) instead of the old
+          // local encodeEmbedding (global-flag-only). This prevents TurboQuant from
+          // corrupting non-Gemini 768-d vectors. Spec: §3.4.
+          const { buf, format } = encodeEmbeddingFor(vectors[i], supportsQuantization);
+          this.upsertTurnEmbedding.run(filteredIds[i], buf, modelName, now, format);
         }
       });
       txn();
