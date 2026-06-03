@@ -178,7 +178,9 @@ export async function handleSearchHistory(
   db?: Database.Database,
   asyncSearch?: (query: string, options: SearchOptions) => Promise<SearchResult[]>,
   knowledgeStore?: IKnowledgeStore,
-  /** Optional turn store — required for TIR+QDP lane (CONFIG.search.useTirQdp). */
+  /** Optional turn store — activates the dense turn-lane (CONFIG.search.denseTurnLane.enabled,
+   *  default ON when a provider is present) and the legacy TIR+QDP lane
+   *  (CONFIG.search.useTirQdp). Bypassed when retrieval_strategy:"legacy" is set. */
   turnStore?: IKnowledgeTurnStore
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
