@@ -172,7 +172,7 @@ export class SqliteSearchEngine {
     if (CONFIG.search.denseTurnLane.enabled && this.embedder && this.vectorSearch && !opts.skipVector) {
       try {
         const queryVec = await this.embedder.embed(query, CONFIG.search.denseTurnLane.queryTaskType);
-        const vectorHits = this.vectorSearch.searchTurnEmbeddings(queryVec, wideLimit, {
+        const vectorHits = await this.vectorSearch.searchTurnEmbeddings(queryVec, wideLimit, {
           userId: opts.userId,
           project: opts.project,
         });
@@ -345,13 +345,13 @@ export class SqliteSearchEngine {
       try {
         const queryVec = await this.embedder.embed(text, "CODE_RETRIEVAL_QUERY");
         const project = filters.project || options.currentProject || "";
-        let vectorResults = this.vectorSearch.search(queryVec, project, limit * 3);
+        let vectorResults = await this.vectorSearch.search(queryVec, project, limit * 3);
         if (vectorResults.length === 0) {
-          vectorResults = this.vectorSearch.searchAll(queryVec, limit * 3);
+          vectorResults = await this.vectorSearch.searchAll(queryVec, limit * 3);
         }
 
         // Also search document chunk embeddings
-        const docVectorResults = this.vectorSearch.searchDocumentChunks(queryVec, limit * 2, project || undefined);
+        const docVectorResults = await this.vectorSearch.searchDocumentChunks(queryVec, limit * 2, project || undefined);
         for (const dvr of docVectorResults) {
           vectorResults.push(dvr);
           // Hydrate document chunk vector results into docMap so they survive RRF merge
@@ -515,13 +515,13 @@ export class SqliteSearchEngine {
       try {
         const queryVec = await this.embedder.embed(text, "CODE_RETRIEVAL_QUERY");
         const project = filters.project || options.currentProject || "";
-        let vectorResults = this.vectorSearch.search(queryVec, project, candidateLimit * 3);
+        let vectorResults = await this.vectorSearch.search(queryVec, project, candidateLimit * 3);
         if (vectorResults.length === 0) {
-          vectorResults = this.vectorSearch.searchAll(queryVec, candidateLimit * 3);
+          vectorResults = await this.vectorSearch.searchAll(queryVec, candidateLimit * 3);
         }
 
         // Also search document chunk embeddings
-        const docVectorResults = this.vectorSearch.searchDocumentChunks(queryVec, candidateLimit * 2, project || undefined);
+        const docVectorResults = await this.vectorSearch.searchDocumentChunks(queryVec, candidateLimit * 2, project || undefined);
         for (const dvr of docVectorResults) {
           vectorResults.push(dvr);
           // Hydrate document chunk vector results into docMap so they survive RRF merge
@@ -873,7 +873,7 @@ export class SqliteSearchEngine {
     if (this.embedder && this.vectorSearch) {
       try {
         const queryVec = await this.embedder.embed(query, "RETRIEVAL_QUERY");
-        const vectorResults = this.vectorSearch.searchAll(queryVec, limit);
+        const vectorResults = await this.vectorSearch.searchAll(queryVec, limit);
         if (vectorResults.length > 0) {
           // Map vector results to knowledge entries
           const entries = [];
