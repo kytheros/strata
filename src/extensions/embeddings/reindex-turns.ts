@@ -43,7 +43,10 @@ export async function reindexTurns(
 ): Promise<ReindexTurnsResult> {
   const activeModel = provider.modelName;
 
-  // Ensure migration_state row exists (idempotent)
+  // Resumability is query-based: the anti-join (turn_id NOT IN embeddings WHERE model=?)
+  // naturally skips already-embedded turns on every restart, so the function is safe to
+  // call repeatedly. The migration_state row provides progress visibility only —
+  // its status/timestamp are decorative and do NOT gate re-entry.
   db.prepare(`
     INSERT OR IGNORE INTO migration_state (id, status, started_at)
     VALUES (?, 'running', ?)
@@ -52,7 +55,9 @@ export async function reindexTurns(
     UPDATE migration_state SET status = 'running', started_at = ? WHERE id = ?
   `).run(Date.now(), MIGRATION_ID);
 
-  // Find turns that have NO vector under the active model.
+  // Find turns that have NO vector under the active model AND have non-empty content.
+  // Filtering empty content at the SQL level prevents them from being re-selected on
+  // every batch (the anti-join would otherwise loop forever over un-embeddable rows).
   // We never delete old rows — old-model vectors coexist.
   const selectBatch = db.prepare(`
     SELECT turn_id, content
@@ -60,6 +65,7 @@ export async function reindexTurns(
     WHERE turn_id NOT IN (
       SELECT turn_id FROM knowledge_turn_embeddings WHERE model = ?
     )
+    AND TRIM(content) != ''
     LIMIT ?
   `);
 
@@ -81,26 +87,10 @@ export async function reindexTurns(
 
     if (batch.length === 0) break;
 
-    // Filter to non-empty content only (embedding API rejects empty content)
-    const toEmbed = batch.filter(row => row.content.trim().length > 0);
-    const toSkip = batch.filter(row => row.content.trim().length === 0);
-
-    // Mark empty turns as "embedded" (no vector needed) by inserting a placeholder?
-    // No — just skip them. They don't get a vector row, so they'll be re-selected
-    // by the anti-join query on every pass. Use a sentinel approach: if all remaining
-    // are empty, we're done. Break when the batch minus empty is zero AND batch is full.
-    // Simpler: count skipped in embedded so they don't loop forever.
-    // Actually: empty turns should be excluded from the anti-join. Let's just mark
-    // them as embedded count and move on (they don't need a vector).
-    // But we can't distinguish "skipped because empty" from "not yet processed".
-    // Solution: filter the selectBatch to non-empty content at the SQL level.
-    void toSkip; // not needed — we handled via SQL filter below
-
-    if (toEmbed.length === 0) {
-      // All remaining batch items are empty content — rewrite the query to skip them.
-      // For now, break to avoid infinite loop (empty turns will never get vectors).
-      break;
-    }
+    // Safety net: the SQL filter already excludes empty content, but guard here too
+    // in case a provider returns an empty embedding for a very-short turn.
+    const toEmbed = batch;
+    if (toEmbed.length === 0) break;
 
     try {
       const texts = toEmbed.map(r => r.content);
