@@ -23,6 +23,7 @@ import { extractKnowledge } from "../knowledge/knowledge-extractor.js";
 import type { IEventStore } from "../storage/interfaces/event-store.js";
 import type { GeminiProvider } from "../extensions/llm-extraction/gemini-provider.js";
 import { extractSVOEvents } from "../knowledge/event-extractor-llm.js";
+import type { IKnowledgeTurnStore, KnowledgeTurnInput } from "../storage/interfaces/knowledge-turn-store.js";
 
 export interface IndexMeta {
   lastIndexed: Record<string, number>;
@@ -40,6 +41,14 @@ export class SqliteIndexManager {
 
   private eventStore: IEventStore | null = null;
   private geminiProvider: GeminiProvider | null = null;
+  /**
+   * Optional turn store for the dense turn-lane.
+   * When set, indexFileWithParser() writes raw conversation turns to
+   * knowledge_turns via bulkInsert() after the existing chunk-extraction path.
+   * When null, the turn-write is a no-op (degrades gracefully to FTS5-only).
+   * Spec: 2026-06-03-dense-turn-lane-production-design §3.3.
+   */
+  private turnStore: IKnowledgeTurnStore | null = null;
 
   setEventStore(store: IEventStore): void {
     this.eventStore = store;
@@ -47,6 +56,11 @@ export class SqliteIndexManager {
 
   setGeminiProvider(provider: GeminiProvider): void {
     this.geminiProvider = provider;
+  }
+
+  /** Inject a turn store for dense turn-lane write support on the batch index path. */
+  setTurnStore(store: IKnowledgeTurnStore): void {
+    this.turnStore = store;
   }
 
   constructor(dbPath?: string) {
@@ -211,6 +225,23 @@ export class SqliteIndexManager {
           // Event extraction errors must never block indexing
         });
     }
+
+    // ── Dense turn-lane: turn-write on the batch index path ─────────────────
+    // Mirrors the watcher branch (incremental-indexer.ts:289-304).
+    // Fire-and-forget — turn write errors must never block indexing.
+    // When a provider is attached to the turn store, bulkInsert() also embeds.
+    if (this.turnStore && session.messages.length > 0) {
+      const turnInputs: KnowledgeTurnInput[] = session.messages.map((msg, idx) => ({
+        sessionId: session.sessionId,
+        project: session.project ?? null,
+        userId: null,          // user_id not threaded through parsers today — always null
+        speaker: msg.role,     // "user" | "assistant"
+        content: msg.text,     // verbatim turn text
+        messageIndex: idx,     // ordinal in messages array (0-based)
+      }));
+      void this.turnStore.bulkInsert(turnInputs);
+    }
+    // ── end dense turn-lane turn-write ───────────────────────────────────────
   }
 
   /**
