@@ -85,10 +85,13 @@ vi.mock("../../src/knowledge/conflict-resolver.js", () => ({
 
 vi.mock("../../src/watcher/file-watcher.js", () => {
   return {
-    FileWatcher: vi.fn().mockImplementation(() => ({
-      start: vi.fn(),
-      stop: vi.fn(),
-    })),
+    // vitest@4: constructor mocks must use function (not arrow) so `new` works
+    FileWatcher: vi.fn().mockImplementation(function () {
+      return {
+        start: vi.fn(),
+        stop: vi.fn(),
+      };
+    }),
     getWatchTargets: vi.fn(() => [
       { dir: "/mock/.claude/projects", glob: "*.jsonl", extensions: [".jsonl"], parserId: "claude-code" },
     ]),

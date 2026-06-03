@@ -26,7 +26,8 @@ let sharedDb: Database.Database;
 
 vi.mock("../../src/indexing/sqlite-index-manager.js", () => {
   return {
-    SqliteIndexManager: vi.fn().mockImplementation(() => {
+    // vitest@4: constructor mocks must use function (not arrow) so `new` works
+    SqliteIndexManager: vi.fn().mockImplementation(function () {
       // Each call gets the SAME shared in-memory DB so store then search see the same data.
       const db = sharedDb;
       const documents = new SqliteDocumentStore(db);

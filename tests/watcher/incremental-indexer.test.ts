@@ -67,15 +67,18 @@ vi.mock("../../src/knowledge/conflict-resolver.js", () => ({
 vi.mock("../../src/watcher/file-watcher.js", () => {
   let storedCallback: ((f: string, p: string) => void) | null = null;
   return {
-    FileWatcher: vi.fn().mockImplementation(() => ({
-      start: vi.fn((cb: (f: string, p: string) => void) => {
-        storedCallback = cb;
-      }),
-      stop: vi.fn(),
-      _trigger: (filename: string, parserId: string) => {
-        if (storedCallback) storedCallback(filename, parserId);
-      },
-    })),
+    // vitest@4: constructor mocks must use function (not arrow) so `new` works
+    FileWatcher: vi.fn().mockImplementation(function () {
+      return {
+        start: vi.fn(function (cb: (f: string, p: string) => void) {
+          storedCallback = cb;
+        }),
+        stop: vi.fn(),
+        _trigger: (filename: string, parserId: string) => {
+          if (storedCallback) storedCallback(filename, parserId);
+        },
+      };
+    }),
     getWatchTargets: vi.fn(() => [
       { dir: "/mock/.claude/projects", glob: "*.jsonl", extensions: [".jsonl"], parserId: "claude-code" },
       { dir: "/mock/.gemini/tmp", glob: "checkpoint-*.json", extensions: [".json"], parserId: "gemini-cli" },
