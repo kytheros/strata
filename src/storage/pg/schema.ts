@@ -324,6 +324,7 @@ export async function createSchema(pool: PgPool): Promise<void> {
 export async function dropSchema(pool: PgPool): Promise<void> {
   const tables = [
     "schema_migrations",
+    "knowledge_turn_embeddings",
     "knowledge_turns",
     "training_data",
     "document_chunks",
