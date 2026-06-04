@@ -43,6 +43,8 @@ import { createEmbeddingProvider } from "./extensions/vector-search/embedding-pr
 import { resolveActiveEmbeddingModel } from "./extensions/embeddings/active-model.js";
 import { detectEmbeddingMismatch } from "./extensions/embeddings/mismatch.js";
 import { VectorSearch } from "./extensions/embeddings/vector-search.js";
+import type { IVectorSearch } from "./extensions/embeddings/vector-search.js";
+import type { EmbeddingProvider } from "./extensions/vector-search/embedding-provider.js";
 import { SqliteKnowledgeTurnStore } from "./storage/sqlite-knowledge-turn-store.js";
 import type { IKnowledgeTurnStore } from "./storage/interfaces/knowledge-turn-store.js";
 import { handleStoreDocument } from "./tools/store-document.js";
@@ -52,6 +54,18 @@ import type { StorageContext } from "./storage/interfaces/index.js";
 import { runAgentLoop } from "./reasoning/agent-loop.js";
 import { classifyQuestion, getProcedure, getToolSubset } from "./reasoning/procedures.js";
 import { CONFIG } from "./config.js";
+
+/**
+ * Extension of IKnowledgeTurnStore for backends (PG, D1) that support late-binding
+ * of an embedding provider via `setEmbedder`. SQLite stores receive the embedder
+ * at construction time; PG/D1 stores receive it via this setter after initEmbedder
+ * resolves the active provider.
+ *
+ * Exported so PG/D1 transports can type-check their store implementations.
+ */
+export interface IEmbeddableTurnStore extends IKnowledgeTurnStore {
+  setEmbedder(embedder: EmbeddingProvider | null): void;
+}
 
 /** Callback invoked after each tool call completes (for analytics instrumentation). */
 export type ToolCallHook = (
@@ -67,6 +81,22 @@ export interface CreateServerOptions {
   storage?: StorageContext;
   /** Optional hook called after every tool call. Used by Pro for analytics recording. */
   onToolCall?: ToolCallHook;
+  /**
+   * Generic external turn store for the dense turn-lane (Postgres PR2, D1 PR3).
+   * When both externalTurnStore and externalVectorSearch are provided and an
+   * embedding provider resolves, initEmbedder wires them into the search engine.
+   * Ignored on SQLite paths (which construct their own SqliteKnowledgeTurnStore).
+   * Backend-agnostic: server.ts has no pg/d1 type imports.
+   * Must implement IEmbeddableTurnStore (i.e., setEmbedder) so initEmbedder can
+   * late-bind the provider after construction.
+   */
+  externalTurnStore?: IEmbeddableTurnStore | null;
+  /**
+   * Generic external vector search for the dense turn-lane (Postgres PR2, D1 PR3).
+   * Paired with externalTurnStore — both must be provided for the PG/D1 branch
+   * in initEmbedder to activate.
+   */
+  externalVectorSearch?: IVectorSearch | null;
 }
 
 export interface CreateServerResult {
@@ -237,6 +267,20 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
                 indexManager.setTurnStore(turnStore);
                 console.error("[strata] Dense turn-lane: active");
               }
+            }
+          } else if (options?.externalTurnStore && options?.externalVectorSearch) {
+            // PG / D1 path: generic external turn store + vector search for the dense turn-lane.
+            // The transport (pg-multi-tenant-http-transport.ts, d1-transport.ts) constructs these
+            // stores and passes them here. server.ts stays backend-agnostic — no pg/d1 imports.
+            if (CONFIG.search.denseTurnLane.enabled) {
+              options.externalTurnStore.setEmbedder(provider);
+              searchEngine.setEmbedder(provider);
+              searchEngine.setVectorSearch(options.externalVectorSearch);
+              searchEngine.setKnowledgeTurnStore(options.externalTurnStore);
+              denseTurnStore = options.externalTurnStore;
+              console.error("[strata] Dense turn-lane (PG/D1): active");
+            } else {
+              console.error("[strata] Semantic search: active (embeddings)");
             }
           } else {
             console.error("[strata] Semantic search: active (embeddings)");

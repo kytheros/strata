@@ -29,9 +29,12 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createServer } from "../server.js";
 import type { HttpTransportHandle } from "./http-transport.js";
 import { createPgStorage } from "../storage/pg/index.js";
+import { PgKnowledgeTurnStore } from "../storage/pg/pg-knowledge-turn-store.js";
+import { PgVectorSearch } from "../storage/pg/pg-vector-search.js";
 import { createPool } from "../storage/pg/pg-types.js";
 import { createSchema } from "../storage/pg/schema.js";
 import type { PgPool } from "../storage/pg/pg-types.js";
+import { resolveActiveEmbeddingModel } from "../extensions/embeddings/active-model.js";
 
 /** UUID v4 pattern for header validation */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -163,6 +166,11 @@ export async function startPgMultiTenantHttpTransport(
    * Create a fresh MCP server for a user, injecting the shared pool.
    * Schema was already applied above — no per-user createSchema call.
    * storage.close() is a no-op for the shared-pool path (ownPool=false).
+   *
+   * Dense turn-lane (PR2): construct PgKnowledgeTurnStore and PgVectorSearch
+   * here and pass them as generic externalTurnStore/externalVectorSearch to
+   * createServer. initEmbedder will late-inject the provider via setEmbedder.
+   * server.ts stays backend-agnostic — no pg type imports there.
    */
   async function createPgUserServer(
     userId: string
@@ -171,7 +179,14 @@ export async function startPgMultiTenantHttpTransport(
       pool: sharedPool,
       userId,
     });
-    return createServer({ storage });
+    // Construct with null embedder — initEmbedder will inject via setEmbedder().
+    const pgTurnStore = new PgKnowledgeTurnStore(sharedPool, null);
+    const pgVectorSearch = new PgVectorSearch(sharedPool, resolveActiveEmbeddingModel().model);
+    return createServer({
+      storage,
+      externalTurnStore: pgTurnStore,
+      externalVectorSearch: pgVectorSearch,
+    });
   }
 
   async function evictUser(userId: string): Promise<void> {
