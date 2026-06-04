@@ -185,7 +185,7 @@ describe("D1 Storage Integration", () => {
         .prepare("SELECT value FROM index_meta WHERE key = 'schema_version'")
         .first();
       expect(row).not.toBeNull();
-      expect(row.value).toBe("4");
+      expect(row.value).toBe("5"); // PR3 bumped schema version "4" → "5"
     });
 
     it("should be idempotent (calling createD1Storage twice is safe)", async () => {
@@ -316,7 +316,7 @@ describe("D1 Storage Integration", () => {
       expect(ftsSql.sql).not.toContain("knowledge_turns");
     });
 
-    it("existing v3 DB upgrades to v4 idempotently", async () => {
+    it("existing v3 DB upgrades to v5 idempotently", async () => {
       // Simulate a v3 DB by creating fresh storage twice — second call should be no-op
       const storage2 = await createD1Storage({ d1: db, userId: USER_A });
       await storage2.close();
@@ -324,7 +324,7 @@ describe("D1 Storage Integration", () => {
       const versionRow = await db
         .prepare("SELECT value FROM index_meta WHERE key = 'schema_version'")
         .first();
-      expect(versionRow.value).toBe("4");
+      expect(versionRow.value).toBe("5"); // PR3 bumped schema version "4" → "5"
 
       // knowledge_turns must still exist and have correct structure
       const turns = await db
@@ -1079,8 +1079,8 @@ describe("D1 Storage Integration", () => {
       const all = await storage.meta.getAll();
       expect(all["key1"]).toBe("val1");
       expect(all["key2"]).toBe("val2");
-      // Also includes schema_version from init
-      expect(all["schema_version"]).toBe("4");
+      // Also includes schema_version from init (PR3 bumped "4" → "5")
+      expect(all["schema_version"]).toBe("5");
     });
 
     it("should overwrite existing key on set", async () => {
