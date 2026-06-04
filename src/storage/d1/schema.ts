@@ -248,10 +248,6 @@ END;
 CREATE TRIGGER IF NOT EXISTS knowledge_turns_ad AFTER DELETE ON knowledge_turns BEGIN
   INSERT INTO knowledge_turns_fts(knowledge_turns_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
 END;
-CREATE TRIGGER IF NOT EXISTS knowledge_turns_au AFTER UPDATE ON knowledge_turns BEGIN
-  INSERT INTO knowledge_turns_fts(knowledge_turns_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
-  INSERT INTO knowledge_turns_fts(rowid, content) VALUES (new.rowid, new.content);
-END;
 
 -- knowledge_turn_embeddings: per-turn vector store for dense turn-lane.
 -- Separate from embeddings (knowledge entry id PK) to avoid JOIN collision.
