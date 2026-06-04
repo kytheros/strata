@@ -15,7 +15,7 @@ import { Miniflare } from "miniflare";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../../src/server.js";
-import { createD1Storage } from "../../src/storage/d1/index.js";
+import { createD1Storage, D1KnowledgeTurnStore, D1VectorSearch } from "../../src/storage/d1/index.js";
 import type { StorageContext } from "../../src/storage/interfaces/index.js";
 import type { CreateServerResult } from "../../src/server.js";
 
@@ -323,5 +323,66 @@ describe("D1 Server Integration", () => {
       const indexer = result.startIncrementalIndexer();
       expect(indexer).toBeNull();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T8: Dense turn-lane wiring tests (PR3)
+// ---------------------------------------------------------------------------
+
+describe("D1 Server — dense turn-lane wiring", () => {
+  let mf: Miniflare;
+  let db: any;
+
+  beforeEach(async () => {
+    mf = new Miniflare({
+      modules: true,
+      script: "export default { fetch() { return new Response('ok'); } }",
+      d1Databases: ["STRATA_DB"],
+    });
+    db = await mf.getD1Database("STRATA_DB");
+  });
+
+  afterEach(async () => {
+    await mf.dispose();
+  });
+
+  it("createServer accepts externalTurnStore + externalVectorSearch without throwing", async () => {
+    const storage = await createD1Storage({ d1: db, userId: USER_ID });
+    const turnStore = new D1KnowledgeTurnStore(db, null);
+    const vectorSearch = new D1VectorSearch(db);
+    expect(() =>
+      createServer({ storage, externalTurnStore: turnStore, externalVectorSearch: vectorSearch })
+    ).not.toThrow();
+  });
+
+  it("search_history on empty D1 does not throw even with dense turn-lane wired", async () => {
+    const storage = await createD1Storage({ d1: db, userId: USER_ID });
+    const turnStore = new D1KnowledgeTurnStore(db, null);
+    const vectorSearch = new D1VectorSearch(db);
+    const result = createServer({
+      storage,
+      externalTurnStore: turnStore,
+      externalVectorSearch: vectorSearch,
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await result.server.connect(serverTransport);
+    const client = new Client({ name: "d1-dtl-test", version: "0.0.1" });
+    await client.connect(clientTransport);
+
+    try {
+      const response = await client.callTool({
+        name: "search_history",
+        arguments: { query: "typescript" },
+      });
+      const text = extractText(response as { content?: unknown });
+      expect(text).toBeDefined();
+      // No results expected — table is empty — just verify no crash
+    } finally {
+      await client.close();
+      await result.server.close();
+      await storage.close();
+    }
   });
 });
