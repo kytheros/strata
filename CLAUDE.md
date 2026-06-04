@@ -83,10 +83,21 @@ the backend is then trusted to be behind a private network boundary.
 
 Key files:
 - `src/transports/http-transport.ts` — single-tenant HTTP transport
-- `src/transports/multi-tenant-http-transport.ts` — multi-tenant HTTP transport
-- `src/storage/database-pool.ts` — LRU database connection pool
+- `src/transports/multi-tenant-http-transport.ts` — multi-tenant HTTP transport (owns the inline LRU user pool)
 
 `createServer()` in `src/server.ts` accepts an optional `{ dataDir }` parameter to override the database location. In multi-tenant mode, each user gets their own `createServer()` instance with isolated caches, IndexManager, and database. Watchers (RealtimeWatcher, IncrementalIndexer) are not started in multi-tenant mode.
+
+### Dense turn-lane in multi-tenant mode
+
+When `GEMINI_API_KEY` is present, Strata automatically activates the dense turn-lane (per-turn vector embeddings) for every tenant. This improves recall on within-session questions but has cost implications in multi-tenant deployments because **all tenants share the same API key**:
+
+- **Default ON** when a provider is present. Kill-switch: set `STRATA_DENSE_TURN_LANE=off` to disable for all tenants.
+- **Concurrency cap**: a process-global semaphore limits concurrent `embedBatch` calls to `STRATA_DENSE_TURN_MAX_CONCURRENCY` (default 5). This prevents one large tenant's initial index build from exhausting quota and degrading all others to FTS5-only search. Raise the cap on a dedicated host with higher quota; lower it if you see 429 errors from the embedding API.
+
+| Env Var | Default | Purpose |
+|---------|---------|---------|
+| `STRATA_DENSE_TURN_LANE` | on | Set to `off` to disable dense turn-lane for all tenants. |
+| `STRATA_DENSE_TURN_MAX_CONCURRENCY` | 5 | Max concurrent embedding batch calls across all tenants. |
 
 ### REST transport token secret
 
