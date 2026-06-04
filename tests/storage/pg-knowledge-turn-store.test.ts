@@ -147,4 +147,12 @@ describe("PgKnowledgeTurnStore (#9)", () => {
     expect(rows.length).toBe(1);
     expect(rows[0].name).toBe("0004_knowledge_turns.sql");
   });
+
+  it("knowledge_turn_embeddings table exists after createSchema [0007]", async () => {
+    if (!pool) return;
+    const { rows } = await pool.query<{ tablename: string }>(
+      "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename='knowledge_turn_embeddings'"
+    );
+    expect(rows.length).toBe(1);
+  });
 });
