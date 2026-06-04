@@ -9,6 +9,7 @@
  */
 
 import type { PgPool } from "./pg-types.js";
+import type { IVectorSearch, VectorSearchResult } from "../../extensions/embeddings/vector-search.js";
 import { blobToFloat32, isQuantizedBlob } from "../../extensions/quantization/turbo-quant.js";
 import { quantizedSearch, type QuantizedSearchInput } from "../../extensions/quantization/quantized-search.js";
 import { CONFIG } from "../../config.js";
@@ -35,7 +36,7 @@ interface PgEmbeddingRow {
  * The `activeModel` constructor arg scopes all read queries so cross-provider
  * residue is never scored. Defaults to resolveActiveEmbeddingModel().model.
  */
-export class PgVectorSearch {
+export class PgVectorSearch implements IVectorSearch {
   private activeModel: string;
   constructor(private pool: PgPool, activeModel?: string) {
     this.activeModel = activeModel ?? resolveActiveEmbeddingModel().model;
@@ -52,7 +53,7 @@ export class PgVectorSearch {
     project: string,
     limit: number,
     user?: string
-  ): Promise<PgVectorSearchResult[]> {
+  ): Promise<VectorSearchResult[]> {
     let sql = `
       SELECT e.id, e.embedding, e.format
       FROM embeddings e
@@ -79,7 +80,7 @@ export class PgVectorSearch {
   async searchAll(
     queryVec: Float32Array,
     limit: number
-  ): Promise<PgVectorSearchResult[]> {
+  ): Promise<VectorSearchResult[]> {
     const { rows } = await this.pool.query<PgEmbeddingRow>(
       "SELECT id, embedding, format FROM embeddings WHERE model = $1",
       [this.activeModel]
@@ -98,7 +99,7 @@ export class PgVectorSearch {
     queryVec: Float32Array,
     limit: number,
     project?: string
-  ): Promise<PgVectorSearchResult[]> {
+  ): Promise<VectorSearchResult[]> {
     // Document chunks use the document model, not the active text model.
     const docModel = CONFIG.embeddings.documentModel;
     let rows: PgEmbeddingRow[];
@@ -124,12 +125,55 @@ export class PgVectorSearch {
     return this.rankByCosine(rows, queryVec, limit);
   }
 
+  /**
+   * Search turn embeddings (knowledge_turn_embeddings) by cosine similarity,
+   * scoped to a user_id and optionally project via a JOIN to knowledge_turns.
+   * Mirrors VectorSearch.searchTurnEmbeddings (src/extensions/embeddings/vector-search.ts).
+   * Returns [] when knowledge_turn_embeddings is empty (PG has no turn-write path yet).
+   *
+   * CORRECTION 4: SQL uses `te.turn_id AS id` to align with PgEmbeddingRow.id field
+   * that rankByCosine reads. Do NOT use `AS entry_id` — rankByCosine reads `row.id`.
+   */
+  async searchTurnEmbeddings(
+    queryVec: Float32Array,
+    limit: number,
+    opts?: { userId?: string | null; project?: string | null }
+  ): Promise<VectorSearchResult[]> {
+    const conditions: string[] = ["te.model = $1"];
+    const params: unknown[] = [this.activeModel];
+    let paramIdx = 2;
+
+    if (opts && opts.userId !== undefined) {
+      if (opts.userId === null) {
+        conditions.push("t.user_id IS NULL");
+      } else {
+        conditions.push(`t.user_id = $${paramIdx++}`);
+        params.push(opts.userId);
+      }
+    }
+    if (opts && opts.project !== undefined && opts.project !== null) {
+      conditions.push(`t.project = $${paramIdx++}`);
+      params.push(opts.project);
+    }
+
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    const sql = `
+      SELECT te.turn_id AS id, te.embedding, te.format
+      FROM knowledge_turn_embeddings te
+      JOIN knowledge_turns t ON t.turn_id = te.turn_id
+      ${where}
+    `;
+
+    const { rows } = await this.pool.query<PgEmbeddingRow>(sql, params);
+    return this.rankByCosine(rows, queryVec, limit);
+  }
+
   /** Rank embedding rows -- dispatches quantized blobs to fast path */
   private rankByCosine(
     rows: PgEmbeddingRow[],
     queryVec: Float32Array,
     limit: number
-  ): PgVectorSearchResult[] {
+  ): VectorSearchResult[] {
     if (rows.length === 0) return [];
 
     // Partition by format: use format column (authoritative) or byte-length heuristic for legacy.
@@ -150,7 +194,7 @@ export class PgVectorSearch {
       }
     }
 
-    const results: PgVectorSearchResult[] = [];
+    const results: VectorSearchResult[] = [];
 
     // Dimension guard for quantized path: quantized blobs are ALWAYS Gemini-3072.
     const geminiDim = CONFIG.quantization.embeddingDim;
