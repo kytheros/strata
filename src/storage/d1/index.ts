@@ -184,3 +184,4 @@ function splitSchemaStatements(schema: string): string[] {
 export type { D1Database, D1PreparedStatement, D1Result } from "./d1-types.js";
 export { D1VectorSearch } from "./d1-vector-search.js";
 export type { D1VectorSearchResult } from "./d1-vector-search.js";
+export { D1KnowledgeTurnStore } from "./d1-knowledge-turn-store.js";

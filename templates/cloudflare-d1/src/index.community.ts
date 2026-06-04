@@ -1,7 +1,7 @@
 import {
   WebStandardStreamableHTTPServerTransport,
 } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { createD1Storage } from "strata-mcp/d1";
+import { createD1Storage, D1KnowledgeTurnStore, D1VectorSearch } from "strata-mcp/d1";
 import { createServer } from "strata-mcp/server";
 
 interface WorkerEnv {
@@ -51,7 +51,22 @@ export default {
     }
 
     const storage = await createD1Storage({ d1: env.STRATA_DB, userId });
-    const { server } = createServer({ storage });
+    // Dense turn-lane: construct turn store + vector search with null embedder.
+    // initEmbedder() (called inside createServer) late-injects the Gemini provider
+    // via setEmbedder() when GEMINI_API_KEY is present (resolved through
+    // createEmbeddingProvider → loadGeminiApiKeyFromConfig → process.env).
+    // The turn store starts empty (no turn-write path in Community D1 yet) and
+    // degrades gracefully to FTS5-only search until a future ingest API populates it.
+    // DEFERRED: Worker env.GEMINI_API_KEY → process.env plumbing is deferred to the
+    // future Community ingest API work (the dense turn-lane requires turns to exist
+    // before vector search adds value; D1 has no ingest path today).
+    const turnStore = new D1KnowledgeTurnStore(env.STRATA_DB, null);
+    const vectorSearch = new D1VectorSearch(env.STRATA_DB);
+    const { server } = createServer({
+      storage,
+      externalTurnStore: turnStore,
+      externalVectorSearch: vectorSearch,
+    });
 
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

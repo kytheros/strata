@@ -248,7 +248,25 @@ END;
 CREATE TRIGGER IF NOT EXISTS knowledge_turns_ad AFTER DELETE ON knowledge_turns BEGIN
   INSERT INTO knowledge_turns_fts(knowledge_turns_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
 END;
+CREATE TRIGGER IF NOT EXISTS knowledge_turns_au AFTER UPDATE ON knowledge_turns BEGIN
+  INSERT INTO knowledge_turns_fts(knowledge_turns_fts, rowid, content) VALUES ('delete', old.rowid, old.content);
+  INSERT INTO knowledge_turns_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+
+-- knowledge_turn_embeddings: per-turn vector store for dense turn-lane.
+-- Separate from embeddings (knowledge entry id PK) to avoid JOIN collision.
+-- Starts empty on D1; no turn-write path until a future Community ingest API.
+CREATE TABLE IF NOT EXISTS knowledge_turn_embeddings (
+  turn_id    TEXT PRIMARY KEY,
+  embedding  BLOB NOT NULL,
+  model      TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  format     TEXT NOT NULL DEFAULT 'float32'
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_turn_embeddings_turn
+  ON knowledge_turn_embeddings(turn_id);
 `;
 
 /** Schema version for tracking migrations. */
-export const D1_SCHEMA_VERSION = "4";
+export const D1_SCHEMA_VERSION = "5";
