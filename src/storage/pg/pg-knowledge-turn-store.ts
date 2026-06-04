@@ -26,6 +26,9 @@ import type {
   KnowledgeTurnHit,
   KnowledgeTurnSearchOptions,
 } from "../interfaces/knowledge-turn-store.js";
+import type { EmbeddingProvider } from "../../extensions/vector-search/embedding-provider.js";
+import { encodeEmbeddingFor } from "../sqlite-knowledge-store.js";
+import { CONFIG } from "../../config.js";
 
 // ── tsquery sanitizer ────────────────────────────────────────────────────────
 
@@ -85,7 +88,67 @@ function rowToKnowledgeTurn(row: Record<string, unknown>): KnowledgeTurnRow {
  */
 export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
   // No module-level caches (D2). All state scoped to this instance.
-  constructor(private readonly pool: PgPool) {}
+  // embedder is mutable (not readonly) so initEmbedder can late-inject via setEmbedder().
+  private embedder: EmbeddingProvider | null;
+
+  constructor(private readonly pool: PgPool, embedder?: EmbeddingProvider | null) {
+    this.embedder = embedder ?? null;
+  }
+
+  /** Late-inject an embedder after construction (used by initEmbedder PG branch). */
+  setEmbedder(embedder: EmbeddingProvider | null): void {
+    this.embedder = embedder;
+  }
+
+  // ── upsertTurnEmbedding ─────────────────────────────────────────────────────
+
+  private async upsertTurnEmbedding(
+    turnId: string,
+    embedding: Buffer,
+    model: string,
+    format: string
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO knowledge_turn_embeddings (turn_id, embedding, model, format, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (turn_id) DO UPDATE
+         SET embedding = $2, model = $3, format = $4, created_at = $5`,
+      [turnId, embedding, model, format, Date.now()]
+    );
+  }
+
+  /**
+   * Embed a set of (turnId, content) pairs and upsert. Never throws.
+   * Filters out empty/whitespace-only content before calling embedBatch
+   * (Gemini returns 400 for empty content).
+   */
+  private async embedTurns(ids: string[], contents: string[]): Promise<void> {
+    if (!this.embedder || ids.length === 0) return;
+    try {
+      const filteredIds: string[] = [];
+      const filteredContents: string[] = [];
+      for (let i = 0; i < ids.length; i++) {
+        if (contents[i].trim().length > 0) {
+          filteredIds.push(ids[i]);
+          filteredContents.push(contents[i]);
+        }
+      }
+      if (filteredIds.length === 0) return;
+
+      const vectors = await this.embedder.embedBatch(
+        filteredContents,
+        CONFIG.search.denseTurnLane.docTaskType
+      );
+      const modelName = this.embedder.modelName;
+      const supportsQuantization = this.embedder.supportsQuantization;
+      for (let i = 0; i < vectors.length; i++) {
+        const { buf, format } = encodeEmbeddingFor(vectors[i], supportsQuantization);
+        await this.upsertTurnEmbedding(filteredIds[i], buf, modelName, format);
+      }
+    } catch (err) {
+      console.error(`[strata] PgKnowledgeTurnStore: failed to embed ${ids.length} turns:`, err);
+    }
+  }
 
   // ── insert ──────────────────────────────────────────────────────────────────
 
@@ -106,6 +169,10 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
         turn.createdAt ?? Date.now(),
       ],
     );
+    if (this.embedder) {
+      // Fire-and-forget — embedTurns never throws
+      this.embedTurns([turnId], [turn.content]).catch(() => {});
+    }
     return turnId;
   }
 
@@ -145,6 +212,9 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
       client.release();
     }
 
+    if (this.embedder && turns.length > 0) {
+      await this.embedTurns(ids, turns.map(t => t.content));
+    }
     return ids;
   }
 
