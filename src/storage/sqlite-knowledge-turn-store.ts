@@ -54,6 +54,47 @@ function sanitizeFtsQuery(raw: string): string {
   return tokens.join(" OR ");
 }
 
+// ── Process-global embed concurrency semaphore ────────────────────────────────
+//
+// Turn embedding is fire-and-forget (embedTurns is called from bulkInsert
+// without backpressure). In multi-tenant mode, one large tenant's
+// buildFullIndex can fire thousands of concurrent embedBatch calls, exhausting
+// the shared GEMINI_API_KEY quota and degrading all other tenants to FTS5-only.
+//
+// This process-global semaphore caps concurrent embedBatch calls ACROSS ALL
+// SqliteKnowledgeTurnStore instances. Module-level state is intentional here —
+// the cap must be shared across tenants in the same Node.js process. Unlike
+// the D2 module-level-cache ban (which targets per-user data leaking across
+// instances), this semaphore holds no user data: it only counts in-flight
+// embedBatch calls and queues waiters. See spec §4 (PR4 Task 2).
+//
+// The limit is read lazily from CONFIG so it picks up env overrides
+// (STRATA_DENSE_TURN_MAX_CONCURRENCY) set after module load.
+
+let embedSemaphoreCurrent = 0;
+const embedSemaphoreQueue: Array<() => void> = [];
+
+function embedSemaphoreAcquire(): Promise<void> {
+  const limit = CONFIG.search.denseTurnLane.maxConcurrentEmbedBatches;
+  if (embedSemaphoreCurrent < limit) {
+    embedSemaphoreCurrent++;
+    return Promise.resolve();
+  }
+  return new Promise<void>(resolve => {
+    embedSemaphoreQueue.push(resolve);
+  });
+}
+
+function embedSemaphoreRelease(): void {
+  const next = embedSemaphoreQueue.shift();
+  if (next) {
+    // Keep current count stable — transferring the slot to the waiter.
+    next();
+  } else {
+    embedSemaphoreCurrent--;
+  }
+}
+
 // ── row mapper ────────────────────────────────────────────────────────────────
 
 function rowToKnowledgeTurn(row: Record<string, unknown>): KnowledgeTurnRow {
@@ -137,7 +178,10 @@ export class SqliteKnowledgeTurnStore implements IKnowledgeTurnStore {
       }
       if (filteredIds.length === 0) return;
 
-      const vectors = await this.embedder.embedBatch(filteredContents, CONFIG.search.denseTurnLane.docTaskType);
+      await embedSemaphoreAcquire();
+      const vectors = await this.embedder
+        .embedBatch(filteredContents, CONFIG.search.denseTurnLane.docTaskType)
+        .finally(() => embedSemaphoreRelease());
       const modelName = this.embedder.modelName;
       const supportsQuantization = this.embedder.supportsQuantization;
       const txn = this.db.transaction(() => {

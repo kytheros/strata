@@ -130,6 +130,16 @@ export const CONFIG = {
       docTaskType: "RETRIEVAL_DOCUMENT",
       /** Max turn results to include in read-side fusion (mirrors benchmark.denseTurnLane.maxTurnResults). */
       maxTurnResults: 10,
+      /**
+       * Process-global max concurrent embedBatch calls across all per-tenant turn stores.
+       * Prevents a single large tenant's buildFullIndex from exhausting the shared
+       * GEMINI_API_KEY quota and degrading all other tenants to FTS5-only.
+       * Override via STRATA_DENSE_TURN_MAX_CONCURRENCY env var.
+       */
+      get maxConcurrentEmbedBatches() {
+        const v = Number(process.env.STRATA_DENSE_TURN_MAX_CONCURRENCY);
+        return (Number.isFinite(v) && v > 0) ? v : 5;
+      },
     },
   },
 
