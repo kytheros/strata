@@ -108,8 +108,12 @@ export interface SearchHistoryArgs {
    * - "legacy": force BM25+chunk lane for this query, even when
    *             CONFIG.search.useTirQdp is true. Useful for temporal/multi-session
    *             queries where TIR+QDP underperforms (see 2026-05-11 stratified eval).
+   * - "deep": session-level retrieval (session-scoring + cross-encoder reranker
+   *   + event signals) via searchSessionLevel, then dense-turn fusion. Reproduces
+   *   the benchmark's high-accuracy read path. Opt-in; heavier per query (loads
+   *   full session text, runs the reranker). SQLite backend (Phase 1).
    */
-  retrieval_strategy?: "auto" | "tirqdp" | "legacy";
+  retrieval_strategy?: "auto" | "tirqdp" | "legacy" | "deep";
 }
 
 /**
@@ -259,7 +263,52 @@ export async function handleSearchHistory(
     ? "\nnote: retrieval_strategy \"tirqdp\" requested but turn store is unavailable — fell back to legacy BM25+chunk path."
     : null;
 
-  if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
+  if (args.retrieval_strategy === "deep") {
+    // ── Deep session-level path (read-path parity Phase 1, spec 2026-06-05) ──
+    // Session-level DCG scoring + cross-encoder reranker (query-heuristic gated
+    // for temporal/counting) + event signals via engine.searchSessionLevel, then
+    // dense-turn fusion — mirrors the benchmark sessionScoring path
+    // (retrieve.ts:218-278) that reproduced 84.4%. Opt-in; SQLite backend.
+    const limit = Math.min(searchOptions.limit ?? 20, 100);
+
+    // Session lane: session-scoring + reranker + events
+    let sessionLane = await engine.searchSessionLevel(args.query, {
+      ...searchOptions,
+      sessionK: limit,
+    });
+
+    // Merge knowledge entries (identical to every other branch)
+    if (knowledgeStore) {
+      const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        sessionLane = [...sessionLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit);
+      }
+    } else if (db) {
+      const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        sessionLane = [...sessionLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit);
+      }
+    }
+
+    // Dense turn-lane fusion (carries the shipped SSA win; matches retrieve.ts:276-278)
+    if (turnStore) {
+      engine.setKnowledgeTurnStore(turnStore);
+      const turnHits = await engine.searchTurns(args.query, {
+        userId: searchOptions.user ?? undefined,
+        project: searchOptions.project,
+        limit,
+      });
+      results = fuseDenseTurnLane(sessionLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults)
+        .slice(0, limit);
+    } else {
+      results = sessionLane.slice(0, limit);
+    }
+
+  } else if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
     // ── Dense turn-lane path (spec 2026-06-03-dense-turn-lane-production-design §3.6) ──
     // Activated when: CONFIG.search.denseTurnLane.enabled (default ON when provider present)
     // AND a turn store is available AND the caller has not explicitly requested "legacy".
