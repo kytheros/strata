@@ -335,7 +335,7 @@ export async function retrieveQuestion(
 }
 
 /** Compute recall at K: what fraction of gold sessions appear in top-K retrieved */
-function computeRecall(
+export function computeRecall(
   retrieved: string[],
   gold: string[],
   k: number
@@ -401,3 +401,6 @@ function percentile(sorted: number[], p: number): number {
   const index = Math.ceil((p / 100) * sorted.length) - 1;
   return sorted[Math.max(0, index)];
 }
+
+// Re-exported for the agent-format validation arm in prod-consumer-parity.ts.
+export { strataSessionIdToIndex } from "./ingest.js";

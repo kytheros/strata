@@ -60,6 +60,8 @@ import { judgeAnswer } from "./judge.js";
 import { createAnswerProvider, createJudgeProvider } from "./providers/provider-factory.js";
 import { handleSearchHistory } from "../../src/tools/search-history.js";
 import type { SearchHistoryArgs } from "../../src/tools/search-history.js";
+import { buildRecommendedPrompt } from "../../src/prompts/recommended-agent-prompt.js";
+import { computeRecall, strataSessionIdToIndex } from "./retrieve.js";
 import { appendResult, loadCompleted } from "./checkpoint.js";
 import { pickStratified } from "./stratified-set.js";
 import { SemanticSearchBridge } from "../../src/search/semantic-search-bridge.js";
@@ -121,6 +123,7 @@ function parseArgs(): {
   limit: number;
   maxChars: number;
   promptVariant: "baseline" | "fair";
+  agentFormat: boolean;
 } {
   const args = process.argv.slice(2);
 
@@ -155,7 +158,10 @@ function parseArgs(): {
   const pvArg = args.find((a) => a.startsWith("--prompt-variant="));
   const promptVariant = (pvArg?.split("=")[1] === "fair" ? "fair" : "baseline") as "baseline" | "fair";
 
-  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant };
+  // Agent format arm: format:"agent" + unified recommended prompt.
+  const agentFormat = args.includes("--agent-format");
+
+  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat };
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +230,9 @@ function productionStringToSearchResults(productionOutput: string): SearchResult
 // Isolates: is the ~5pp consumer gap a proxy-prompt artifact (false chronology/
 // numbering claims) or a genuine format cost? Same retrieval + string either way.
 let PROMPT_VARIANT: "baseline" | "fair" = "baseline";
+
+// Agent format arm: format:"agent" + unified recommended prompt (--agent-format).
+let AGENT_FORMAT = false;
 
 /**
  * Format-honest prompt for the production search_history STRING. Acknowledges the
@@ -439,6 +448,8 @@ export interface PcpRunResult {
   denseTurnStoreActive?: boolean;
   /** Whether reranker was active for BENCHMARK arm */
   rerankerActive?: boolean;
+  /** Evidence recall@20 for the agent-format arm (model-independent Strata guarantee) */
+  evidenceRecall20?: number;
   /** Metadata block per the master guardrail */
   metadata: {
     benchmarkFromFile: false;
@@ -480,17 +491,26 @@ async function runOneQuestion(
     // (mirrors src/server.ts:346-351 exactly).
     // Take the raw STRING output and inject verbatim into generateAnswerFromRawString.
     // NO re-parse, NO productionStringToSearchResults, NO deduplicateToSessions.
+    //
+    // When AGENT_FORMAT: use format:"agent" + unified recommended prompt +
+    // compute recall@20 from production SearchResult[] (agent-format pipeline spec).
 
     const bridge = new SemanticSearchBridge(ingested.docStore, ingested.db);
     let _bridgeReturnedNonNull = false;
+
+    // Capture raw chunk results for recall@20 computation in agent-format arm.
+    let _lastChunkResults: SearchResult[] = [];
 
     const asyncSearch = async (query: string, options: SearchOptions): Promise<SearchResult[]> => {
       const hybridResults = await bridge.search(query, options);
       if (hybridResults !== null) {
         _bridgeReturnedNonNull = true;
+        _lastChunkResults = hybridResults;
         return hybridResults;
       }
-      return ingested.searchEngine.search(query, options);
+      const fallback = await ingested.searchEngine.search(query, options);
+      _lastChunkResults = fallback;
+      return fallback;
     };
 
     // Inject reranker (matches parity-comparison.ts Arm A pattern for prod-bridge)
@@ -499,16 +519,17 @@ async function runOneQuestion(
       ingested.searchEngine.setReranker(reranker);
     }
 
-    const args: SearchHistoryArgs = {
+    const searchArgs: SearchHistoryArgs = {
       query: question.question,
       limit: 20,
       max_chars: maxChars,
       // retrieval_strategy OMITTED → hits dense-turn-lane default (line 311)
+      ...(AGENT_FORMAT ? { format: "agent" as const } : {}),
     };
 
     const rawString = await handleSearchHistory(
       ingested.searchEngine,
-      args,
+      searchArgs,
       ingested.db,
       asyncSearch,
       ingested.knowledgeStore,
@@ -519,20 +540,70 @@ async function runOneQuestion(
     denseTurnStoreActive = true; // turnStore always passed
     productionOutputLength = rawString.length;
 
-    // Verbatim injection — the consumer gets this string and uses it directly
-    const { answer } = await withRetry(() =>
-      generateAnswerFromRawString(
-        answerProvider.provider,
-        question.question,
-        question.question_date,
-        question.question_type,
+    let answer: string;
+    if (AGENT_FORMAT) {
+      // Agent format arm: unified recommended prompt (no question-type label).
+      const { system, user } = buildRecommendedPrompt(
         rawString,
-      )
-    );
+        question.question_date,
+        question.question,
+      );
+      const out = await withRetry(() => answerProvider.provider.complete(user, {
+        maxTokens: 8192, temperature: 0, timeoutMs: 60000, systemPrompt: system,
+      } as any));
+      answer = out.trim();
+    } else {
+      // Verbatim injection — the consumer gets this string and uses it directly
+      const result = await withRetry(() =>
+        generateAnswerFromRawString(
+          answerProvider.provider,
+          question.question,
+          question.question_date,
+          question.question_type,
+          rawString,
+        )
+      );
+      answer = result.answer;
+    }
 
     // Context metrics: approximate from the raw string
     contextLength = rawString.length;
-    contextSessionCount = (rawString.match(/^---/gm) ?? []).length;
+    contextSessionCount = AGENT_FORMAT
+      ? (rawString.match(/^Note \d+/gm) ?? []).length
+      : (rawString.match(/^---/gm) ?? []).length;
+
+    // Recall@20: map production SearchResult.sessionId → LongMemEval session id.
+    // Uses the dense-turn-lane chunk results captured via asyncSearch closure,
+    // plus turn hits fused in (mirrors the PROD-RESULTS arm retrieval path).
+    let evidenceRecall20: number | undefined;
+    if (AGENT_FORMAT) {
+      const limit = 20;
+      ingested.searchEngine.setKnowledgeTurnStore(ingested.turnStore);
+      const turnHits = await ingested.searchEngine.searchTurns(question.question, {
+        userId: undefined,
+        project: undefined,
+        limit,
+      });
+      const searchResults = fuseDenseTurnLane(
+        _lastChunkResults,
+        turnHits,
+        CONFIG.search.denseTurnLane.maxTurnResults,
+      ).slice(0, limit);
+
+      const seen = new Set<string>();
+      const retrievedSessionIds: string[] = [];
+      for (const r of searchResults) {
+        const idx = strataSessionIdToIndex(r.sessionId);
+        if (idx >= 0 && idx < ingested.indexToSessionId.length) {
+          const longMemId = ingested.indexToSessionId[idx];
+          if (!seen.has(longMemId)) {
+            seen.add(longMemId);
+            retrievedSessionIds.push(longMemId);
+          }
+        }
+      }
+      evidenceRecall20 = computeRecall(retrievedSessionIds, question.answer_session_ids, 20);
+    }
 
     const judgeResult = await judgeAnswer(
       judgeProvider.provider,
@@ -556,6 +627,7 @@ async function runOneQuestion(
       productionOutputLength,
       bridgeActive,
       denseTurnStoreActive,
+      ...(evidenceRecall20 !== undefined ? { evidenceRecall20 } : {}),
       metadata: {
         benchmarkFromFile: false,
         harness: "prod-consumer-parity.ts",
@@ -1003,6 +1075,17 @@ function printReport(
     console.log(`  H3 (round-trip >1pp): ${h3 ? "FIRED — retire productionStringToSearchResults / old 70.1% is invalid" : "NOT FIRED"}`);
   }
 
+  // Recall@20 for agent-format arm (model-independent Strata retrieval guarantee)
+  {
+    const pcResults = results.get("PROD-CONSUMER") ?? [];
+    const withRecall = pcResults.filter((r) => r.evidenceRecall20 !== undefined);
+    if (withRecall.length > 0) {
+      const avgRecall = withRecall.reduce((s, r) => s + (r.evidenceRecall20 ?? 0), 0) / withRecall.length;
+      console.log(`\n--- Agent-format recall@20 (model-independent) ---`);
+      console.log(`  PROD-CONSUMER recall@20: ${avgRecall.toFixed(4)} (${(avgRecall * 100).toFixed(1)}%) over ${withRecall.length} questions`);
+    }
+  }
+
   // Per-question-type breakdown
   console.log("\n--- Per-question-type breakdown ---");
   const allQTypes = new Set<string>();
@@ -1336,13 +1419,17 @@ function verifyFromDisk(
 
 async function main(): Promise<void> {
   loadEnv();
-  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant } = parseArgs();
+  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat } = parseArgs();
   PROMPT_VARIANT = promptVariant;
+  AGENT_FORMAT = agentFormat;
   if (maxChars !== 2500) {
     console.log(`max_chars OVERRIDE: ${maxChars} (default 2500) — PROD-CONSUMER + PROD-STRING-PARSED arms`);
   }
   if (promptVariant !== "baseline") {
     console.log(`PROMPT VARIANT: ${promptVariant} (artifact-check C — format-honest raw-string prompt)`);
+  }
+  if (agentFormat) {
+    console.log(`AGENT FORMAT: enabled — format:"agent" + unified recommended prompt`);
   }
 
   const allArms: PcpArmLabel[] = [
