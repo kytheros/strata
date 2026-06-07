@@ -122,8 +122,18 @@ function parseArgs(): {
   judgeVotes: number;
   limit: number;
   maxChars: number;
-  promptVariant: "baseline" | "fair";
+  /** "baseline" | "fair" | "category"
+   *  baseline  — category prompts that assume chronological order (existing default)
+   *  fair      — format-honest prompt acknowledging relevance-ordered blocks (artifact-check C)
+   *  category  — per-question-type prompts from generateAnswerFromRawString applied to the
+   *              agent-format string (ceiling check: unified vs per-category on agent arm)
+   */
+  promptVariant: "baseline" | "fair" | "category";
   agentFormat: boolean;
+  /** When true, passes retrieval_strategy:"deep" to the PROD-CONSUMER arm so the agent arm
+   *  exercises the session-scoring candidate pool (limit:60/sessionK:20) that produced 84.4%.
+   *  Reranker is already injected by the prod-consumer arm setup. */
+  deep: boolean;
 } {
   const args = process.argv.slice(2);
 
@@ -153,15 +163,30 @@ function parseArgs(): {
   const maxCharsArg = args.find((a) => a.startsWith("--max-chars="));
   const maxChars = maxCharsArg ? parseInt(maxCharsArg.split("=")[1], 10) : 2500;
 
-  // Artifact-check C: "fair" swaps the PROD-CONSUMER raw-string answer prompt for
-  // a format-honest one (no false chronological/Note-# claims). "baseline" default.
+  // Prompt variant for PROD-CONSUMER / agent arm.
+  //   "baseline" (default) — category prompts assuming chronological order (artifact-check baseline)
+  //   "fair"               — format-honest prompt for the raw production string (artifact-check C)
+  //   "category"           — per-question-type prompts from generateAnswerFromRawString applied to
+  //                          the agent-format string; ceiling check for unified vs per-category on
+  //                          the agent arm (only meaningful when --agent-format is also set)
   const pvArg = args.find((a) => a.startsWith("--prompt-variant="));
-  const promptVariant = (pvArg?.split("=")[1] === "fair" ? "fair" : "baseline") as "baseline" | "fair";
+  const pvVal = pvArg?.split("=")[1];
+  const promptVariant = (
+    pvVal === "fair" ? "fair" : pvVal === "category" ? "category" : "baseline"
+  ) as "baseline" | "fair" | "category";
 
-  // Agent format arm: format:"agent" + unified recommended prompt.
+  // Agent format arm: format:"agent" + unified recommended prompt (default) or per-category
+  // (when --prompt-variant=category). Activate with --agent-format.
   const agentFormat = args.includes("--agent-format");
 
-  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat };
+  // Deep retrieval: pass retrieval_strategy:"deep" to PROD-CONSUMER to exercise the
+  // session-scoring path (DEEP_CANDIDATE_POOL=60 / sessionK=20) that produced 84.4%.
+  // Reranker is already injected by the prod-consumer arm setup (createReranker + setReranker).
+  // The benchmark (retrieve.ts) does NOT call setEventStore, so events are not active there
+  // either — no additional wiring needed for faithful benchmark reproduction.
+  const deep = args.includes("--deep");
+
+  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep };
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +258,11 @@ let PROMPT_VARIANT: "baseline" | "fair" = "baseline";
 
 // Agent format arm: format:"agent" + unified recommended prompt (--agent-format).
 let AGENT_FORMAT = false;
+
+// Deep retrieval: retrieval_strategy:"deep" on the PROD-CONSUMER arm (--deep).
+// When on, handleSearchHistory uses session-level scoring (DEEP_CANDIDATE_POOL=60/sessionK=20)
+// matching the benchmark's sessionScoring path that produced 84.4%.
+let DEEP_RETRIEVAL = false;
 
 /**
  * Format-honest prompt for the production search_history STRING. Acknowledges the
@@ -523,7 +553,11 @@ async function runOneQuestion(
       query: question.question,
       limit: 20,
       max_chars: maxChars,
-      // retrieval_strategy OMITTED → hits dense-turn-lane default (line 311)
+      // retrieval_strategy: OMITTED by default → dense-turn-lane default (search-history.ts:311)
+      // When --deep: session-scoring path (DEEP_CANDIDATE_POOL=60/sessionK=20) matching
+      // the benchmark's retrieveQuestion(sessionScoring=true) that produced 84.4%.
+      // The reranker is already injected above (createReranker + setReranker).
+      ...(DEEP_RETRIEVAL ? { retrieval_strategy: "deep" as const } : {}),
       ...(AGENT_FORMAT ? { format: "agent" as const } : {}),
     };
 
@@ -541,8 +575,9 @@ async function runOneQuestion(
     productionOutputLength = rawString.length;
 
     let answer: string;
-    if (AGENT_FORMAT) {
-      // Agent format arm: unified recommended prompt (no question-type label).
+    if (AGENT_FORMAT && PROMPT_VARIANT !== "category") {
+      // Agent format arm (default): unified recommended prompt (no question-type label).
+      // This is the baseline agent-format measurement.
       const { system, user } = buildRecommendedPrompt(
         rawString,
         question.question_date,
@@ -552,8 +587,24 @@ async function runOneQuestion(
         maxTokens: 8192, temperature: 0, timeoutMs: 60000, systemPrompt: system,
       } as any));
       answer = out.trim();
+    } else if (AGENT_FORMAT && PROMPT_VARIANT === "category") {
+      // Agent format arm + --prompt-variant=category: per-question-type prompts
+      // (same category-specific guidance as the benchmark's generateAnswer) applied
+      // to the agent-format string. Ceiling check: unified vs per-category on agent arm.
+      // generateAnswerFromRawString already branches on question_type when PROMPT_VARIANT
+      // is NOT "fair" — re-use it verbatim (the agent string IS the raw notes block).
+      const result = await withRetry(() =>
+        generateAnswerFromRawString(
+          answerProvider.provider,
+          question.question,
+          question.question_date,
+          question.question_type,
+          rawString,
+        )
+      );
+      answer = result.answer;
     } else {
-      // Verbatim injection — the consumer gets this string and uses it directly
+      // Verbatim injection (non-agent arm) — the consumer gets this string and uses it directly
       const result = await withRetry(() =>
         generateAnswerFromRawString(
           answerProvider.provider,
@@ -1419,17 +1470,28 @@ function verifyFromDisk(
 
 async function main(): Promise<void> {
   loadEnv();
-  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat } = parseArgs();
+  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep } = parseArgs();
   PROMPT_VARIANT = promptVariant;
   AGENT_FORMAT = agentFormat;
+  DEEP_RETRIEVAL = deep;
   if (maxChars !== 2500) {
     console.log(`max_chars OVERRIDE: ${maxChars} (default 2500) — PROD-CONSUMER + PROD-STRING-PARSED arms`);
   }
   if (promptVariant !== "baseline") {
-    console.log(`PROMPT VARIANT: ${promptVariant} (artifact-check C — format-honest raw-string prompt)`);
+    if (promptVariant === "fair") {
+      console.log(`PROMPT VARIANT: fair (artifact-check C — format-honest raw-string prompt)`);
+    } else if (promptVariant === "category") {
+      console.log(`PROMPT VARIANT: category — per-question-type prompts on agent-format string (ceiling check)`);
+    }
   }
   if (agentFormat) {
-    console.log(`AGENT FORMAT: enabled — format:"agent" + unified recommended prompt`);
+    const promptLabel = promptVariant === "category" ? "per-category prompts" : "unified recommended prompt";
+    console.log(`AGENT FORMAT: enabled — format:"agent" + ${promptLabel}`);
+  }
+  if (deep) {
+    console.log(`DEEP RETRIEVAL: enabled — retrieval_strategy:"deep" (session-scoring pool=60/sessionK=20)`);
+    console.log(`  Reranker: injected by prod-consumer arm setup (createReranker+setReranker)`);
+    console.log(`  Events: NOT wired (benchmark does not call setEventStore either — faithful reproduction)`);
   }
 
   const allArms: PcpArmLabel[] = [
