@@ -857,8 +857,12 @@ export interface AnswerOptions {
 }
 
 // deduplicateToSessions now lives in src/ (single source of truth for the
-// recommended agent pipeline). Re-exported here for benchmark imports.
-export { deduplicateToSessions } from "../../src/search/dedupe-to-sessions.js";
+// recommended agent pipeline). IMPORT it (local binding for internal use at
+// lines 571/894/1141) AND re-export it for benchmark importers. A bare
+// `export { x } from "..."` would expose it to importers but leave NO local
+// binding, breaking generateAnswer's own calls (ReferenceError).
+import { deduplicateToSessions } from "../../src/search/dedupe-to-sessions.js";
+export { deduplicateToSessions };
 
 /**
  * Generate an answer for a single question using retrieved context.
