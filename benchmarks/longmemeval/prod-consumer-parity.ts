@@ -119,6 +119,8 @@ function parseArgs(): {
   smokeN: number;
   judgeVotes: number;
   limit: number;
+  maxChars: number;
+  promptVariant: "baseline" | "fair";
 } {
   const args = process.argv.slice(2);
 
@@ -142,7 +144,18 @@ function parseArgs(): {
   const limitArg = args.find((a) => a.startsWith("--limit="));
   const limit = limitArg ? parseInt(limitArg.split("=")[1], 10) : Infinity;
 
-  return { arm, runIdBase, smokeN, judgeVotes, limit };
+  // PROD-CONSUMER (+ PROD-STRING-PARSED) per-result truncation. Production
+  // default is 2500; clamp ceiling in search-history.ts is 10000. Used by the
+  // max_chars sensitivity sweep to convert truncation exposure → accuracy impact.
+  const maxCharsArg = args.find((a) => a.startsWith("--max-chars="));
+  const maxChars = maxCharsArg ? parseInt(maxCharsArg.split("=")[1], 10) : 2500;
+
+  // Artifact-check C: "fair" swaps the PROD-CONSUMER raw-string answer prompt for
+  // a format-honest one (no false chronological/Note-# claims). "baseline" default.
+  const pvArg = args.find((a) => a.startsWith("--prompt-variant="));
+  const promptVariant = (pvArg?.split("=")[1] === "fair" ? "fair" : "baseline") as "baseline" | "fair";
+
+  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +216,71 @@ function productionStringToSearchResults(productionOutput: string): SearchResult
 }
 
 // ---------------------------------------------------------------------------
+// Prompt variant (artifact-check C): "baseline" = the category prompt copied
+// verbatim from buildAnswerPrompt (which assumes chronological order + "Note #"
+// numbering the production STRING does NOT have); "fair" = a format-honest
+// prompt that acknowledges the real string structure (relevance-ordered blocks,
+// "--- project (date) ---" headers, date-based recency). Set from --prompt-variant.
+// Isolates: is the ~5pp consumer gap a proxy-prompt artifact (false chronology/
+// numbering claims) or a genuine format cost? Same retrieval + string either way.
+let PROMPT_VARIANT: "baseline" | "fair" = "baseline";
+
+/**
+ * Format-honest prompt for the production search_history STRING. Acknowledges the
+ * actual block structure and that entries are RELEVANCE-ordered (not chronological),
+ * so recency is resolved by the date in each "--- project (date) ---" header rather
+ * than by note number. Category guidance is kept equivalent to the baseline.
+ */
+function buildFairRawStringPrompt(
+  question: string,
+  questionDate: string,
+  questionType: string,
+  notes: string,
+): string {
+  const preamble = `Below is memory retrieved from past conversations between you and a user. Each entry begins with a header line of the form "--- <project> (<date>) ---" followed by its content. The entries are ordered by RELEVANCE to the question, NOT by time — use the date in each entry's header to reason about chronology. Answer the question using these entries. If it cannot be answered from them, say so.`;
+
+  let guidance = "";
+  if (questionType === "multi-session") {
+    guidance = `
+- When the same fact appears in multiple entries with different values, use the value from the entry with the MOST RECENT header date.
+- If the question asks "how many", for a count, or for a total:
+  1. List EVERY matching item individually, citing the entry's header date.
+  2. VERIFY each item strictly matches the question's criteria; remove ones that don't. But NEVER dismiss something the USER claims they did — the user's statement is ground truth.
+  3. Count the remaining items and state the total clearly.
+  4. For "how much total" questions: list each amount with its entry date, then sum them.
+- DEDUPLICATION: the same event may appear in several entries (retrieval can return duplicates). If two entries describe the same event, count them as ONE.
+- For "increase"/"change" questions: find BOTH the starting and ending value, then compute the difference.
+- Scan every entry before answering. Give a direct, concise answer.`;
+  } else if (questionType === "temporal-reasoning") {
+    guidance = `
+- Convert ALL relative dates ("last Saturday", "3 weeks ago", "yesterday") to absolute dates using that entry's header date.
+- Find every entry that could match both the time reference AND the description — do not stop at the first match.
+- When an entry says "I was thinking about X" or "I remembered X", X did NOT happen on that entry's date — only count entries where the user describes actually doing the action.
+- For "how many days/weeks" questions, show the two absolute dates and the arithmetic briefly. For ordering questions, list each event with its absolute date, then sort. When values conflict, prefer the entry with the most recent header date.`;
+  } else if (questionType === "knowledge-update") {
+    guidance = `
+- When the same topic appears in multiple entries with different values, use the value from the entry with the MOST RECENT header date. Earlier values are superseded.`;
+  } else if (questionType === "single-session-preference") {
+    guidance = `
+- Focus on what the user explicitly said about their preferences, likes, dislikes, habits, and personal details.
+- When the same preference appears in multiple entries, use the one with the most recent header date.
+- If asked for a recommendation, USE the user's stated preferences; do NOT claim you lack information if the entries contain ANY relevant preferences.
+- Look for RELATED preferences even if no entry mentions the exact topic.
+- Your answer MUST reference at least one specific detail from the entries. Generic advice is WRONG.`;
+  }
+
+  return `${preamble}${guidance ? "\n" + guidance : ""}
+
+Retrieved memory:
+
+${notes}
+
+Current Date: ${questionDate}
+Question: ${question}
+Answer:`;
+}
+
+// ---------------------------------------------------------------------------
 // generateAnswerFromRawString
 //
 // Replicates the category prompt from buildAnswerPrompt (answer.ts:569-673),
@@ -229,7 +307,9 @@ async function generateAnswerFromRawString(
 
   let userPrompt: string;
 
-  if (questionType === "multi-session") {
+  if (PROMPT_VARIANT === "fair") {
+    userPrompt = buildFairRawStringPrompt(question, questionDate, questionType, notes);
+  } else if (questionType === "multi-session") {
     userPrompt = `I will give you several notes from past conversations between you and a user, ordered from oldest to newest. Please answer the question based on the relevant notes. If the question cannot be answered based on the provided notes, say so.
 
 Important:
@@ -380,6 +460,7 @@ async function runOneQuestion(
   judgeProvider: ReturnType<typeof createJudgeProvider>,
   judgeVotes: number,
   runTimestamp: string,
+  maxChars: number = 2500,
 ): Promise<PcpRunResult> {
   const ingested = await ingestQuestion(question);
 
@@ -421,7 +502,7 @@ async function runOneQuestion(
     const args: SearchHistoryArgs = {
       query: question.question,
       limit: 20,
-      max_chars: 2500,
+      max_chars: maxChars,
       // retrieval_strategy OMITTED → hits dense-turn-lane default (line 311)
     };
 
@@ -675,7 +756,7 @@ async function runOneQuestion(
     const args: SearchHistoryArgs = {
       query: question.question,
       limit: 20,
-      max_chars: 2500,
+      max_chars: maxChars,
       // retrieval_strategy OMITTED — same default as PROD-CONSUMER
     };
 
@@ -988,6 +1069,7 @@ async function runArm(
   judgeVotes: number,
   runTimestamp: string,
   label: string,
+  maxChars: number = 2500,
 ): Promise<PcpRunResult[]> {
   const completed = loadCompleted(runId);
   const results: PcpRunResult[] = [];
@@ -1014,6 +1096,7 @@ async function runArm(
         judgeProvider,
         judgeVotes,
         runTimestamp,
+        maxChars,
       );
       results.push(result);
       appendResult(runId, result);
@@ -1048,6 +1131,7 @@ async function runSmoke(
   judgeProvider: ReturnType<typeof createJudgeProvider>,
   judgeVotes: number,
   runTimestamp: string,
+  maxChars: number = 2500,
 ): Promise<boolean> {
   const smokeIds = new Set(pickStratified(dataset, smokeN));
   const smokeQuestions = dataset.filter((q) => smokeIds.has(q.question_id));
@@ -1076,6 +1160,7 @@ async function runSmoke(
       judgeVotes,
       runTimestamp,
       `SMOKE — ${arm}`,
+      maxChars,
     );
     smokeResults.set(arm, r);
   }
@@ -1102,12 +1187,14 @@ async function runSmoke(
   }
 
   // 3. BENCHMARK contextSessionCount > 0 AND real session IDs
-  {
+  //    Only applicable when the BENCHMARK arm is actually being run; a
+  //    single-arm run (e.g. --arm=prod-consumer) has no BENCHMARK results
+  //    and must not be failed on this criterion.
+  if (!arms.includes("BENCHMARK")) {
+    console.log(`3. BENCHMARK contextSessionCount>0: SKIP (BENCHMARK arm not in this run)`);
+  } else {
     const bmResults = smokeResults.get("BENCHMARK") ?? [];
     const sessionOk = bmResults.every((r) => r.contextSessionCount > 0);
-    const realIds = bmResults.every(
-      (r) => !(r as any)._hasRealSessionIds === false
-    );
     const verdict = sessionOk && bmResults.length > 0 ? "PASS" : "FAIL";
     if (verdict === "FAIL") allPass = false;
     console.log(
@@ -1249,7 +1336,14 @@ function verifyFromDisk(
 
 async function main(): Promise<void> {
   loadEnv();
-  const { arm, runIdBase, smokeN, judgeVotes, limit } = parseArgs();
+  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant } = parseArgs();
+  PROMPT_VARIANT = promptVariant;
+  if (maxChars !== 2500) {
+    console.log(`max_chars OVERRIDE: ${maxChars} (default 2500) — PROD-CONSUMER + PROD-STRING-PARSED arms`);
+  }
+  if (promptVariant !== "baseline") {
+    console.log(`PROMPT VARIANT: ${promptVariant} (artifact-check C — format-honest raw-string prompt)`);
+  }
 
   const allArms: PcpArmLabel[] = [
     "PROD-CONSUMER",
@@ -1310,6 +1404,7 @@ async function main(): Promise<void> {
       judgeProvider,
       judgeVotes,
       runTimestamp,
+      maxChars,
     );
 
     if (!smokePass) {
@@ -1354,6 +1449,7 @@ async function main(): Promise<void> {
       judgeVotes,
       runTimestamp,
       `Arm ${armLabel}`,
+      maxChars,
     );
     allResults.set(armLabel, r);
 
