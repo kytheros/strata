@@ -306,10 +306,20 @@ export async function handleSearchHistory(
     // (retrieve.ts:218-278) that reproduced 84.4%. Opt-in; SQLite backend.
     const limit = Math.min(searchOptions.limit ?? 20, 100);
 
+    // Candidate pool: must match the benchmark exactly.
+    // retrieve.ts:221-224: searchSessionLevel(query, { limit: 60, sessionK: 20 })
+    // The pool (limit=60) is wider than the final output (sessionK=20) to ensure
+    // session-level DCG scoring + reranker have a rich candidate set to work with.
+    // The previous bug: { ...searchOptions, sessionK: limit } forwarded limit=20 as
+    // both the pool AND sessionK, starving the scoring step of candidates.
+    const DEEP_CANDIDATE_POOL = 60; // mirrors retrieve.ts:223 — do NOT lower
+    const DEEP_SESSION_K = 20;      // mirrors retrieve.ts:223 — do NOT lower
+
     // Session lane: session-scoring + reranker + events
     let sessionLane = await engine.searchSessionLevel(args.query, {
       ...searchOptions,
-      sessionK: limit,
+      limit: DEEP_CANDIDATE_POOL,
+      sessionK: DEEP_SESSION_K,
     });
 
     // Merge knowledge entries (identical to every other branch)
