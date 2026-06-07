@@ -66,6 +66,43 @@ function fakeTurnStore(): IKnowledgeTurnStore {
   return {} as unknown as IKnowledgeTurnStore;
 }
 
+/**
+ * Create a spy engine that returns sessionResults from searchSessionLevel and
+ * turnHits from searchTurns — enabling the fuseDenseTurnLane path.
+ */
+function makeSpyEngineWithTurns(
+  sessionResults: SearchResult[],
+  turnHits: KnowledgeTurnHit[],
+): { engine: SqliteSearchEngine } {
+  const engine = {
+    search: async () => [],
+    searchAsync: async () => [],
+    searchSessionLevel: async () => sessionResults,
+    searchTurns: async (): Promise<KnowledgeTurnHit[]> => turnHits,
+    setKnowledgeTurnStore: vi.fn(),
+    setEmbedder: vi.fn(),
+    setVectorSearch: vi.fn(),
+    setReranker: vi.fn(),
+  } as unknown as SqliteSearchEngine;
+  return { engine };
+}
+
+/** Build a fake KnowledgeTurnHit for a given sessionId. */
+function makeTurnHit(sessionId: string, score: number, ts: number): KnowledgeTurnHit {
+  return {
+    score,
+    row: {
+      id: `turn-${sessionId}-${score}`,
+      sessionId,
+      project: "test",
+      speaker: "assistant" as const,
+      content: `turn content for ${sessionId}`,
+      createdAt: ts,
+      embedding: null,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Task 1 — Candidate-pool starvation fix
 // ---------------------------------------------------------------------------
@@ -211,5 +248,93 @@ describe("deep branch + format:'agent' composition", () => {
     );
 
     expect(out).toContain(SENTINEL);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3 — Session-count collapse fix (root cause: fuseDenseTurnLane turn
+// entries displace session entries out of slice(0,20) budget)
+// ---------------------------------------------------------------------------
+//
+// Bug: the deep path does:
+//   fuseDenseTurnLane(sessionLane, turnHits, maxTurnResults=10).slice(0, limit=20)
+//
+// When turnHits covers sessions that are already in sessionLane (or new ones),
+// up to 10 turn entries enter the fused list. After slice(0,20) many of those
+// slots are individual turn entries; deduplicateToSessions inside buildAgentContext
+// merges same-session turns, collapsing distinct session count from ~20 to ~7.
+//
+// Fix: keep all fused entries (do NOT slice before dedup). Cap after dedup.
+// ---------------------------------------------------------------------------
+
+describe("deep branch: distinct session count survives fuseDenseTurnLane (session-count collapse fix)", () => {
+  it("yields ~sessionK (≈20) distinct Note blocks when 20 sessions + turn hits present", async () => {
+    // Seed 20 distinct sessions as session-lane results.
+    const SESSION_COUNT = 20;
+    const sessionResults: SearchResult[] = Array.from({ length: SESSION_COUNT }, (_, i) =>
+      makeResult({
+        sessionId: `session-${i}`,
+        score: SESSION_COUNT - i, // descending score
+        timestamp: Date.UTC(2026, 0, i + 1),
+        text: `session ${i} summary text`,
+      }),
+    );
+
+    // Seed 10 turn hits: each turn hits one of the FIRST 3 sessions (simulating
+    // many turns from a few hot sessions — the worst-case displacement scenario).
+    // Before the fix: these 10 turn entries occupy 10 of the 20 slice slots,
+    // leaving only 10 session entries; dedup collapses 3 hot sessions → ~13 distinct.
+    const turnHits: KnowledgeTurnHit[] = Array.from({ length: 10 }, (_, i) =>
+      makeTurnHit(`session-${i % 3}`, SESSION_COUNT + i + 1, Date.UTC(2026, 0, 1) + i * 1000),
+    );
+
+    const { engine } = makeSpyEngineWithTurns(sessionResults, turnHits);
+
+    const out = await handleSearchHistory(
+      engine,
+      { query: "broad project coverage query", limit: 20, retrieval_strategy: "deep", format: "agent" },
+      undefined, undefined, undefined,
+      fakeTurnStore(), // provides a turn store so the fuseDenseTurnLane branch fires
+    );
+
+    // Count "Note N" blocks — each is one deduplicated session.
+    const noteCount = (out.match(/^Note \d+/gm) ?? []).length;
+
+    // After the fix: all 20 distinct sessions survive to the agent context.
+    // Before the fix: collapsed to ~13 (or fewer) because turns displaced sessions.
+    // We assert >= 18 to give one slot of tolerance (knowledge entries are empty here).
+    expect(noteCount).toBeGreaterThanOrEqual(18);
+  });
+
+  it("turn hits from NEW sessions (not in sessionLane) extend coverage, not collapse it", async () => {
+    // 15 sessions in sessionLane, 5 turn hits from 5 NEW sessions not in sessionLane.
+    // After fix: we get 20 distinct sessions (15 + 5 new ones).
+    const SESSION_COUNT = 15;
+    const sessionResults: SearchResult[] = Array.from({ length: SESSION_COUNT }, (_, i) =>
+      makeResult({
+        sessionId: `session-${i}`,
+        score: SESSION_COUNT - i,
+        timestamp: Date.UTC(2026, 0, i + 1),
+        text: `session ${i} content`,
+      }),
+    );
+
+    // 5 turn hits from completely NEW sessions (ids 15-19)
+    const turnHits: KnowledgeTurnHit[] = Array.from({ length: 5 }, (_, i) =>
+      makeTurnHit(`session-${SESSION_COUNT + i}`, SESSION_COUNT + i + 1, Date.UTC(2026, 1, i + 1)),
+    );
+
+    const { engine } = makeSpyEngineWithTurns(sessionResults, turnHits);
+
+    const out = await handleSearchHistory(
+      engine,
+      { query: "extended coverage query", limit: 20, retrieval_strategy: "deep", format: "agent" },
+      undefined, undefined, undefined,
+      fakeTurnStore(),
+    );
+
+    const noteCount = (out.match(/^Note \d+/gm) ?? []).length;
+    // Should include all 15 sessions + 5 new turn sessions = 20 distinct blocks.
+    expect(noteCount).toBeGreaterThanOrEqual(18);
   });
 });

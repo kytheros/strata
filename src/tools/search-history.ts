@@ -347,10 +347,20 @@ export async function handleSearchHistory(
         project: searchOptions.project,
         limit,
       });
-      results = fuseDenseTurnLane(sessionLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults)
-        .slice(0, limit);
+      // FIX (session-count collapse, 2026-06-07): do NOT slice(0, limit) the raw fused
+      // list before deduplication. fuseDenseTurnLane returns individual TURN entries
+      // interleaved with SESSION entries; slicing to limit=20 before dedup means ~10
+      // turn entries occupy half the budget → deduplicateToSessions inside buildAgentContext
+      // collapses them into their parent sessions → only ~7-10 distinct sessions survive
+      // instead of the expected ~20 (matching the benchmark's retrieveQuestion path).
+      //
+      // Fix: deduplicate sessions FIRST (collapsing turns into parent sessions), THEN
+      // slice to limit. This ensures ~DEEP_SESSION_K (≈20) distinct sessions reach the
+      // answer model, mirroring how retrieve.ts preserves session coverage.
+      const fused = fuseDenseTurnLane(sessionLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults);
+      results = deduplicateToSessions(fused).slice(0, limit);
     } else {
-      results = sessionLane.slice(0, limit);
+      results = deduplicateToSessions(sessionLane).slice(0, limit);
     }
 
   } else if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
