@@ -30,11 +30,9 @@ export function buildRecommendedPrompt(
   date: string,
   question: string,
 ): { system: string; user: string } {
+  const map: Record<string, string> = { "{context}": context, "{date}": date, "{question}": question };
   return {
     system: RECOMMENDED_AGENT_SYSTEM_PROMPT,
-    user: RECOMMENDED_AGENT_USER_TEMPLATE
-      .replace("{context}", context)
-      .replace("{date}", date)
-      .replace("{question}", question),
+    user: RECOMMENDED_AGENT_USER_TEMPLATE.replace(/\{(context|date|question)\}/g, (m) => map[m] ?? m),
   };
 }

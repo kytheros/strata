@@ -18,7 +18,7 @@ export function deduplicateToSessions(results: SearchResult[]): SearchResult[] {
     } else {
       existing.texts.push(r.text);
       if (r.score > existing.score) existing.score = r.score;
-      if (r.timestamp < existing.timestamp) existing.timestamp = r.timestamp;
+      if (!Number.isFinite(existing.timestamp) || (Number.isFinite(r.timestamp) && r.timestamp < existing.timestamp)) existing.timestamp = r.timestamp;
       for (const t of (r.toolNames ?? [])) {
         if (!existing.toolNames.includes(t)) existing.toolNames.push(t);
       }

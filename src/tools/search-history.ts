@@ -167,7 +167,7 @@ function toRecords(results: SearchResult[], maxChars: number): Record<string, un
  * validation A/B per the spec §4.3). Pure formatting over SearchResult[] →
  * identical across SQLite/Postgres backends.
  */
-function buildAgentContext(results: SearchResult[], query: string, maxChars: number): string {
+export function buildAgentContext(results: SearchResult[], query: string, maxChars: number): string {
   if (results.length === 0) {
     return `No relevant memory found for "${query}".`;
   }
@@ -255,6 +255,10 @@ export async function handleSearchHistory(
 
     const records = toRecords(dateResults, maxChars);
     const format = (args.format as ResponseFormat) || ResponseFormat.STANDARD;
+
+    if (format === ResponseFormat.AGENT) {
+      return buildAgentContext(dateResults, args.query, maxChars);
+    }
 
     if (format === ResponseFormat.CONCISE) {
       const serializer = new CompactSerializer("results");
@@ -528,14 +532,17 @@ export async function handleSearchHistory(
     return `No results found for "${args.query}".` + (tirqdpUnavailableNote ?? "");
   }
 
-  const records = toRecords(results, maxChars);
   const format = (args.format as ResponseFormat) || ResponseFormat.STANDARD;
 
   // Agent format: chronological, dated, clean notes block — the recommended
   // pipeline output for LLM agents (spec 2026-06-07-recommended-agent-pipeline).
+  // Evaluated BEFORE toRecords() so the expensive serialization is skipped
+  // entirely for agent-format callers.
   if (format === ResponseFormat.AGENT) {
     return buildAgentContext(results, args.query, maxChars);
   }
+
+  const records = toRecords(results, maxChars);
 
   // TOON format for concise responses
   if (format === ResponseFormat.CONCISE) {

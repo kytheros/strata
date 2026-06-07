@@ -30,4 +30,15 @@ describe("deduplicateToSessions", () => {
     ]);
     expect(out.map((x) => x.sessionId)).toEqual(["hi", "lo"]);
   });
+
+  it("replaces NaN timestamp on first chunk with a finite timestamp from a later chunk (same session)", () => {
+    // First chunk of session has NaN timestamp (e.g. corrupt parse); second chunk has 1000.
+    // The merged entry must have timestamp=1000, not NaN.
+    const out = deduplicateToSessions([
+      r({ sessionId: "s1", timestamp: NaN, text: "a" }),
+      r({ sessionId: "s1", timestamp: 1000, text: "b" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].timestamp).toBe(1000);
+  });
 });
