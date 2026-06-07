@@ -338,3 +338,174 @@ describe("deep branch: distinct session count survives fuseDenseTurnLane (sessio
     expect(noteCount).toBeGreaterThanOrEqual(18);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 4 — Knowledge-merge divergence from retrieveQuestion
+// ---------------------------------------------------------------------------
+//
+// Bug (prime suspect per ticket): the deep path's knowledge-merge step is:
+//
+//   sessionLane = [...sessionLane(20 items), ...knowledgeResults]
+//                   .sort((a,b) => b.score - a.score)
+//                   .slice(0, limit=20)         ← EVICTS session-lane entries!
+//
+// The benchmark's retrieveQuestion does NOT merge knowledge results into the
+// session lane at all. When knowledgeResults contain high-scoring items they
+// displace session-lane sessions out of the top-20 slice, shrinking distinct
+// session coverage and lowering recall@20.
+//
+// Fix: knowledge results must SUPPLEMENT (append unique sessions), NOT
+// displace existing session-lane entries. Concretely: preserve the full
+// sessionK session lane, then append knowledge results that introduce NEW
+// sessionIds not already in the session lane.
+//
+// How the knowledge-store path works:
+//   handleSearchHistory(engine, args, db?, asyncSearch?, knowledgeStore?, turnStore?)
+//   searchKnowledgeViaStore(knowledgeStore, query, opts) calls
+//     knowledgeStore.search(query, project, user) → KnowledgeEntry[]
+//   then maps via knowledgeEntryToSearchResult where score = (importance ?? 0.5) * 10
+//   Max knowledge score = 1.0 * 10 = 10.
+//
+// Session DCG scores from searchSessionLevel can also be small (e.g., 0.1..5).
+// The displacement scenario: 20 sessions with scores 0.5..2.0, 5 knowledge
+// entries with importance=1.0 → score=10. Sort+slice(0,20): the 5 knowledge
+// entries occupy slots 1-5, evicting the 5 lowest-scoring sessions (sess-0..4).
+// ---------------------------------------------------------------------------
+
+/** Minimal fake IKnowledgeStore that returns a fixed KnowledgeEntry array. */
+function makeKnowledgeStore(entries: import("../../src/knowledge/knowledge-store.js").KnowledgeEntry[]) {
+  return {
+    search: async () => entries,
+  } as unknown as import("../../src/storage/interfaces/knowledge-store.js").IKnowledgeStore;
+}
+
+/** Build a KnowledgeEntry with controlled importance (→ score = importance*10). */
+function makeKnowledgeEntry(
+  id: string,
+  sessionId: string,
+  summary: string,
+  importance: number,
+  ts: number,
+): import("../../src/knowledge/knowledge-store.js").KnowledgeEntry {
+  return {
+    id,
+    type: "learning" as const,
+    project: "test",
+    sessionId,
+    timestamp: ts,
+    summary,
+    details: summary,
+    tags: [],
+    relatedFiles: [],
+    importance,
+  };
+}
+
+describe("deep branch: knowledge-merge supplements session-lane (no eviction)", () => {
+  it("preserves all 20 session-lane sessions even when knowledgeResults have higher scores", async () => {
+    // 20 sessions, DCG scores 0.1..2.0 (small — realistic low-corpus scenario).
+    // The important thing: all 20 are present before the knowledge merge.
+    const SESSION_COUNT = 20;
+    const sessionResults: SearchResult[] = Array.from({ length: SESSION_COUNT }, (_, i) =>
+      makeResult({
+        sessionId: `sess-${i}`,
+        score: 0.1 * (i + 1),   // scores 0.1..2.0 — all below max knowledge score of 10
+        timestamp: Date.UTC(2026, 0, i + 1),
+        text: `session ${i} content`,
+      }),
+    );
+
+    // 5 knowledge entries with importance=1.0 → score=10, HIGHER than any session.
+    // New sessionIds (not in session lane) so they'd be appended.
+    // Before the fix: sort+slice(0,20) inserts these 5 at the top, evicting
+    // sess-0..sess-4 (the 5 lowest-scoring sessions).
+    // After the fix: all 20 original sessions survive; knowledge entries supplement.
+    const knowledgeEntries = Array.from({ length: 5 }, (_, i) =>
+      makeKnowledgeEntry(
+        `k${i}`,
+        `knowledge-sess-${i}`,   // NEW sessionId — not in session lane
+        `knowledge entry ${i}`,
+        1.0,                     // max importance → score=10
+        Date.UTC(2026, 2, i + 1),
+      )
+    );
+
+    const engine = {
+      search: async () => [],
+      searchAsync: async () => [],
+      searchSessionLevel: async () => sessionResults,
+      searchTurns: async (): Promise<KnowledgeTurnHit[]> => [],
+      setKnowledgeTurnStore: vi.fn(),
+      setEmbedder: vi.fn(),
+      setVectorSearch: vi.fn(),
+      setReranker: vi.fn(),
+    } as unknown as SqliteSearchEngine;
+
+    const out = await handleSearchHistory(
+      engine,
+      { query: "project coverage query", limit: 20, retrieval_strategy: "deep", format: "agent" },
+      undefined,                          // no db
+      undefined,                          // no asyncSearch
+      makeKnowledgeStore(knowledgeEntries), // knowledge store
+      undefined,                          // no turnStore
+    );
+
+    // After the fix: all 20 original session texts must appear in the output.
+    // Before the fix: sess-0..sess-4 are evicted → 5 of these assertions fail.
+    for (let i = 0; i < SESSION_COUNT; i++) {
+      expect(out).toContain(`session ${i} content`);
+    }
+  });
+
+  it("session-lane sessions are not evicted when knowledgeResults have same sessionIds", async () => {
+    // Edge case: knowledgeResults reference sessionIds already in the session lane.
+    // After the fix: session-lane entries are preserved (or merged, not evicted).
+    const sessionResults: SearchResult[] = Array.from({ length: 10 }, (_, i) =>
+      makeResult({
+        sessionId: `sess-${i}`,
+        score: 0.5 * (i + 1),   // small scores (0.5..5.0)
+        timestamp: Date.UTC(2026, 0, i + 1),
+        text: `session ${i} text`,
+      }),
+    );
+
+    // 5 knowledge entries with SAME sessionIds as first 5 session-lane entries.
+    // importance=1.0 → score=10, all higher than the 5 matching session entries.
+    const knowledgeEntries = Array.from({ length: 5 }, (_, i) =>
+      makeKnowledgeEntry(
+        `k${i}`,
+        `sess-${i}`,    // SAME sessionId as session-lane entries 0..4
+        `session ${i} knowledge text`,
+        1.0,            // score=10
+        Date.UTC(2026, 0, i + 1),
+      )
+    );
+
+    const engine = {
+      search: async () => [],
+      searchAsync: async () => [],
+      searchSessionLevel: async () => sessionResults,
+      searchTurns: async (): Promise<KnowledgeTurnHit[]> => [],
+      setKnowledgeTurnStore: vi.fn(),
+      setEmbedder: vi.fn(),
+      setVectorSearch: vi.fn(),
+      setReranker: vi.fn(),
+    } as unknown as SqliteSearchEngine;
+
+    const out = await handleSearchHistory(
+      engine,
+      { query: "overlap query", limit: 20, retrieval_strategy: "deep", format: "agent" },
+      undefined,                            // no db
+      undefined,                            // no asyncSearch
+      makeKnowledgeStore(knowledgeEntries), // knowledge store with overlapping sessionIds
+      undefined,                            // no turnStore
+    );
+
+    // All 10 session-lane sessions must survive (despite knowledge score dominance).
+    // The knowledge entries have the same sessionIds so they merge (dedup) rather
+    // than add new sessions, but critically the session-lane texts must not be lost.
+    for (let i = 0; i < 10; i++) {
+      expect(out).toContain(`session ${i} text`);
+    }
+  });
+});

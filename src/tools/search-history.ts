@@ -322,21 +322,50 @@ export async function handleSearchHistory(
       sessionK: DEEP_SESSION_K,
     });
 
-    // Merge knowledge entries (identical to every other branch)
+    // Supplement with knowledge entries — do NOT displace session-lane sessions.
+    //
+    // DIVERGENCE FIX (mirrors retrieveQuestion): the benchmark's retrieveQuestion
+    // does NOT merge knowledge results into the session lane. The previous code did:
+    //   [...sessionLane, ...knowledgeResults].sort().slice(0, limit=20)
+    // which evicts the lowest-scoring session-lane entries when knowledgeResults
+    // have higher scores — shrinking distinct session coverage and lowering recall@20.
+    //
+    // Fix: preserve the entire session-lane, append knowledge entries for NEW
+    // sessionIds only. In the final cap step, session-lane sessions are guaranteed
+    // to fill the first slots; knowledge sessions fill remaining capacity.
+    // This mirrors retrieveQuestion: session lane is untouched, knowledge is additive.
+    const sessionLaneIds = new Set(sessionLane.map(r => r.sessionId));
+
     if (knowledgeStore) {
       const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
       if (knowledgeResults.length > 0) {
-        sessionLane = [...sessionLane, ...knowledgeResults]
-          .sort((a, b) => b.score - a.score)
-          .slice(0, limit);
+        // Only append knowledge entries with new sessionIds — never evict session lane.
+        const newKnowledge = knowledgeResults.filter(r => !sessionLaneIds.has(r.sessionId));
+        sessionLane = [...sessionLane, ...newKnowledge];
       }
     } else if (db) {
       const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
       if (knowledgeResults.length > 0) {
-        sessionLane = [...sessionLane, ...knowledgeResults]
-          .sort((a, b) => b.score - a.score)
-          .slice(0, limit);
+        const newKnowledge = knowledgeResults.filter(r => !sessionLaneIds.has(r.sessionId));
+        sessionLane = [...sessionLane, ...newKnowledge];
       }
+    }
+
+    /**
+     * Priority-aware cap: when knowledge entries are appended, a score-sorted
+     * dedup+slice(0,limit) would still evict the lowest-scoring session-lane
+     * entries if knowledge scores are higher. Instead we partition the deduped
+     * list into "came from the session lane" vs "knowledge-only", guarantee the
+     * session-lane group occupies the first slots, then fill remaining capacity
+     * with knowledge entries sorted by score. This matches retrieveQuestion's
+     * semantics exactly: session results are never displaced.
+     */
+    function priorityCap(deduped: SearchResult[], sLaneIds: Set<string>, cap: number): SearchResult[] {
+      const sessionPart = deduped.filter(r => sLaneIds.has(r.sessionId));
+      const knowledgePart = deduped.filter(r => !sLaneIds.has(r.sessionId));
+      // Session-lane entries first (ordered by their own score desc), then knowledge.
+      const combined = [...sessionPart, ...knowledgePart];
+      return combined.slice(0, cap);
     }
 
     // Dense turn-lane fusion (carries the shipped SSA win; matches retrieve.ts:276-278)
@@ -355,12 +384,11 @@ export async function handleSearchHistory(
       // instead of the expected ~20 (matching the benchmark's retrieveQuestion path).
       //
       // Fix: deduplicate sessions FIRST (collapsing turns into parent sessions), THEN
-      // slice to limit. This ensures ~DEEP_SESSION_K (≈20) distinct sessions reach the
-      // answer model, mirroring how retrieve.ts preserves session coverage.
+      // cap with priority-aware slicing so session-lane sessions are never displaced.
       const fused = fuseDenseTurnLane(sessionLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults);
-      results = deduplicateToSessions(fused).slice(0, limit);
+      results = priorityCap(deduplicateToSessions(fused), sessionLaneIds, limit);
     } else {
-      results = deduplicateToSessions(sessionLane).slice(0, limit);
+      results = priorityCap(deduplicateToSessions(sessionLane), sessionLaneIds, limit);
     }
 
   } else if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
