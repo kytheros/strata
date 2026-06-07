@@ -15,6 +15,7 @@ import { fuseCommunityLanes } from "../search/recall-fusion-community.js";
 import type { CommunityChunkResult } from "../search/recall-fusion-community.js";
 import { recallQdpCommunity } from "../search/recall-qdp-community.js";
 import { fuseDenseTurnLane } from "../search/dense-turn-fusion.js";
+import { deduplicateToSessions } from "../search/dedupe-to-sessions.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -157,6 +158,36 @@ function toRecords(results: SearchResult[], maxChars: number): Record<string, un
     }
     return record;
   });
+}
+
+/**
+ * Build the recommended-agent context block: chronological (oldest→newest),
+ * dated, numbered notes with relevance-rank chrome stripped. Dedup-to-sessions
+ * is on by default (kill-switch STRATA_AGENT_FORMAT_DEDUPE=off for the
+ * validation A/B per the spec §4.3). Pure formatting over SearchResult[] →
+ * identical across SQLite/Postgres backends.
+ */
+function buildAgentContext(results: SearchResult[], query: string, maxChars: number): string {
+  if (results.length === 0) {
+    return `No relevant memory found for "${query}".`;
+  }
+  const dedupe = process.env.STRATA_AGENT_FORMAT_DEDUPE !== "off";
+  const entries = dedupe ? deduplicateToSessions(results) : results.slice();
+  // Chronological: oldest first; unknown/NaN timestamps sort last.
+  entries.sort((a, b) => {
+    const at = Number.isFinite(a.timestamp) ? a.timestamp : Number.POSITIVE_INFINITY;
+    const bt = Number.isFinite(b.timestamp) ? b.timestamp : Number.POSITIVE_INFINITY;
+    return at - bt;
+  });
+  const lines: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const r = entries[i];
+    const d = new Date(r.timestamp);
+    const dateStr = isNaN(d.getTime()) ? "Unknown date" : d.toISOString().split("T")[0];
+    const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
+    lines.push(`Note ${i + 1} (${dateStr}):\n${text}\n`);
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -480,6 +511,10 @@ export async function handleSearchHistory(
   }
 
   if (results.length === 0) {
+    // Agent format: clean sentinel for empty results (no chrome).
+    if ((args.format as ResponseFormat) === ResponseFormat.AGENT) {
+      return `No relevant memory found for "${args.query}".`;
+    }
     // Check for gap-aware nudge on empty results
     if (db) {
       try {
@@ -495,6 +530,12 @@ export async function handleSearchHistory(
 
   const records = toRecords(results, maxChars);
   const format = (args.format as ResponseFormat) || ResponseFormat.STANDARD;
+
+  // Agent format: chronological, dated, clean notes block — the recommended
+  // pipeline output for LLM agents (spec 2026-06-07-recommended-agent-pipeline).
+  if (format === ResponseFormat.AGENT) {
+    return buildAgentContext(results, args.query, maxChars);
+  }
 
   // TOON format for concise responses
   if (format === ResponseFormat.CONCISE) {
