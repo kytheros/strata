@@ -216,7 +216,11 @@ export async function handleSearchHistory(
   /** Optional turn store — activates the dense turn-lane (CONFIG.search.denseTurnLane.enabled,
    *  default ON when a provider is present) and the legacy TIR+QDP lane
    *  (CONFIG.search.useTirQdp). Bypassed when retrieval_strategy:"legacy" is set. */
-  turnStore?: IKnowledgeTurnStore
+  turnStore?: IKnowledgeTurnStore,
+  /** Optional results sink — if provided, the final `results` array (post-fusion, post-cap,
+   *  same slice that buildAgentContext / the format renderer consumes) is pushed into this
+   *  array before the response is built. Additive only; existing callers are unaffected. */
+  resultsSink?: SearchResult[]
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
 
@@ -543,6 +547,11 @@ export async function handleSearchHistory(
       }
     }
   }
+
+  // Capture final results for callers that need the SearchResult[] (e.g. benchmarks,
+  // diagnostic harnesses). Pushed AFTER all strategies converge on the same `results`
+  // variable — this is the exact slice that buildAgentContext / format renderers consume.
+  if (resultsSink) resultsSink.push(...results);
 
   // Record evidence gap if results are empty or low-confidence
   if (db && CONFIG.gaps.enabled) {

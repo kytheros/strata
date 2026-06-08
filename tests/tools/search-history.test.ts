@@ -406,3 +406,86 @@ describe("handleSearchHistory — tirqdp + turn recency boost", () => {
     expect(olderPos).toBeLessThan(newerPos);
   });
 });
+
+// ---------------------------------------------------------------------------
+// resultsSink — additive results capture hook
+// ---------------------------------------------------------------------------
+describe("handleSearchHistory resultsSink", () => {
+  let db: Database.Database;
+  let docStore: SqliteDocumentStore;
+  let knowledgeStore: SqliteKnowledgeStore;
+  let engine: SqliteSearchEngine;
+
+  beforeEach(async () => {
+    db = openDatabase(":memory:");
+    docStore = new SqliteDocumentStore(db);
+    knowledgeStore = new SqliteKnowledgeStore(db);
+    engine = new SqliteSearchEngine(docStore, null, null, null, knowledgeStore);
+
+    // Add a document so there are results to capture
+    await docStore.add(
+      "User prefers dark mode for all their editors and terminals",
+      10,
+      {
+        sessionId: "session-sink-1",
+        project: "test-project",
+        role: "mixed",
+        timestamp: Date.now() - 1000,
+        toolNames: [],
+        messageIndex: 0,
+      }
+    );
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("resultsSink is populated with the same results the handler rendered (legacy path)", async () => {
+    const sink: import("../../src/search/sqlite-search-engine.js").SearchResult[] = [];
+
+    await handleSearchHistory(
+      engine,
+      { query: "dark mode editors" },
+      db,
+      undefined,
+      knowledgeStore,
+      undefined, // turnStore
+      sink,      // resultsSink — 7th positional param
+    );
+
+    // The sink must contain at least one result matching what was rendered
+    expect(sink.length).toBeGreaterThan(0);
+    expect(sink.some(r => r.text.includes("dark mode"))).toBe(true);
+  });
+
+  it("resultsSink is empty when handler returns no results", async () => {
+    const sink: import("../../src/search/sqlite-search-engine.js").SearchResult[] = [];
+
+    await handleSearchHistory(
+      engine,
+      { query: "zzz-nonexistent-xyzzy" },
+      db,
+      undefined,
+      knowledgeStore,
+      undefined,
+      sink,
+    );
+
+    expect(sink.length).toBe(0);
+  });
+
+  it("omitting resultsSink leaves existing callers unaffected", async () => {
+    // Call with 6 args (no sink) — must not throw and must return a string
+    const result = await handleSearchHistory(
+      engine,
+      { query: "dark mode editors" },
+      db,
+      undefined,
+      knowledgeStore,
+    );
+
+    expect(typeof result).toBe("string");
+    expect(result).not.toBe("");
+  });
+});

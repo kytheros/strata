@@ -657,6 +657,12 @@ async function runOneQuestion(
       ...(AGENT_FORMAT ? { format: "agent" as const } : {}),
     };
 
+    // Sink for the real final SearchResult[] that handleSearchHistory rendered —
+    // populated via the resultsSink param (search-history.ts). Used by --structured
+    // so generateAnswer receives the ACTUAL deep session results, not a broken
+    // fuseDenseTurnLane(_lastChunkResults=[], turnHits) reconstruction.
+    const deepResults: SearchResult[] = [];
+
     const rawString = await handleSearchHistory(
       ingested.searchEngine,
       searchArgs,
@@ -664,31 +670,46 @@ async function runOneQuestion(
       asyncSearch,
       ingested.knowledgeStore,
       ingested.turnStore,
+      deepResults,
     );
 
     bridgeActive = _bridgeReturnedNonNull;
     denseTurnStoreActive = true; // turnStore always passed
     productionOutputLength = rawString.length;
 
-    // Recall@20 / structured-path: reconstruct SearchResult[] from the deep retrieval
-    // results captured via asyncSearch closure + turn lane fusion.
-    // Hoisted BEFORE answer generation so --structured can feed it to generateAnswer,
-    // and --ku-cot can apply the recency boost before either answer path consumes it.
+    // Recall@20 / structured-path: obtain the real SearchResult[] from the handler.
+    // When --structured + --deep: use deepResults (captured via resultsSink — the ACTUAL
+    // deep session results that handleSearchHistory rendered). This fixes the previous bug
+    // where agentSearchResults was reconstructed from _lastChunkResults (empty for the deep
+    // path, because the deep block bypasses asyncSearch) → fuseDenseTurnLane([], turnHits)
+    // yielded turn fragments only, crashing temporal/MS accuracy.
+    // When NOT --structured (or non-deep): fall back to the chunk+turn fusion reconstruction
+    // (preserves the existing non-structured path which renders correctly from rawString).
     let evidenceRecall20: number | undefined;
     let agentSearchResults: SearchResult[] | undefined;
     if (AGENT_FORMAT) {
-      const fusionLimit = 20;
-      ingested.searchEngine.setKnowledgeTurnStore(ingested.turnStore);
-      const turnHits = await ingested.searchEngine.searchTurns(question.question, {
-        userId: undefined,
-        project: undefined,
-        limit: fusionLimit,
-      });
-      agentSearchResults = fuseDenseTurnLane(
-        _lastChunkResults,
-        turnHits,
-        CONFIG.search.denseTurnLane.maxTurnResults,
-      ).slice(0, fusionLimit);
+      if (STRUCTURED && DEEP_RETRIEVAL && deepResults.length > 0) {
+        // Use the real deep results captured from handleSearchHistory via resultsSink.
+        // These are the final post-fusion, post-dedup, post-cap SearchResult[] that
+        // buildAgentContext consumed — same data the agent-format string was built from.
+        agentSearchResults = deepResults.slice();
+      } else {
+        // Non-structured path OR non-deep: reconstruct via chunk+turn fusion (legacy).
+        // _lastChunkResults is populated by asyncSearch closure for the dense-turn-lane
+        // path (non-deep), which is correct for that branch.
+        const fusionLimit = 20;
+        ingested.searchEngine.setKnowledgeTurnStore(ingested.turnStore);
+        const turnHits = await ingested.searchEngine.searchTurns(question.question, {
+          userId: undefined,
+          project: undefined,
+          limit: fusionLimit,
+        });
+        agentSearchResults = fuseDenseTurnLane(
+          _lastChunkResults,
+          turnHits,
+          CONFIG.search.denseTurnLane.maxTurnResults,
+        ).slice(0, fusionLimit);
+      }
 
       // --ku-cot RECENCY BOOST (mirrors run-benchmark.ts:737-751):
       // For knowledge-update questions, re-score by recency so the LATEST value floats
