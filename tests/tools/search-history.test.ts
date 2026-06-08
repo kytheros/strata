@@ -489,3 +489,107 @@ describe("handleSearchHistory resultsSink", () => {
     expect(result).not.toBe("");
   });
 });
+
+// ── deep path reranker skip tests ────────────────────────────────────────────
+//
+// Ticket: RECALL-PARITY — consumer deep path must call searchSessionLevel with
+// skipReranker:true to match the prod-consumer-parity.ts benchmark arm that
+// achieves 98.7% recall@20. Without this flag, the cross-encoder reranker can
+// push gold sessions below position 20 for knowledge-update questions (7.7pp gap).
+//
+// RED evidence: before the fix, the spy would see skipReranker=undefined/false.
+// GREEN evidence: after the fix, the spy sees skipReranker=true.
+
+describe("handleSearchHistory deep path — skipReranker:true in searchSessionLevel", () => {
+  let db: Database.Database;
+  let docStore: SqliteDocumentStore;
+  let knowledgeStore: SqliteKnowledgeStore;
+  let turnStore: SqliteKnowledgeTurnStore;
+  let engine: SqliteSearchEngine;
+
+  beforeEach(async () => {
+    db = openDatabase(":memory:");
+    docStore = new SqliteDocumentStore(db);
+    knowledgeStore = new SqliteKnowledgeStore(db);
+    turnStore = new SqliteKnowledgeTurnStore(db);
+    engine = new SqliteSearchEngine(docStore, null, null, null, knowledgeStore);
+
+    // Seed a document so searchSessionLevel has something to return
+    await docStore.add(
+      "knowledge-update session content about recipes",
+      10,
+      {
+        sessionId: "session-ku-1",
+        project: "test-project",
+        role: "mixed",
+        timestamp: Date.now() - 86400000,
+        toolNames: [],
+        messageIndex: 0,
+      },
+      "test-project",
+    );
+
+    await docStore.add(
+      "knowledge-update second session about cooking",
+      10,
+      {
+        sessionId: "session-ku-2",
+        project: "test-project",
+        role: "mixed",
+        timestamp: Date.now(),
+        toolNames: [],
+        messageIndex: 0,
+      },
+      "test-project",
+    );
+  });
+
+  afterEach(() => {
+    db.close();
+    vi.restoreAllMocks();
+  });
+
+  it('deep path calls searchSessionLevel with skipReranker:true to match benchmark recall', async () => {
+    // Spy on searchSessionLevel to capture the options it was called with.
+    // The deep path must pass skipReranker:true to mirror the benchmark arm's
+    // no-reranker behavior (prod-consumer-parity.ts BENCHMARK arm does not
+    // set a reranker and achieves 98.7% recall@20 vs 92.3% with reranker).
+    const spy = vi.spyOn(engine, 'searchSessionLevel');
+
+    await handleSearchHistory(
+      engine,
+      { query: "recipes cooking", retrieval_strategy: "deep" },
+      db,
+      undefined,
+      knowledgeStore,
+      turnStore,
+    );
+
+    // The deep path must have called searchSessionLevel
+    expect(spy).toHaveBeenCalled();
+
+    // Every call to searchSessionLevel from the deep path must include skipReranker:true
+    for (const call of spy.mock.calls) {
+      const opts = call[1] as { skipReranker?: boolean; sessionK?: number; limit?: number } | undefined;
+      expect(opts?.skipReranker).toBe(true);
+    }
+  });
+
+  it('other retrieval strategies do NOT pass skipReranker to engine (only deep path sets it)', async () => {
+    // The skipReranker:true flag is only for the deep path. Legacy and tirqdp paths
+    // use their own search methods (engine.search, engine.searchAsync) and do not
+    // call searchSessionLevel at all.
+    const spy = vi.spyOn(engine, 'searchSessionLevel');
+
+    await handleSearchHistory(
+      engine,
+      { query: "recipes cooking", retrieval_strategy: "legacy" },
+      db,
+      undefined,
+      knowledgeStore,
+    );
+
+    // Legacy path does NOT call searchSessionLevel — that's the deep path's entry point
+    expect(spy).not.toHaveBeenCalled();
+  });
+});

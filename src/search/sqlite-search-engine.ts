@@ -446,7 +446,21 @@ export class SqliteSearchEngine {
    */
   async searchSessionLevel(
     rawQuery: string,
-    options: SearchOptions & { sessionK?: number } = {}
+    options: SearchOptions & {
+      sessionK?: number;
+      /**
+       * When true, skip the cross-encoder reranker for this call.
+       *
+       * The reranker can demote gold sessions to positions >20 for
+       * knowledge-update questions (and others where FTS/DCG already
+       * ranks the gold high). Setting this flag restores the pure DCG
+       * ordering used by the prod-consumer-parity benchmark arm that
+       * achieves 98.7% recall@20.
+       *
+       * Default: false (reranker runs when set on the engine, per CONFIG.reranker.enabled).
+       */
+      skipReranker?: boolean;
+    } = {}
   ): Promise<SearchResult[]> {
     const { text, filters } = parseQuery(rawQuery);
 
@@ -768,7 +782,10 @@ export class SqliteSearchEngine {
     // Now uses full session text instead of bestChunk fragment.
 
     // Skip reranker for counting/temporal queries -- benchmark validated -6pp/-20pp regression
-    const skipReranker = (CONFIG.reranker.skipForCounting && isCountingQuestion(text)) ||
+    // Also honor the caller's explicit skipReranker flag (used by the deep path to match
+    // the prod-consumer-parity benchmark arm that achieves 98.7% recall@20 without reranker).
+    const skipReranker = options.skipReranker ||
+                         (CONFIG.reranker.skipForCounting && isCountingQuestion(text)) ||
                          (CONFIG.reranker.skipForTemporal && isTemporalQuestion(text));
     // Model routing can disable the reranker for small-context models
     const modelSkipReranker = modelParams ? !modelParams.useReranker : false;
