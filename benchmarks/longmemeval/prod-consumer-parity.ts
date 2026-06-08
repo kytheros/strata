@@ -56,6 +56,7 @@ import { questionTypeToAbility } from "./types.js";
 import { ingestQuestion, closeIngested, configureEmbeddingCache } from "./ingest.js";
 import { retrieveQuestion } from "./retrieve.js";
 import { generateAnswer, withRetry } from "./answer.js";
+import type { PromptVariant } from "./answer.js";
 import { judgeAnswer } from "./judge.js";
 import { createAnswerProvider, createJudgeProvider } from "./providers/provider-factory.js";
 import { handleSearchHistory } from "../../src/tools/search-history.js";
@@ -134,6 +135,24 @@ function parseArgs(): {
    *  exercises the session-scoring candidate pool (limit:60/sessionK:20) that produced 84.4%.
    *  Reranker is already injected by the prod-consumer arm setup. */
   deep: boolean;
+  /**
+   * --structured: In the agent arm, answer via generateAnswer(SearchResult[]) instead of
+   * generateAnswerFromRawString. Takes the same reconstructed SearchResult[] used for
+   * recall@20 (fuseDenseTurnLane output) and calls generateAnswer with promptVariant:"category"
+   * + questionType — exactly as the PROD-RESULTS arm does, but on the deep retrieval results.
+   * Gives the full-text Note-N structured assembly from generateAnswer.
+   */
+  structured: boolean;
+  /**
+   * --ku-cot: Mirror the benchmark's knowledge-update (KU) handling. For KU questions:
+   *   (a) RECENCY BOOST — re-score results with run-benchmark.ts:737-751 formula
+   *       (score *= 1 + 0.5 * frac where frac = (ts - earliest) / span) then re-sort.
+   *   (b) CHAIN-OF-NOTE PROMPT — override the prompt variant to chain-of-note for KU.
+   *       Structured path: pass promptVariant:"chain-of-note" to generateAnswer.
+   *       String path: swap the KU branch for the CoN-Gemini-style template.
+   * Non-KU questions are unchanged.
+   */
+  kuCot: boolean;
 } {
   const args = process.argv.slice(2);
 
@@ -186,7 +205,14 @@ function parseArgs(): {
   // either — no additional wiring needed for faithful benchmark reproduction.
   const deep = args.includes("--deep");
 
-  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep };
+  // Structured answer path (--structured): use generateAnswer(SearchResult[]) on the deep
+  // retrieval results instead of generateAnswerFromRawString on the raw string.
+  const structured = args.includes("--structured");
+
+  // KU chain-of-note (--ku-cot): mirror run-benchmark.ts KU recency boost + CoN prompt override.
+  const kuCot = args.includes("--ku-cot");
+
+  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot };
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +289,15 @@ let AGENT_FORMAT = false;
 // When on, handleSearchHistory uses session-level scoring (DEEP_CANDIDATE_POOL=60/sessionK=20)
 // matching the benchmark's sessionScoring path that produced 84.4%.
 let DEEP_RETRIEVAL = false;
+
+// Structured answer path (--structured): answer via generateAnswer(SearchResult[]) using the
+// reconstructed deep retrieval results instead of generateAnswerFromRawString on raw string.
+let STRUCTURED = false;
+
+// KU chain-of-note (--ku-cot): for knowledge-update questions, apply recency boost on
+// SearchResult[] (run-benchmark.ts:737-751 formula) and override prompt to chain-of-note
+// (structured path: promptVariant:"chain-of-note"; string path: CoN-Gemini-style template).
+let KU_COT = false;
 
 /**
  * Format-honest prompt for the production search_history STRING. Acknowledges the
@@ -449,6 +484,67 @@ Answer:`;
 }
 
 // ---------------------------------------------------------------------------
+// generateAnswerFromRawStringCoNKu
+//
+// Mirrors the run-benchmark.ts CoN prompt for knowledge-update questions
+// (effectiveVariant = "chain-of-note" → resolveVariant → "chain-of-note" for
+// vertex-gemini which is the generic JSON CoN fallback, per answer.ts:820-840).
+//
+// For the string path the rawNotes IS the formatted history block — we embed it
+// directly in the CoN-Gemini-style template (Steps 1+2) rather than the per-
+// category "MOST RECENT note" vanilla instruction. This matches what generateAnswer
+// does when passed promptVariant:"chain-of-note" for a vertex-gemini provider
+// (resolveVariant maps "chain-of-note" + "vertex-gemini" → "chain-of-note" generic,
+// which uses the CHAIN_OF_NOTE_TEMPLATE with {history} from formatHistoryJson).
+// Since the raw string is pre-rendered, we substitute it as the "history" block.
+// ---------------------------------------------------------------------------
+
+async function generateAnswerFromRawStringCoNKu(
+  provider: ReturnType<typeof createAnswerProvider>["provider"],
+  question: string,
+  questionDate: string,
+  rawNotes: string,
+): Promise<string> {
+  // Chain-of-Note Gemini-style template with the raw agent-format string as the
+  // notes block. Mirrors CHAIN_OF_NOTE_GEMINI from answer.ts (single message,
+  // markdown headers, Step1/Step2 extract-then-synthesize structure).
+  const prompt = `You are a strictly grounded assistant. Answer questions using ONLY the conversation history provided below. Do not use any outside knowledge.
+
+---
+
+## Conversation History
+
+${rawNotes}
+
+---
+
+## How to respond
+
+Based on the information above, follow these steps:
+
+Step 1: For each entry, write one note about any information relevant to the question. If an entry has no relevant information, write "No relevant info." When the same topic appears in multiple entries with different values, note which entry has the MOST RECENT date — that is the current value.
+
+Step 2: Synthesize your notes to answer the question. Use the value from the most recent entry when facts conflict.
+
+If the information needed is not present in any entry, write exactly: "Insufficient information in the provided sessions."
+
+Current date: ${questionDate}
+
+Question: ${question}`;
+
+  const temperature = provider.name === "gemini" ? 1.0 : 0;
+  const isGeminiFamily = provider.name === "gemini" || provider.name === "vertex-gemini";
+  const maxTokens = isGeminiFamily ? 8192 : 2048;
+
+  const answer = await provider.complete(prompt, {
+    maxTokens,
+    temperature,
+    timeoutMs: 60000,
+  } as any);
+  return answer.trim();
+}
+
+// ---------------------------------------------------------------------------
 // Arm label type
 // ---------------------------------------------------------------------------
 
@@ -574,35 +670,134 @@ async function runOneQuestion(
     denseTurnStoreActive = true; // turnStore always passed
     productionOutputLength = rawString.length;
 
+    // Recall@20 / structured-path: reconstruct SearchResult[] from the deep retrieval
+    // results captured via asyncSearch closure + turn lane fusion.
+    // Hoisted BEFORE answer generation so --structured can feed it to generateAnswer,
+    // and --ku-cot can apply the recency boost before either answer path consumes it.
+    let evidenceRecall20: number | undefined;
+    let agentSearchResults: SearchResult[] | undefined;
+    if (AGENT_FORMAT) {
+      const fusionLimit = 20;
+      ingested.searchEngine.setKnowledgeTurnStore(ingested.turnStore);
+      const turnHits = await ingested.searchEngine.searchTurns(question.question, {
+        userId: undefined,
+        project: undefined,
+        limit: fusionLimit,
+      });
+      agentSearchResults = fuseDenseTurnLane(
+        _lastChunkResults,
+        turnHits,
+        CONFIG.search.denseTurnLane.maxTurnResults,
+      ).slice(0, fusionLimit);
+
+      // --ku-cot RECENCY BOOST (mirrors run-benchmark.ts:737-751):
+      // For knowledge-update questions, re-score by recency so the LATEST value floats
+      // to the top. Formula: score *= 1 + 0.5 * frac, where frac = (ts - earliest) / span
+      // (0 = oldest, 1 = newest → 1.0x boost for oldest, 1.5x for newest). Re-sort desc.
+      if (KU_COT && question.question_type === "knowledge-update" && agentSearchResults.length > 1) {
+        const timestamps = agentSearchResults.map(r => r.timestamp).filter(t => t > 0);
+        if (timestamps.length > 0) {
+          const earliest = Math.min(...timestamps);
+          const latest = Math.max(...timestamps);
+          const span = latest - earliest;
+          if (span > 0) {
+            process.stderr.write(`  [ku-cot] applying recency boost to ${agentSearchResults.length} results (span=${Math.round(span/86400000)}d)\n`);
+            for (const r of agentSearchResults) {
+              const frac = (r.timestamp - earliest) / span; // 0=oldest,1=newest
+              r.score = r.score * (1.0 + 0.5 * frac);
+            }
+            agentSearchResults.sort((a, b) => b.score - a.score);
+          }
+        }
+      }
+
+      const seen = new Set<string>();
+      const retrievedSessionIds: string[] = [];
+      for (const r of agentSearchResults) {
+        const idx = strataSessionIdToIndex(r.sessionId);
+        if (idx >= 0 && idx < ingested.indexToSessionId.length) {
+          const longMemId = ingested.indexToSessionId[idx];
+          if (!seen.has(longMemId)) {
+            seen.add(longMemId);
+            retrievedSessionIds.push(longMemId);
+          }
+        }
+      }
+      evidenceRecall20 = computeRecall(retrievedSessionIds, question.answer_session_ids, 20);
+    }
+
     let answer: string;
-    if (AGENT_FORMAT && PROMPT_VARIANT !== "category") {
+    if (AGENT_FORMAT && STRUCTURED && agentSearchResults !== undefined) {
+      // --structured: answer via generateAnswer(SearchResult[]) on the reconstructed deep
+      // retrieval results — identical to how the PROD-RESULTS arm works but on the deep pool.
+      // --ku-cot: for KU questions, pass chain-of-note (mirrors run-benchmark.ts:861-876
+      // effectiveVariant override that switches from "category" → "chain-of-note" for KU).
+      const isKuCot = KU_COT && question.question_type === "knowledge-update";
+      const promptVariantForAnswer: PromptVariant = isKuCot ? "chain-of-note" : "category";
+      if (isKuCot) {
+        process.stderr.write(`  [ku-cot] structured path: using chain-of-note variant for KU question\n`);
+      }
+      const { answer: ans } = await withRetry(() =>
+        generateAnswer(
+          answerProvider.provider,
+          question.question,
+          question.question_date,
+          agentSearchResults!,
+          { topK: 20, promptVariant: promptVariantForAnswer, questionType: question.question_type },
+        )
+      );
+      answer = ans;
+    } else if (AGENT_FORMAT && PROMPT_VARIANT !== "category") {
       // Agent format arm (default): unified recommended prompt (no question-type label).
       // This is the baseline agent-format measurement.
-      const { system, user } = buildRecommendedPrompt(
-        rawString,
-        question.question_date,
-        question.question,
-      );
-      const out = await withRetry(() => answerProvider.provider.complete(user, {
-        maxTokens: 8192, temperature: 0, timeoutMs: 60000, systemPrompt: system,
-      } as any));
-      answer = out.trim();
+      // --ku-cot string path: swap the KU prompt for CoN-Gemini-style template.
+      // The raw string IS the notes block; the CoN template's {history} is replaced verbatim.
+      if (KU_COT && question.question_type === "knowledge-update") {
+        process.stderr.write(`  [ku-cot] string path (unified): using CoN-Gemini template for KU question\n`);
+        answer = await withRetry(() => generateAnswerFromRawStringCoNKu(
+          answerProvider.provider,
+          question.question,
+          question.question_date,
+          rawString,
+        ));
+      } else {
+        const { system, user } = buildRecommendedPrompt(
+          rawString,
+          question.question_date,
+          question.question,
+        );
+        const out = await withRetry(() => answerProvider.provider.complete(user, {
+          maxTokens: 8192, temperature: 0, timeoutMs: 60000, systemPrompt: system,
+        } as any));
+        answer = out.trim();
+      }
     } else if (AGENT_FORMAT && PROMPT_VARIANT === "category") {
       // Agent format arm + --prompt-variant=category: per-question-type prompts
       // (same category-specific guidance as the benchmark's generateAnswer) applied
       // to the agent-format string. Ceiling check: unified vs per-category on agent arm.
-      // generateAnswerFromRawString already branches on question_type when PROMPT_VARIANT
-      // is NOT "fair" — re-use it verbatim (the agent string IS the raw notes block).
-      const result = await withRetry(() =>
-        generateAnswerFromRawString(
+      // --ku-cot string path: swap the KU branch for CoN-Gemini-style template.
+      if (KU_COT && question.question_type === "knowledge-update") {
+        process.stderr.write(`  [ku-cot] string path (category): using CoN-Gemini template for KU question\n`);
+        answer = await withRetry(() => generateAnswerFromRawStringCoNKu(
           answerProvider.provider,
           question.question,
           question.question_date,
-          question.question_type,
           rawString,
-        )
-      );
-      answer = result.answer;
+        ));
+      } else {
+        // generateAnswerFromRawString already branches on question_type when PROMPT_VARIANT
+        // is NOT "fair" — re-use it verbatim (the agent string IS the raw notes block).
+        const result = await withRetry(() =>
+          generateAnswerFromRawString(
+            answerProvider.provider,
+            question.question,
+            question.question_date,
+            question.question_type,
+            rawString,
+          )
+        );
+        answer = result.answer;
+      }
     } else {
       // Verbatim injection (non-agent arm) — the consumer gets this string and uses it directly
       const result = await withRetry(() =>
@@ -622,39 +817,6 @@ async function runOneQuestion(
     contextSessionCount = AGENT_FORMAT
       ? (rawString.match(/^Note \d+/gm) ?? []).length
       : (rawString.match(/^---/gm) ?? []).length;
-
-    // Recall@20: map production SearchResult.sessionId → LongMemEval session id.
-    // Uses the dense-turn-lane chunk results captured via asyncSearch closure,
-    // plus turn hits fused in (mirrors the PROD-RESULTS arm retrieval path).
-    let evidenceRecall20: number | undefined;
-    if (AGENT_FORMAT) {
-      const limit = 20;
-      ingested.searchEngine.setKnowledgeTurnStore(ingested.turnStore);
-      const turnHits = await ingested.searchEngine.searchTurns(question.question, {
-        userId: undefined,
-        project: undefined,
-        limit,
-      });
-      const searchResults = fuseDenseTurnLane(
-        _lastChunkResults,
-        turnHits,
-        CONFIG.search.denseTurnLane.maxTurnResults,
-      ).slice(0, limit);
-
-      const seen = new Set<string>();
-      const retrievedSessionIds: string[] = [];
-      for (const r of searchResults) {
-        const idx = strataSessionIdToIndex(r.sessionId);
-        if (idx >= 0 && idx < ingested.indexToSessionId.length) {
-          const longMemId = ingested.indexToSessionId[idx];
-          if (!seen.has(longMemId)) {
-            seen.add(longMemId);
-            retrievedSessionIds.push(longMemId);
-          }
-        }
-      }
-      evidenceRecall20 = computeRecall(retrievedSessionIds, question.answer_session_ids, 20);
-    }
 
     const judgeResult = await judgeAnswer(
       judgeProvider.provider,
@@ -1470,10 +1632,12 @@ function verifyFromDisk(
 
 async function main(): Promise<void> {
   loadEnv();
-  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep } = parseArgs();
+  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot } = parseArgs();
   PROMPT_VARIANT = promptVariant;
   AGENT_FORMAT = agentFormat;
   DEEP_RETRIEVAL = deep;
+  STRUCTURED = structured;
+  KU_COT = kuCot;
   if (maxChars !== 2500) {
     console.log(`max_chars OVERRIDE: ${maxChars} (default 2500) — PROD-CONSUMER + PROD-STRING-PARSED arms`);
   }
@@ -1492,6 +1656,16 @@ async function main(): Promise<void> {
     console.log(`DEEP RETRIEVAL: enabled — retrieval_strategy:"deep" (session-scoring pool=60/sessionK=20)`);
     console.log(`  Reranker: injected by prod-consumer arm setup (createReranker+setReranker)`);
     console.log(`  Events: NOT wired (benchmark does not call setEventStore either — faithful reproduction)`);
+  }
+  if (structured) {
+    console.log(`STRUCTURED: enabled — agent arm answers via generateAnswer(SearchResult[]) on deep results`);
+    console.log(`  promptVariant: "category" (same as PROD-RESULTS / BENCHMARK arms)`);
+    console.log(`  Note: --structured is only meaningful when combined with --agent-format and --deep`);
+  }
+  if (kuCot) {
+    console.log(`KU-COT: enabled — knowledge-update questions get recency boost + chain-of-note prompt`);
+    console.log(`  Recency boost: score *= 1 + 0.5 * frac (mirrors run-benchmark.ts:737-751)`);
+    console.log(`  CoN prompt: structured → promptVariant:"chain-of-note"; string → CoN-Gemini template`);
   }
 
   const allArms: PcpArmLabel[] = [
