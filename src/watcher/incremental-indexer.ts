@@ -109,7 +109,9 @@ export class IncrementalIndexer {
    */
   start(): void {
     this.watcher.start((filename, parserId) => {
-      this.handleFileChange(filename, parserId).catch(() => {});
+      this.handleFileChange(filename, parserId).catch((err) => {
+        console.error("[incremental-indexer] file-change pipeline error:", err);
+      });
     });
   }
 
@@ -231,7 +233,7 @@ export class IncrementalIndexer {
           });
           if (provider && typeof sqliteStore.search === "function") {
             const resolution = await resolveConflicts(entry, sqliteStore, provider);
-            executeResolution(resolution, entry, sqliteStore);
+            await executeResolution(resolution, entry, sqliteStore);
           } else {
             this.knowledgeStore.addEntry(entry);
           }
@@ -249,7 +251,7 @@ export class IncrementalIndexer {
           });
           if (provider && typeof sqliteStore.search === "function") {
             const resolution = await resolveConflicts(proc, sqliteStore, provider);
-            executeResolution(resolution, proc, sqliteStore);
+            await executeResolution(resolution, proc, sqliteStore);
           } else {
             this.knowledgeStore.addEntry(proc);
           }
