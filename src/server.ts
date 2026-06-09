@@ -1013,7 +1013,7 @@ Parameters:
         messages: args.messages,
       });
       onToolCall?.("ingest_turns", args as Record<string, unknown>, Date.now() - start);
-      return buildTextResponse(result);
+      return buildTextResponse(JSON.stringify(result));
     }
   );
 

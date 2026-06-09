@@ -72,6 +72,11 @@ benchmarks/longmemeval/providers/*
 !benchmarks/longmemeval/checkpoint.ts
 # Dense turn-lane fusion helper (spec 2026-06-02-dense-turn-lane-design §3.5).
 !benchmarks/longmemeval/dense-turn-fusion.ts
+# Conversation-ingest API validation harness (#30).
+# ingest-via-api.ts: routes LongMemEval corpus through production ingestTurns.
+# prod-consumer-parity.ts: 4-arm consumer-fidelity diagnostic + --ingest=api flag.
+!benchmarks/longmemeval/ingest-via-api.ts
+!benchmarks/longmemeval/prod-consumer-parity.ts
 # Pro-pipeline benchmark module — LLM extraction + knowledge retrieval for LongMemEval.
 !benchmarks/longmemeval/pro-pipeline.ts
 # Query planning / decomposition / expansion helpers imported by run-benchmark.ts.
