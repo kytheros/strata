@@ -109,6 +109,8 @@ export interface CreateServerResult {
   init: () => Promise<void>;
   /** Ensure the write-side embedder is initialized. Resolves immediately if already done. */
   initEmbedder: () => Promise<void>;
+  /** Push conversation turns (#30). Awaits initEmbedder, writes the load-bearing 3 reps. */
+  ingestTurns: (input: import("./ingest/ingest-turns.js").IngestTurnsInput) => Promise<import("./ingest/ingest-turns.js").IngestTurnsResult>;
   startRealtimeWatcher: (sessionFilePath: string) => RealtimeWatcher | null;
   stopRealtimeWatcher: () => void;
   startIncrementalIndexer: () => IncrementalIndexer | null;
@@ -211,6 +213,8 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
   // Dense turn-lane: turn store wired by initEmbedder() when a provider is present.
   // Exposed to handleSearchHistory via closure (6th arg). Null until initEmbedder resolves.
   let denseTurnStore: IKnowledgeTurnStore | null = null;
+  // Whether the active turn store has an embedding provider wired (for ingestTurns #30).
+  let denseTurnsEmbedded = false;
 
   // -- Eager embedder initialization for write-side embedding --
   // Starts immediately at server creation so the embedder is available for
@@ -248,6 +252,14 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
               }
               // Null the engine embedder so the dense turn lane also degrades consistently.
               searchEngine.setEmbedder(null);
+              // Mismatch: still wire an FTS-only turn store for conversation-ingest (#30).
+              if (indexManager?.db && CONFIG.search.denseTurnLane.enabled) {
+                const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, null);
+                searchEngine.setKnowledgeTurnStore(turnStore);
+                indexManager.setTurnStore(turnStore);
+                denseTurnStore = turnStore;
+                denseTurnsEmbedded = false;
+              }
             } else {
               const providerLabel = active.provider === "gemini" ? "Gemini" : active.provider;
               console.error(`[strata] Semantic search: active (${providerLabel} embeddings)`);
@@ -262,6 +274,7 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
                 searchEngine.setVectorSearch(vectorSearch);
                 searchEngine.setKnowledgeTurnStore(turnStore);
                 denseTurnStore = turnStore;
+                denseTurnsEmbedded = true;
                 // Also wire the turn store into the batch indexer so turns are written
                 // on buildFullIndex/incrementalUpdate (Task 7).
                 indexManager.setTurnStore(turnStore);
@@ -278,6 +291,7 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
               searchEngine.setVectorSearch(options.externalVectorSearch);
               searchEngine.setKnowledgeTurnStore(options.externalTurnStore);
               denseTurnStore = options.externalTurnStore;
+              denseTurnsEmbedded = true;
               console.error("[strata] Dense turn-lane (PG/D1): active");
             } else {
               console.error("[strata] Semantic search: active (embeddings)");
@@ -287,6 +301,16 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
           }
         } else {
           console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
+          // Keyless: still wire an FTS-only turn store so conversation-ingest (#30)
+          // can write the turn lane (BM25/FTS recall) without vectors.
+          if (indexManager?.db && CONFIG.search.denseTurnLane.enabled) {
+            const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, null);
+            searchEngine.setKnowledgeTurnStore(turnStore);
+            indexManager.setTurnStore(turnStore);
+            denseTurnStore = turnStore;
+            denseTurnsEmbedded = false;
+            console.error("[strata] Dense turn-lane: FTS-only (no embedder)");
+          }
         }
       } catch {
         // No credentials available -- write-side embedding disabled
@@ -338,6 +362,17 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
 
     // Fire-and-forget: try to initialize reranker (embedder already started eagerly above)
     initReranker().catch(() => {});
+  }
+
+  // -- Conversation-ingest write-path (#30) --
+  // Awaits initEmbedder before writing so denseTurnStore is always resolved.
+  async function doIngestTurns(input: import("./ingest/ingest-turns.js").IngestTurnsInput) {
+    await initEmbedder();
+    const { ingestTurns } = await import("./ingest/ingest-turns.js");
+    return ingestTurns(
+      { turnStore: denseTurnStore, documents: storage.documents, knowledge: storage.knowledge, embedderPresent: denseTurnsEmbedded },
+      input,
+    );
   }
 
   // -- Build async search callbacks that use semantic bridge --
@@ -941,6 +976,47 @@ Example: Store insights from a company AI readiness assessment PDF`,
     }
   );
 
+  // ── ingest_turns ──────────────────────────────────────────────────
+
+  server.registerTool(
+    "ingest_turns",
+    {
+      description: `💬 MEMORY: Push a conversation's turns into Strata for recall.
+
+For developers building an agent: send the turns of a session and Strata indexes
+them (turns + dense embeddings, document chunks, heuristic knowledge entries) so
+future search_history calls recall them. Re-pushing the same sessionId replaces it.
+
+Parameters:
+- sessionId: stable id for this conversation/session (required)
+- messages: array of { speaker: 'user'|'assistant'|'system', content: string, created_at?: number(epoch ms) } (required)
+- project: project context (optional, defaults to 'global')
+- user: user scope (optional)`,
+      inputSchema: z.object({
+        sessionId: z.string().describe("Stable id for this conversation/session"),
+        messages: z.array(z.object({
+          speaker: z.enum(["user", "assistant", "system"]).describe("Who produced the turn"),
+          content: z.string().describe("Raw turn text"),
+          created_at: z.number().optional().describe("Epoch-ms timestamp; defaults to ingest time, preserving order"),
+        })).describe("Ordered conversation turns"),
+        project: z.string().optional().describe("Project context (default: global)"),
+        user: z.string().optional().describe("User scope"),
+      }).strict(),
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async (args) => {
+      const start = Date.now();
+      const result = await doIngestTurns({
+        sessionId: args.sessionId,
+        project: args.project,
+        userId: args.user,
+        messages: args.messages,
+      });
+      onToolCall?.("ingest_turns", args as Record<string, unknown>, Date.now() - start);
+      return buildTextResponse(result);
+    }
+  );
+
   // ── search_events ─────────────────────────────────────────────────
 
   server.registerTool(
@@ -1177,6 +1253,7 @@ Example: Store a screenshot for visual reference`,
     semanticBridge,
     init: ensureIndex,
     initEmbedder,
+    ingestTurns: doIngestTurns,
     startRealtimeWatcher(sessionFilePath: string): RealtimeWatcher | null {
       if (!indexManager) return null; // Not available on D1 path
       if (realtimeWatcher) {
