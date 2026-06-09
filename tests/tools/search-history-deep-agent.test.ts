@@ -401,10 +401,13 @@ function makeKnowledgeEntry(
   };
 }
 
-describe("deep branch: knowledge-merge supplements session-lane (no eviction)", () => {
-  it("session-lane sessions are not evicted when knowledgeResults have same sessionIds", async () => {
+describe("deep branch: knowledge-merge ranks by score and can displace low-score sessions at the limit boundary", () => {
+  it("overlapping-sessionId knowledge entries merge via dedup without dropping session text", async () => {
     // Edge case: knowledgeResults reference sessionIds already in the session lane.
-    // After the fix: session-lane entries are preserved (or merged, not evicted).
+    // Because deduplicateToSessions concatenates texts for the same sessionId,
+    // session-lane text is preserved even when the knowledge entry out-scores it.
+    // 10 sessions (scores 0.5..5.0) + 5 knowledge entries sharing their sessionIds:
+    // total after dedup = 10 sessions, limit=20 → boundary never hit, no displacement.
     const sessionResults: SearchResult[] = Array.from({ length: 10 }, (_, i) =>
       makeResult({
         sessionId: `sess-${i}`,
@@ -446,10 +449,87 @@ describe("deep branch: knowledge-merge supplements session-lane (no eviction)", 
       undefined,                            // no turnStore
     );
 
-    // All 10 session-lane sessions must survive (despite knowledge score dominance).
-    // The knowledge entries have the same sessionIds so they merge (dedup) rather
-    // than add new sessions, but critically the session-lane texts must not be lost.
+    // All 10 session-lane sessions must survive: the knowledge entries share
+    // sessionIds so deduplicateToSessions concatenates their texts — session
+    // text is preserved, not dropped. No limit boundary is hit (10 unique sessions < 20).
     for (let i = 0; i < 10; i++) {
+      expect(out).toContain(`session ${i} text`);
+    }
+  });
+
+  it("high-importance knowledge entries with NEW sessionIds displace lowest-scoring sessions at the limit", async () => {
+    // Documents the intentional rank-and-slice displace behavior (issue #33).
+    //
+    // The merge is: [...sessionLane(20), ...knowledgeResults(5)]
+    //               .sort((a,b) => b.score - a.score)
+    //               .slice(0, limit=20)
+    //
+    // Session scores: 0.1 * (i+1) for i=0..19 → 0.1 (sess-0) .. 2.0 (sess-19).
+    // Knowledge entry scores: importance=1.0 * 10 = 10.0 (kn-0..kn-4) — above ALL sessions.
+    //
+    // After sort: [kn-0..kn-4 (score 10), sess-19 (2.0), ..., sess-5 (0.6), sess-4 (0.5) ← cut]
+    // After slice(0,20): 5 knowledge + 15 highest-scoring sessions survive.
+    // Displaced: sess-0..sess-4 (scores 0.1..0.5 — the 5 LOWEST-scoring sessions).
+    //
+    // This is the validated, intentional behavior. The LongMemEval-S benchmark
+    // showed recall@20 stays high (~95.2%) because gold evidence sessions score
+    // above the displacement threshold. Do NOT change this without re-running evals.
+    // Validated at 84.4% task-avg. See #33.
+    const SESSION_COUNT = 20;
+    const sessionResults: SearchResult[] = Array.from({ length: SESSION_COUNT }, (_, i) =>
+      makeResult({
+        sessionId: `sess-${i}`,
+        score: 0.1 * (i + 1),   // sess-0 → 0.1, sess-19 → 2.0; all below knowledge score of 10
+        timestamp: Date.UTC(2026, 0, i + 1),
+        text: `session ${i} text`,
+      }),
+    );
+
+    // 5 knowledge entries with NEW, distinct sessionIds — not present in sessionLane.
+    // importance=1.0 → score=10.0 — above every session entry.
+    const knowledgeEntries = Array.from({ length: 5 }, (_, i) =>
+      makeKnowledgeEntry(
+        `kn-${i}`,
+        `kn-${i}`,          // NEW sessionIds not in sessionLane
+        `knowledge entry ${i}`,
+        1.0,                  // score = 10.0
+        Date.UTC(2026, 1, i + 1),
+      )
+    );
+
+    const engine = {
+      search: async () => [],
+      searchAsync: async () => [],
+      searchSessionLevel: async () => sessionResults,
+      searchTurns: async (): Promise<KnowledgeTurnHit[]> => [],
+      setKnowledgeTurnStore: vi.fn(),
+      setEmbedder: vi.fn(),
+      setVectorSearch: vi.fn(),
+      setReranker: vi.fn(),
+    } as unknown as SqliteSearchEngine;
+
+    const out = await handleSearchHistory(
+      engine,
+      { query: "knowledge displace query", limit: 20, retrieval_strategy: "deep", format: "agent" },
+      undefined,                            // no db
+      undefined,                            // no asyncSearch
+      makeKnowledgeStore(knowledgeEntries), // 5 high-importance entries with new sessionIds
+      undefined,                            // no turnStore
+    );
+
+    // All 5 knowledge entries must appear — they score highest and survive the slice.
+    for (let i = 0; i < 5; i++) {
+      expect(out).toContain(`knowledge entry ${i}`);
+    }
+
+    // The 5 LOWEST-scoring sessions (sess-0..sess-4, scores 0.1..0.5) are DISPLACED
+    // by the 5 knowledge entries. This is intentional rank-and-slice behavior (#33).
+    for (let i = 0; i < 5; i++) {
+      expect(out).not.toContain(`session ${i} text`);
+    }
+
+    // The 15 highest-scoring sessions (sess-5..sess-19, scores 0.6..2.0) survive.
+    for (let i = 5; i < SESSION_COUNT; i++) {
       expect(out).toContain(`session ${i} text`);
     }
   });

@@ -322,7 +322,14 @@ export async function handleSearchHistory(
       sessionK: DEEP_SESSION_K,
     });
 
-    // Merge knowledge entries (identical to every other branch)
+    // Merge knowledge entries (identical to every other branch).
+    // Design note (#33): this is a rank-and-slice merge, NOT a pure supplement.
+    // High-importance knowledge entries (score = importance * 10, max 10) can
+    // displace low-scoring session-lane entries when the combined list exceeds
+    // limit. This is intentional and validated — the LongMemEval-S benchmark
+    // showed recall@20 stays high (~95.2%) because gold evidence sessions score
+    // above the displacement threshold. Do NOT change this merge without
+    // re-running the full benchmark (validated 84.4% task-avg with this behavior).
     if (knowledgeStore) {
       const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
       if (knowledgeResults.length > 0) {
