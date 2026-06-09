@@ -5,7 +5,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { readFileSync, existsSync, statSync } from "fs";
+import { readFileSync, existsSync, statSync, realpathSync } from "fs";
+import { resolve, relative, isAbsolute, delimiter } from "path";
 import { DocumentChunkStore, type StoredDocument, type DocumentChunk as StoredChunk } from "../storage/document-chunk-store.js";
 import type { DocumentEmbedder } from "../extensions/embeddings/document-embedder.js";
 import { CONFIG } from "../config.js";
@@ -17,6 +18,60 @@ const SUPPORTED_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
 ]);
+
+/**
+ * file_path reads are confined to allowed root directories so a malicious or
+ * prompt-injected MCP client cannot index arbitrary files (~/.ssh keys, .env)
+ * and exfiltrate them through search. Defaults to the server's working
+ * directory; operators widen it with STRATA_DOCUMENT_ROOTS (path-delimiter-
+ * separated list) or disable confinement entirely with STRATA_DOCUMENT_ROOTS="*".
+ */
+function allowedDocumentRoots(): string[] | null {
+  const env = process.env.STRATA_DOCUMENT_ROOTS?.trim();
+  if (env === "*") return null;
+  if (env) {
+    return env
+      .split(delimiter)
+      .map((p) => resolve(p.trim()))
+      .filter((p) => p.length > 0);
+  }
+  return [process.cwd()];
+}
+
+function isWithinRoot(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** Returns an error message when filePath escapes the allowed roots, else null. */
+export function validateDocumentPath(filePath: string): string | null {
+  const roots = allowedDocumentRoots();
+  if (roots === null) return null;
+  const rootsNote = `Allowed roots: ${roots.join(", ")}. Set STRATA_DOCUMENT_ROOTS to allow more directories ("*" disables confinement).`;
+
+  const resolved = resolve(filePath);
+  if (!roots.some((r) => isWithinRoot(r, resolved))) {
+    return `Error: file_path is outside the allowed document roots. ${rootsNote}`;
+  }
+
+  // Re-check through symlinks so a link inside a root can't point outside it.
+  try {
+    const real = realpathSync(resolved);
+    const realRoots = roots.map((r) => {
+      try {
+        return realpathSync(r);
+      } catch {
+        return r;
+      }
+    });
+    if (!realRoots.some((r) => isWithinRoot(r, real))) {
+      return `Error: file_path resolves outside the allowed document roots via a symlink. ${rootsNote}`;
+    }
+  } catch {
+    // Path doesn't exist — the existence check in the handler reports that case.
+  }
+  return null;
+}
 
 export interface StoreDocumentArgs {
   file_path?: string;
@@ -57,6 +112,8 @@ export async function handleStoreDocument(
     if (content) {
       docBytes = Buffer.from(content, "base64");
     } else {
+      const pathError = validateDocumentPath(file_path!);
+      if (pathError) return pathError;
       if (!existsSync(file_path!)) {
         return `Error: File not found: ${file_path}`;
       }
