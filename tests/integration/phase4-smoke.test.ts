@@ -23,7 +23,6 @@ import { handleSearchHistory } from "../../src/tools/search-history.js";
 import { handleFindSolutions } from "../../src/tools/find-solutions.js";
 import { startHttpTransport, type HttpTransportHandle } from "../../src/transports/http-transport.js";
 import { createServer } from "../../src/server.js";
-import { RealtimeWatcher } from "../../src/watcher/realtime-watcher.js";
 import { ClineParser } from "../../src/parsers/cline-parser.js";
 import { GeminiParser } from "../../src/parsers/gemini-parser.js";
 import type { SessionFileInfo } from "../../src/parsers/session-parser.js";
@@ -231,67 +230,7 @@ describe("Smoke: store_memory → search round-trip", () => {
   });
 });
 
-// ── 3. Real-time watcher integration ──────────────────────────────────
-
-describe("Smoke: Real-time watcher → extract → searchable", () => {
-  let db: Database.Database;
-  let knowledgeStore: SqliteKnowledgeStore;
-  let tmpDir: string;
-  let watcher: RealtimeWatcher;
-
-  beforeAll(async () => {
-    db = openDatabase(":memory:");
-    knowledgeStore = new SqliteKnowledgeStore(db);
-
-    tmpDir = join(tmpdir(), `phase4-smoke-watcher-${Date.now()}`);
-    mkdirSync(join(tmpDir, "test-project"), { recursive: true });
-  });
-
-  afterAll(() => {
-    if (watcher) watcher.stop();
-    db.close();
-    try {
-      rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // cleanup best effort
-    }
-  });
-
-  it("watcher processes JSONL and knowledge is queryable", async () => {
-    const sessionFile = join(tmpDir, "test-project", "smoke-session.jsonl");
-
-    // Write JSONL lines simulating a session with a clear decision
-    const lines = [
-      JSON.stringify({
-        type: "user",
-        message: { role: "user", content: "How should we handle database migrations?" },
-        uuid: "u1",
-        timestamp: new Date().toISOString(),
-        cwd: "/test/project",
-      }),
-      JSON.stringify({
-        type: "assistant",
-        message: { role: "assistant", content: "We decided to use Prisma for database migrations. The fix was adding a migration script to the CI pipeline." },
-        uuid: "u2",
-        timestamp: new Date().toISOString(),
-        cwd: "/test/project",
-      }),
-    ];
-    writeFileSync(sessionFile, lines.join("\n") + "\n");
-
-    watcher = new RealtimeWatcher(sessionFile, knowledgeStore, { debounceMs: 100 });
-    watcher.processNewLines();
-
-    // Watcher should have parsed the messages
-    expect(watcher.messageCount).toBe(2);
-
-    // Knowledge extraction may or may not produce entries depending on heuristics,
-    // but processing should complete without errors
-    expect(watcher.currentOffset).toBeGreaterThan(0);
-  });
-});
-
-// ── 4. Parser → indexing round-trip ───────────────────────────────────
+// ── 3. Parser → indexing round-trip ───────────────────────────────────
 
 describe("Smoke: Parser round-trip", () => {
   let tmpDir: string;

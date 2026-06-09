@@ -407,11 +407,11 @@ Strata reads conversation data from these tool-specific directories:
 |------|-----------|-----|
 | Claude Code | `~/.claude/projects/` | `src/config.ts`, line 10 |
 | Claude Code history | `~/.claude/history.jsonl` | `src/config.ts`, line 7 |
-| Codex CLI | `~/.codex/sessions/` | `src/watcher/file-watcher.ts`, line 40 |
-| Cline (macOS) | `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/watcher/file-watcher.ts`, line 189 |
-| Cline (Linux) | `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/watcher/file-watcher.ts`, line 192 |
-| Cline (Windows) | `%APPDATA%/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/watcher/file-watcher.ts`, line 187 |
-| Gemini CLI | `~/.gemini/tmp/` | `src/watcher/file-watcher.ts`, line 58 |
+| Codex CLI | `~/.codex/sessions/` | `src/parsers/codex-parser.ts`, line 25 |
+| Cline (macOS) | `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/parsers/cline-parser.ts`, line 30 |
+| Cline (Linux) | `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/parsers/cline-parser.ts`, line 33 |
+| Cline (Windows) | `%APPDATA%/Code/User/globalStorage/saoudrizwan.claude-dev/tasks/` | `src/parsers/cline-parser.ts`, line 26 |
+| Gemini CLI | `~/.gemini/tmp/` | `src/parsers/gemini-parser.ts`, line 24 |
 | Aider | Project-level `.aider.chat.history.md` files | Discovered by parser |
 
 ### Changing the Data Directory

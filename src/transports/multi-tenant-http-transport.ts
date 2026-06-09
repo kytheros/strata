@@ -9,9 +9,9 @@
  *   - Their own MCP server instance with isolated caches
  *   - Their own StreamableHTTPServerTransport sessions
  *
- * Watchers (RealtimeWatcher, IncrementalIndexer) are NOT started in
- * multi-tenant mode -- they are per-database file watchers not applicable
- * to SaaS deployments where there is no active Claude Code session.
+ * Real-time watching is not supported in multi-tenant mode — per-session
+ * file watchers are not applicable to SaaS deployments where there is no
+ * active local Claude Code session on the server.
  */
 
 import { createServer as createHttpServer, type Server } from "node:http";
