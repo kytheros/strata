@@ -705,6 +705,21 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
   }
 
   /**
+   * Delete every entry belonging to a session (replace-session idempotency for #30).
+   * Delegates to deleteEntry for FTS/history/embedding cleanup.
+   */
+  async deleteBySessionId(sessionId: string, user?: string): Promise<number> {
+    const rows = (user
+      ? this.db.prepare("SELECT id FROM knowledge WHERE session_id = ? AND user = ?").all(sessionId, user)
+      : this.db.prepare("SELECT id FROM knowledge WHERE session_id = ?").all(sessionId)) as Array<{ id: string }>;
+    let removed = 0;
+    for (const r of rows) {
+      if (await this.deleteEntry(r.id)) removed++;
+    }
+    return removed;
+  }
+
+  /**
    * Get mutation history for an entry, ordered most-recent first.
    *
    * @param entryId - The entry ID to get history for.

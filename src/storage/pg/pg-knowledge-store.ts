@@ -381,6 +381,23 @@ export class PgKnowledgeStore implements IKnowledgeStore {
     await this.deleteEntry(id);
   }
 
+  /**
+   * Delete every entry belonging to a session (replace-session idempotency for #30).
+   * Delegates to deleteEntry (which uses this.userId for tenant isolation).
+   */
+  async deleteBySessionId(sessionId: string, user?: string): Promise<number> {
+    const effectiveUser = user ?? this.userId;
+    const res = await this.pool.query<{ id: string }>(
+      "SELECT id FROM knowledge WHERE session_id = $1 AND user_scope = $2",
+      [sessionId, effectiveUser]
+    );
+    let removed = 0;
+    for (const row of res.rows) {
+      if (await this.deleteEntry(row.id)) removed++;
+    }
+    return removed;
+  }
+
   async getHistory(entryId: string, limit: number = 20): Promise<KnowledgeHistoryRow[]> {
     const effectiveLimit = Math.min(Math.max(limit, 1), 100);
     const { rows } = await this.pool.query<{
