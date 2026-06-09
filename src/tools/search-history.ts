@@ -329,7 +329,9 @@ export async function handleSearchHistory(
     // limit. This is intentional and validated — the LongMemEval-S benchmark
     // showed recall@20 stays high (~95.2%) because gold evidence sessions score
     // above the displacement threshold. Do NOT change this merge without
-    // re-running the full benchmark (validated 84.4% task-avg with this behavior).
+    // re-running the N>=3 LongMemEval-S canary: the label-free recommended
+    // pipeline validates at ~81% task-avg (80.6-81.3) with this behavior.
+    // (84.4% is the separate gold-label-assisted figure, NOT this label-free path.)
     if (knowledgeStore) {
       const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
       if (knowledgeResults.length > 0) {
