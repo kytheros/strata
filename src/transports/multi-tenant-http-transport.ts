@@ -279,6 +279,54 @@ export async function startMultiTenantHttpTransport(
     }, idleTimeoutMs);
   }
 
+  // ── Shared tenant guard (#30) ─────────────────────────────────────
+  // Validates X-Strata-Verified (when required) and X-Strata-User UUID.
+  // On failure, writes the error response and returns null.
+  // On success, returns the validated userId.
+  // Captured as a closure so it has access to `authProxy`.
+  function requireTenant(
+    req: import("node:http").IncomingMessage,
+    res: import("node:http").ServerResponse
+  ): string | null {
+    if (authProxy.required) {
+      const presented = req.headers["x-strata-verified"] as string | undefined;
+      if (!verifiedHeaderMatches(presented, authProxy.token!)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Missing or invalid X-Strata-Verified header" }, id: null }));
+        return null;
+      }
+    }
+    const userId = req.headers["x-strata-user"] as string | undefined;
+    if (!userId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Missing X-Strata-User header" }, id: null }));
+      return null;
+    }
+    if (!UUID_RE.test(userId)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Invalid X-Strata-User header: must be UUID format" }, id: null }));
+      return null;
+    }
+    return userId;
+  }
+
+  /** Larger body cap for conversation-ingest payloads (full sessions can be several MB). */
+  const MAX_INGEST_BODY_BYTES = 5 * 1_048_576;
+
+  function readBodyLarge(req: import("node:http").IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let total = 0;
+      req.on("data", (c: Buffer) => {
+        total += c.length;
+        if (total > MAX_INGEST_BODY_BYTES) { req.destroy(); reject(new Error("Request body too large")); return; }
+        chunks.push(c);
+      });
+      req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+      req.on("error", reject);
+    });
+  }
+
   // ── HTTP server ────────────────────────────────────────────────────
 
   const httpServer = createHttpServer(async (req, res) => {
@@ -360,6 +408,37 @@ export async function startMultiTenantHttpTransport(
             })
           );
         }
+      }
+      return;
+    }
+
+    // ── Conversation-ingest endpoint (#30) ───────────────────────────
+    if (url.pathname === "/ingest/turns") {
+      if ((req.method ?? "").toUpperCase() !== "POST") {
+        res.writeHead(405, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Method not allowed" }));
+        return;
+      }
+      const userId = requireTenant(req, res);
+      if (!userId) return; // guard already wrote the error response
+      try {
+        const body = await readBodyLarge(req);
+        const payload = JSON.parse(body);
+        const userEntry = await acquireUser(userId);
+        try {
+          const result = await userEntry.mcpServer.ingestTurns({
+            sessionId: payload.sessionId, project: payload.project, userId,
+            messages: payload.messages,
+          });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(result));
+        } finally {
+          releaseUser(userId);
+        }
+      } catch (err) {
+        const tooLarge = err instanceof Error && /too large/i.test(err.message);
+        res.writeHead(tooLarge ? 413 : 400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Bad request" }));
       }
       return;
     }
