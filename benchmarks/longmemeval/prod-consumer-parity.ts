@@ -153,6 +153,9 @@ function parseArgs(): {
    * Non-KU questions are unchanged.
    */
   kuCot: boolean;
+  /** --no-full: stop after the stratified smoke slice; do NOT auto-continue to the full 500Q run.
+   *  Lets the lead inspect the slice (e.g. IE-regression check) before committing to the full run. */
+  noFull: boolean;
 } {
   const args = process.argv.slice(2);
 
@@ -211,8 +214,9 @@ function parseArgs(): {
 
   // KU chain-of-note (--ku-cot): mirror run-benchmark.ts KU recency boost + CoN prompt override.
   const kuCot = args.includes("--ku-cot");
+  const noFull = args.includes("--no-full");
 
-  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot };
+  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull };
 }
 
 // ---------------------------------------------------------------------------
@@ -657,12 +661,6 @@ async function runOneQuestion(
       ...(AGENT_FORMAT ? { format: "agent" as const } : {}),
     };
 
-    // Sink for the real final SearchResult[] that handleSearchHistory rendered —
-    // populated via the resultsSink param (search-history.ts). Used by --structured
-    // so generateAnswer receives the ACTUAL deep session results, not a broken
-    // fuseDenseTurnLane(_lastChunkResults=[], turnHits) reconstruction.
-    const deepResults: SearchResult[] = [];
-
     const rawString = await handleSearchHistory(
       ingested.searchEngine,
       searchArgs,
@@ -670,46 +668,35 @@ async function runOneQuestion(
       asyncSearch,
       ingested.knowledgeStore,
       ingested.turnStore,
-      deepResults,
     );
 
     bridgeActive = _bridgeReturnedNonNull;
     denseTurnStoreActive = true; // turnStore always passed
     productionOutputLength = rawString.length;
 
-    // Recall@20 / structured-path: obtain the real SearchResult[] from the handler.
-    // When --structured + --deep: use deepResults (captured via resultsSink — the ACTUAL
-    // deep session results that handleSearchHistory rendered). This fixes the previous bug
-    // where agentSearchResults was reconstructed from _lastChunkResults (empty for the deep
-    // path, because the deep block bypasses asyncSearch) → fuseDenseTurnLane([], turnHits)
-    // yielded turn fragments only, crashing temporal/MS accuracy.
-    // When NOT --structured (or non-deep): fall back to the chunk+turn fusion reconstruction
-    // (preserves the existing non-structured path which renders correctly from rawString).
+    // Recall@20: reconstruct a SearchResult[] via chunk+turn fusion for the metric ONLY.
+    // The production handleSearchHistory returns a rendered string, and the shipped a19dbfd
+    // path has no resultsSink hook, so the post-fusion SearchResult[] cannot be captured
+    // here. The ANSWER is generated from the rawString verbatim (generateAnswerFromRawString
+    // below) — this reconstruction feeds recall@20 only. (--structured, which needed the
+    // captured SearchResult[], is rejected at startup; see main().)
     let evidenceRecall20: number | undefined;
     let agentSearchResults: SearchResult[] | undefined;
     if (AGENT_FORMAT) {
-      if (STRUCTURED && DEEP_RETRIEVAL && deepResults.length > 0) {
-        // Use the real deep results captured from handleSearchHistory via resultsSink.
-        // These are the final post-fusion, post-dedup, post-cap SearchResult[] that
-        // buildAgentContext consumed — same data the agent-format string was built from.
-        agentSearchResults = deepResults.slice();
-      } else {
-        // Non-structured path OR non-deep: reconstruct via chunk+turn fusion (legacy).
-        // _lastChunkResults is populated by asyncSearch closure for the dense-turn-lane
-        // path (non-deep), which is correct for that branch.
-        const fusionLimit = 20;
-        ingested.searchEngine.setKnowledgeTurnStore(ingested.turnStore);
-        const turnHits = await ingested.searchEngine.searchTurns(question.question, {
-          userId: undefined,
-          project: undefined,
-          limit: fusionLimit,
-        });
-        agentSearchResults = fuseDenseTurnLane(
-          _lastChunkResults,
-          turnHits,
-          CONFIG.search.denseTurnLane.maxTurnResults,
-        ).slice(0, fusionLimit);
-      }
+      // _lastChunkResults is populated by the asyncSearch closure for the dense-turn-lane
+      // (non-deep) path; combined with turn hits via fuseDenseTurnLane.
+      const fusionLimit = 20;
+      ingested.searchEngine.setKnowledgeTurnStore(ingested.turnStore);
+      const turnHits = await ingested.searchEngine.searchTurns(question.question, {
+        userId: undefined,
+        project: undefined,
+        limit: fusionLimit,
+      });
+      agentSearchResults = fuseDenseTurnLane(
+        _lastChunkResults,
+        turnHits,
+        CONFIG.search.denseTurnLane.maxTurnResults,
+      ).slice(0, fusionLimit);
 
       // --ku-cot RECENCY BOOST (mirrors run-benchmark.ts:737-751):
       // For knowledge-update questions, re-score by recency so the LATEST value floats
@@ -1653,7 +1640,7 @@ function verifyFromDisk(
 
 async function main(): Promise<void> {
   loadEnv();
-  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot } = parseArgs();
+  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull } = parseArgs();
   PROMPT_VARIANT = promptVariant;
   AGENT_FORMAT = agentFormat;
   DEEP_RETRIEVAL = deep;
@@ -1679,9 +1666,17 @@ async function main(): Promise<void> {
     console.log(`  Events: NOT wired (benchmark does not call setEventStore either — faithful reproduction)`);
   }
   if (structured) {
-    console.log(`STRUCTURED: enabled — agent arm answers via generateAnswer(SearchResult[]) on deep results`);
-    console.log(`  promptVariant: "category" (same as PROD-RESULTS / BENCHMARK arms)`);
-    console.log(`  Note: --structured is only meaningful when combined with --agent-format and --deep`);
+    console.error(
+      `--structured is unsupported on the shipped retrieval path.\n` +
+      `  It relied on a resultsSink hook in handleSearchHistory to capture the deep\n` +
+      `  SearchResult[]. That hook was reverted to restore the validated a19dbfd operating\n` +
+      `  point (the ~81% published number); without it, --structured silently degraded to a\n` +
+      `  fuseDenseTurnLane([], turnHits) reconstruction and produced wrong answers. Use\n` +
+      `  --agent-format (the string path) — that is what the published number was measured\n` +
+      `  with. To revive --structured, re-add resultsSink to handleSearchHistory deliberately,\n` +
+      `  with tests.`
+    );
+    process.exit(1);
   }
   if (kuCot) {
     console.log(`KU-COT: enabled — knowledge-update questions get recency boost + chain-of-note prompt`);
@@ -1758,6 +1753,10 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
+    if (noFull) {
+      console.log(`\nSmoke passed — --no-full set, STOPPING after the slice (not running full 500Q).`);
+      return;
+    }
     console.log(`\nSmoke passed — proceeding to full 500Q run.`);
   }
 
