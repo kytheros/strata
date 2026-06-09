@@ -12,6 +12,8 @@
  */
 import Database from "better-sqlite3";
 import { createHash } from "crypto";
+import type { EmbeddingProvider } from "../../src/extensions/vector-search/embedding-provider.js";
+import { resolveActiveEmbeddingModel } from "../../src/extensions/embeddings/active-model.js";
 
 /** Minimal embedder shape both GeminiEmbedder and CachedEmbedder satisfy. */
 export interface TextEmbedder {
@@ -99,7 +101,7 @@ export class EmbeddingCacheStore {
 }
 
 /** Transparent caching wrapper around any TextEmbedder. */
-export class CachedEmbedder implements TextEmbedder {
+export class CachedEmbedder implements TextEmbedder, EmbeddingProvider {
   constructor(
     private inner: TextEmbedder,
     private store: EmbeddingCacheStore,
@@ -108,6 +110,30 @@ export class CachedEmbedder implements TextEmbedder {
 
   get dimensions(): number {
     return this.inner.dimensions;
+  }
+
+  /**
+   * Satisfies EmbeddingProvider.modelName — required by SqliteKnowledgeTurnStore
+   * to stamp the model column on knowledge_turn_embeddings rows (NOT NULL).
+   * Must match the model string the read path filters on
+   * (resolveActiveEmbeddingModel().model), which is what this.model already holds
+   * (set from CONFIG.embeddings.model in ingest.ts).
+   */
+  get modelName(): string {
+    return this.model;
+  }
+
+  /**
+   * Satisfies EmbeddingProvider.supportsQuantization — required by
+   * SqliteKnowledgeTurnStore to drive encodeEmbeddingFor() (TurboQuant gate).
+   * For Gemini (the active provider in benchmarks) this is true; for any other
+   * provider it is false. We resolve at call time (not cached) so test overrides
+   * via process.env work correctly, matching the same logic used by
+   * GeminiEmbeddingProvider (which hardcodes true) and OpenAiCompatibleProvider
+   * (which hardcodes false).
+   */
+  get supportsQuantization(): boolean {
+    return resolveActiveEmbeddingModel().provider === "gemini";
   }
 
   async embed(text: string, taskType?: string): Promise<Float32Array> {

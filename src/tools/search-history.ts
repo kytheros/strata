@@ -15,6 +15,7 @@ import { fuseCommunityLanes } from "../search/recall-fusion-community.js";
 import type { CommunityChunkResult } from "../search/recall-fusion-community.js";
 import { recallQdpCommunity } from "../search/recall-qdp-community.js";
 import { fuseDenseTurnLane } from "../search/dense-turn-fusion.js";
+import { deduplicateToSessions } from "../search/dedupe-to-sessions.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -108,8 +109,12 @@ export interface SearchHistoryArgs {
    * - "legacy": force BM25+chunk lane for this query, even when
    *             CONFIG.search.useTirQdp is true. Useful for temporal/multi-session
    *             queries where TIR+QDP underperforms (see 2026-05-11 stratified eval).
+   * - "deep": session-level retrieval (session-scoring + cross-encoder reranker
+   *   + event signals) via searchSessionLevel, then dense-turn fusion. Reproduces
+   *   the benchmark's high-accuracy read path. Opt-in; heavier per query (loads
+   *   full session text, runs the reranker). SQLite backend (Phase 1).
    */
-  retrieval_strategy?: "auto" | "tirqdp" | "legacy";
+  retrieval_strategy?: "auto" | "tirqdp" | "legacy" | "deep";
 }
 
 /**
@@ -153,6 +158,36 @@ function toRecords(results: SearchResult[], maxChars: number): Record<string, un
     }
     return record;
   });
+}
+
+/**
+ * Build the recommended-agent context block: chronological (oldest→newest),
+ * dated, numbered notes with relevance-rank chrome stripped. Dedup-to-sessions
+ * is on by default (kill-switch STRATA_AGENT_FORMAT_DEDUPE=off for the
+ * validation A/B per the spec §4.3). Pure formatting over SearchResult[] →
+ * identical across SQLite/Postgres backends.
+ */
+export function buildAgentContext(results: SearchResult[], query: string, maxChars: number): string {
+  if (results.length === 0) {
+    return `No relevant memory found for "${query}".`;
+  }
+  const dedupe = process.env.STRATA_AGENT_FORMAT_DEDUPE !== "off";
+  const entries = dedupe ? deduplicateToSessions(results) : results.slice();
+  // Chronological: oldest first; unknown/NaN timestamps sort last.
+  entries.sort((a, b) => {
+    const at = Number.isFinite(a.timestamp) ? a.timestamp : Number.POSITIVE_INFINITY;
+    const bt = Number.isFinite(b.timestamp) ? b.timestamp : Number.POSITIVE_INFINITY;
+    return at - bt;
+  });
+  const lines: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const r = entries[i];
+    const d = new Date(r.timestamp);
+    const dateStr = isNaN(d.getTime()) ? "Unknown date" : d.toISOString().split("T")[0];
+    const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
+    lines.push(`Note ${i + 1} (${dateStr}):\n${text}\n`);
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -221,6 +256,10 @@ export async function handleSearchHistory(
     const records = toRecords(dateResults, maxChars);
     const format = (args.format as ResponseFormat) || ResponseFormat.STANDARD;
 
+    if (format === ResponseFormat.AGENT) {
+      return buildAgentContext(dateResults, args.query, maxChars);
+    }
+
     if (format === ResponseFormat.CONCISE) {
       const serializer = new CompactSerializer("results");
       return `Found ${dateResults.length} session(s) in date range:\n\n` +
@@ -259,7 +298,72 @@ export async function handleSearchHistory(
     ? "\nnote: retrieval_strategy \"tirqdp\" requested but turn store is unavailable — fell back to legacy BM25+chunk path."
     : null;
 
-  if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
+  if (args.retrieval_strategy === "deep") {
+    // ── Deep session-level path (read-path parity Phase 1, spec 2026-06-05) ──
+    // Session-level DCG scoring + cross-encoder reranker (query-heuristic gated
+    // for temporal/counting) + event signals via engine.searchSessionLevel, then
+    // dense-turn fusion — mirrors the benchmark sessionScoring path
+    // (retrieve.ts:218-278) that reproduced 84.4%. Opt-in; SQLite backend.
+    const limit = Math.min(searchOptions.limit ?? 20, 100);
+
+    // Candidate pool: must match the benchmark exactly.
+    // retrieve.ts:221-224: searchSessionLevel(query, { limit: 60, sessionK: 20 })
+    // The pool (limit=60) is wider than the final output (sessionK=20) to ensure
+    // session-level DCG scoring + reranker have a rich candidate set to work with.
+    // The previous bug: { ...searchOptions, sessionK: limit } forwarded limit=20 as
+    // both the pool AND sessionK, starving the scoring step of candidates.
+    const DEEP_CANDIDATE_POOL = 60; // mirrors retrieve.ts:223 — do NOT lower
+    const DEEP_SESSION_K = 20;      // mirrors retrieve.ts:223 — do NOT lower
+
+    // Session lane: session-scoring + reranker + events
+    let sessionLane = await engine.searchSessionLevel(args.query, {
+      ...searchOptions,
+      limit: DEEP_CANDIDATE_POOL,
+      sessionK: DEEP_SESSION_K,
+    });
+
+    // Merge knowledge entries (identical to every other branch)
+    if (knowledgeStore) {
+      const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        sessionLane = [...sessionLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit);
+      }
+    } else if (db) {
+      const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
+      if (knowledgeResults.length > 0) {
+        sessionLane = [...sessionLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit);
+      }
+    }
+
+    // Dense turn-lane fusion (carries the shipped SSA win; matches retrieve.ts:276-278)
+    if (turnStore) {
+      engine.setKnowledgeTurnStore(turnStore);
+      const turnHits = await engine.searchTurns(args.query, {
+        userId: searchOptions.user ?? undefined,
+        project: searchOptions.project,
+        limit,
+      });
+      // FIX (session-count collapse, 2026-06-07): do NOT slice(0, limit) the raw fused
+      // list before deduplication. fuseDenseTurnLane returns individual TURN entries
+      // interleaved with SESSION entries; slicing to limit=20 before dedup means ~10
+      // turn entries occupy half the budget → deduplicateToSessions inside buildAgentContext
+      // collapses them into their parent sessions → only ~7-10 distinct sessions survive
+      // instead of the expected ~20 (matching the benchmark's retrieveQuestion path).
+      //
+      // Fix: deduplicate sessions FIRST (collapsing turns into parent sessions), THEN
+      // slice to limit. This ensures ~DEEP_SESSION_K (≈20) distinct sessions reach the
+      // answer model, mirroring how retrieve.ts preserves session coverage.
+      const fused = fuseDenseTurnLane(sessionLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults);
+      results = deduplicateToSessions(fused).slice(0, limit);
+    } else {
+      results = deduplicateToSessions(sessionLane).slice(0, limit);
+    }
+
+  } else if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
     // ── Dense turn-lane path (spec 2026-06-03-dense-turn-lane-production-design §3.6) ──
     // Activated when: CONFIG.search.denseTurnLane.enabled (default ON when provider present)
     // AND a turn store is available AND the caller has not explicitly requested "legacy".
@@ -431,6 +535,10 @@ export async function handleSearchHistory(
   }
 
   if (results.length === 0) {
+    // Agent format: clean sentinel for empty results (no chrome).
+    if ((args.format as ResponseFormat) === ResponseFormat.AGENT) {
+      return `No relevant memory found for "${args.query}".`;
+    }
     // Check for gap-aware nudge on empty results
     if (db) {
       try {
@@ -444,8 +552,17 @@ export async function handleSearchHistory(
     return `No results found for "${args.query}".` + (tirqdpUnavailableNote ?? "");
   }
 
-  const records = toRecords(results, maxChars);
   const format = (args.format as ResponseFormat) || ResponseFormat.STANDARD;
+
+  // Agent format: chronological, dated, clean notes block — the recommended
+  // pipeline output for LLM agents (spec 2026-06-07-recommended-agent-pipeline).
+  // Evaluated BEFORE toRecords() so the expensive serialization is skipped
+  // entirely for agent-format callers.
+  if (format === ResponseFormat.AGENT) {
+    return buildAgentContext(results, args.query, maxChars);
+  }
+
+  const records = toRecords(results, maxChars);
 
   // TOON format for concise responses
   if (format === ResponseFormat.CONCISE) {

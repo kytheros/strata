@@ -98,6 +98,7 @@ When `GEMINI_API_KEY` is present, Strata automatically activates the dense turn-
 |---------|---------|---------|
 | `STRATA_DENSE_TURN_LANE` | on | Set to `off` to disable dense turn-lane for all tenants. |
 | `STRATA_DENSE_TURN_MAX_CONCURRENCY` | 5 | Max concurrent embedding batch calls across all tenants. |
+| `STRATA_AGENT_FORMAT_DEDUPE` | on | Set to `off` to disable dedup-to-sessions in the `format:"agent"` output (useful for A/B validation per spec §4.3). |
 
 ### REST transport token secret
 
