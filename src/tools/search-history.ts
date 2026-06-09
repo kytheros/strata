@@ -216,11 +216,7 @@ export async function handleSearchHistory(
   /** Optional turn store — activates the dense turn-lane (CONFIG.search.denseTurnLane.enabled,
    *  default ON when a provider is present) and the legacy TIR+QDP lane
    *  (CONFIG.search.useTirQdp). Bypassed when retrieval_strategy:"legacy" is set. */
-  turnStore?: IKnowledgeTurnStore,
-  /** Optional results sink — if provided, the final `results` array (post-fusion, post-cap,
-   *  same slice that buildAgentContext / the format renderer consumes) is pushed into this
-   *  array before the response is built. Additive only; existing callers are unaffected. */
-  resultsSink?: SearchResult[]
+  turnStore?: IKnowledgeTurnStore
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
 
@@ -319,71 +315,28 @@ export async function handleSearchHistory(
     const DEEP_CANDIDATE_POOL = 60; // mirrors retrieve.ts:223 — do NOT lower
     const DEEP_SESSION_K = 20;      // mirrors retrieve.ts:223 — do NOT lower
 
-    // Session lane: session-level DCG scoring WITHOUT cross-encoder reranker.
-    //
-    // RERANKER SKIP (recall parity with prod-consumer-parity benchmark arm):
-    // The prod-consumer-parity.ts BENCHMARK arm calls retrieveQuestion without
-    // setting any reranker on the engine, and achieves 98.7% recall@20.
-    // The consumer deep path previously ran the reranker here, which demotes
-    // gold sessions for knowledge-update questions — specifically:
-    //   (a) sessions with weak lexical overlap get reranked below position 20
-    //       and disappear from the session lane (drop at sessionLevel step)
-    //   (b) turn-lane additions that recover these golds then rank at positions
-    //       21+ in the fused list and are dropped by priorityCap(20)
-    // Passing skipReranker:true restores pure DCG ordering (the same signal
-    // the benchmark uses) and closes the 7.7pp KU recall gap without affecting
-    // the session scoring or turn-lane fusion logic.
+    // Session lane: session-scoring + reranker + events
     let sessionLane = await engine.searchSessionLevel(args.query, {
       ...searchOptions,
       limit: DEEP_CANDIDATE_POOL,
       sessionK: DEEP_SESSION_K,
-      skipReranker: true,  // match prod-consumer-parity benchmark arm — no reranker on session level
     });
 
-    // Supplement with knowledge entries — do NOT displace session-lane sessions.
-    //
-    // DIVERGENCE FIX (mirrors retrieveQuestion): the benchmark's retrieveQuestion
-    // does NOT merge knowledge results into the session lane. The previous code did:
-    //   [...sessionLane, ...knowledgeResults].sort().slice(0, limit=20)
-    // which evicts the lowest-scoring session-lane entries when knowledgeResults
-    // have higher scores — shrinking distinct session coverage and lowering recall@20.
-    //
-    // Fix: preserve the entire session-lane, append knowledge entries for NEW
-    // sessionIds only. In the final cap step, session-lane sessions are guaranteed
-    // to fill the first slots; knowledge sessions fill remaining capacity.
-    // This mirrors retrieveQuestion: session lane is untouched, knowledge is additive.
-    const sessionLaneIds = new Set(sessionLane.map(r => r.sessionId));
-
+    // Merge knowledge entries (identical to every other branch)
     if (knowledgeStore) {
       const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
       if (knowledgeResults.length > 0) {
-        // Only append knowledge entries with new sessionIds — never evict session lane.
-        const newKnowledge = knowledgeResults.filter(r => !sessionLaneIds.has(r.sessionId));
-        sessionLane = [...sessionLane, ...newKnowledge];
+        sessionLane = [...sessionLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit);
       }
     } else if (db) {
       const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
       if (knowledgeResults.length > 0) {
-        const newKnowledge = knowledgeResults.filter(r => !sessionLaneIds.has(r.sessionId));
-        sessionLane = [...sessionLane, ...newKnowledge];
+        sessionLane = [...sessionLane, ...knowledgeResults]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit);
       }
-    }
-
-    /**
-     * Priority-aware cap: when knowledge entries are appended, a score-sorted
-     * dedup+slice(0,limit) would still evict the lowest-scoring session-lane
-     * entries if knowledge scores are higher. Instead we partition the deduped
-     * list into "came from the session lane" vs "knowledge-only", guarantee the
-     * session-lane group occupies the first slots, then fill remaining capacity
-     * with knowledge entries sorted by score. This matches retrieveQuestion's
-     * semantics exactly: session results are never displaced.
-     */
-    function priorityCap(deduped: SearchResult[], sLaneIds: Set<string>, cap: number): SearchResult[] {
-      const sessionPart = deduped.filter(r => sLaneIds.has(r.sessionId));
-      const knowledgePart = deduped.filter(r => !sLaneIds.has(r.sessionId));
-      // Session-lane entries first (ordered by their own score desc), then knowledge.
-      const combined = [...sessionPart, ...knowledgePart];
-      return combined.slice(0, cap);
     }
 
     // Dense turn-lane fusion (carries the shipped SSA win; matches retrieve.ts:276-278)
@@ -402,23 +355,12 @@ export async function handleSearchHistory(
       // instead of the expected ~20 (matching the benchmark's retrieveQuestion path).
       //
       // Fix: deduplicate sessions FIRST (collapsing turns into parent sessions), THEN
-      // cap with priority-aware slicing so session-lane sessions are never displaced.
-      //
-      // FIX (recall parity 2026-06-08): expand the priority set to include turn-lane
-      // session IDs. Without this, turn-lane-only sessions (not in the original 20
-      // session-lane results) get categorized as "knowledgePart" in priorityCap and
-      // are dropped when session-lane fills all 20 slots. For knowledge-update questions
-      // where gold sessions are only retrieved via the turn lane, this creates a 7.7pp
-      // recall gap. Including turn session IDs in the priority set allows them to
-      // compete for the 20 slots by score — same as benchmark arm's uncapped fused list.
-      const expandedLaneIds = new Set<string>(sessionLaneIds);
-      for (const hit of turnHits) {
-        expandedLaneIds.add(hit.row.sessionId);
-      }
+      // slice to limit. This ensures ~DEEP_SESSION_K (≈20) distinct sessions reach the
+      // answer model, mirroring how retrieve.ts preserves session coverage.
       const fused = fuseDenseTurnLane(sessionLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults);
-      results = priorityCap(deduplicateToSessions(fused), expandedLaneIds, limit);
+      results = deduplicateToSessions(fused).slice(0, limit);
     } else {
-      results = priorityCap(deduplicateToSessions(sessionLane), sessionLaneIds, limit);
+      results = deduplicateToSessions(sessionLane).slice(0, limit);
     }
 
   } else if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
@@ -573,11 +515,6 @@ export async function handleSearchHistory(
       }
     }
   }
-
-  // Capture final results for callers that need the SearchResult[] (e.g. benchmarks,
-  // diagnostic harnesses). Pushed AFTER all strategies converge on the same `results`
-  // variable — this is the exact slice that buildAgentContext / format renderers consume.
-  if (resultsSink) resultsSink.push(...results);
 
   // Record evidence gap if results are empty or low-confidence
   if (db && CONFIG.gaps.enabled) {

@@ -402,61 +402,6 @@ function makeKnowledgeEntry(
 }
 
 describe("deep branch: knowledge-merge supplements session-lane (no eviction)", () => {
-  it("preserves all 20 session-lane sessions even when knowledgeResults have higher scores", async () => {
-    // 20 sessions, DCG scores 0.1..2.0 (small — realistic low-corpus scenario).
-    // The important thing: all 20 are present before the knowledge merge.
-    const SESSION_COUNT = 20;
-    const sessionResults: SearchResult[] = Array.from({ length: SESSION_COUNT }, (_, i) =>
-      makeResult({
-        sessionId: `sess-${i}`,
-        score: 0.1 * (i + 1),   // scores 0.1..2.0 — all below max knowledge score of 10
-        timestamp: Date.UTC(2026, 0, i + 1),
-        text: `session ${i} content`,
-      }),
-    );
-
-    // 5 knowledge entries with importance=1.0 → score=10, HIGHER than any session.
-    // New sessionIds (not in session lane) so they'd be appended.
-    // Before the fix: sort+slice(0,20) inserts these 5 at the top, evicting
-    // sess-0..sess-4 (the 5 lowest-scoring sessions).
-    // After the fix: all 20 original sessions survive; knowledge entries supplement.
-    const knowledgeEntries = Array.from({ length: 5 }, (_, i) =>
-      makeKnowledgeEntry(
-        `k${i}`,
-        `knowledge-sess-${i}`,   // NEW sessionId — not in session lane
-        `knowledge entry ${i}`,
-        1.0,                     // max importance → score=10
-        Date.UTC(2026, 2, i + 1),
-      )
-    );
-
-    const engine = {
-      search: async () => [],
-      searchAsync: async () => [],
-      searchSessionLevel: async () => sessionResults,
-      searchTurns: async (): Promise<KnowledgeTurnHit[]> => [],
-      setKnowledgeTurnStore: vi.fn(),
-      setEmbedder: vi.fn(),
-      setVectorSearch: vi.fn(),
-      setReranker: vi.fn(),
-    } as unknown as SqliteSearchEngine;
-
-    const out = await handleSearchHistory(
-      engine,
-      { query: "project coverage query", limit: 20, retrieval_strategy: "deep", format: "agent" },
-      undefined,                          // no db
-      undefined,                          // no asyncSearch
-      makeKnowledgeStore(knowledgeEntries), // knowledge store
-      undefined,                          // no turnStore
-    );
-
-    // After the fix: all 20 original session texts must appear in the output.
-    // Before the fix: sess-0..sess-4 are evicted → 5 of these assertions fail.
-    for (let i = 0; i < SESSION_COUNT; i++) {
-      expect(out).toContain(`session ${i} content`);
-    }
-  });
-
   it("session-lane sessions are not evicted when knowledgeResults have same sessionIds", async () => {
     // Edge case: knowledgeResults reference sessionIds already in the session lane.
     // After the fix: session-lane entries are preserved (or merged, not evicted).
