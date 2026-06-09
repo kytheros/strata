@@ -6,8 +6,7 @@
  * round-trip: store_memory -> search_history -> delete_memory via the MCP
  * protocol using InMemoryTransport.
  *
- * Also verifies that D1-incompatible features (RealtimeWatcher,
- * IncrementalIndexer) gracefully return null.
+ * Tests the full tool round-trip including D1-specific storage behavior.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -309,21 +308,6 @@ describe("D1 Server Integration", () => {
                 // Empirically ~5.8s — gives headroom under full-suite load.
   });
 
-  // -----------------------------------------------------------------------
-  // 5. D1-incompatible features return null
-  // -----------------------------------------------------------------------
-
-  describe("D1-incompatible features", () => {
-    it("startRealtimeWatcher returns null on D1 path", () => {
-      const watcher = result.startRealtimeWatcher("/some/session/file.jsonl");
-      expect(watcher).toBeNull();
-    });
-
-    it("startIncrementalIndexer returns null on D1 path", () => {
-      const indexer = result.startIncrementalIndexer();
-      expect(indexer).toBeNull();
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------

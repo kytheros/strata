@@ -50,9 +50,5 @@ describe("reasoning MCP tools registration", () => {
     expect(result).toHaveProperty("entityStore");
     expect(result).toHaveProperty("storage");
     expect(result).toHaveProperty("init");
-    expect(result).toHaveProperty("startRealtimeWatcher");
-    expect(result).toHaveProperty("stopRealtimeWatcher");
-    expect(result).toHaveProperty("startIncrementalIndexer");
-    expect(result).toHaveProperty("stopIncrementalIndexer");
   });
 });

@@ -36,8 +36,6 @@ import { SqliteEntityStore } from "./storage/sqlite-entity-store.js";
 import { SqliteEventStore } from "./storage/sqlite-event-store.js";
 import type { IEntityStore, IEventStore } from "./storage/interfaces/index.js";
 import { GeminiProvider } from "./extensions/llm-extraction/gemini-provider.js";
-import { RealtimeWatcher } from "./watcher/realtime-watcher.js";
-import { IncrementalIndexer } from "./watcher/incremental-indexer.js";
 import { loadGeminiApiKeyFromConfig } from "./extensions/embeddings/gemini-embedder.js";
 import { createEmbeddingProvider } from "./extensions/vector-search/embedding-provider.js";
 import { resolveActiveEmbeddingModel } from "./extensions/embeddings/active-model.js";
@@ -109,10 +107,6 @@ export interface CreateServerResult {
   init: () => Promise<void>;
   /** Ensure the write-side embedder is initialized. Resolves immediately if already done. */
   initEmbedder: () => Promise<void>;
-  startRealtimeWatcher: (sessionFilePath: string) => RealtimeWatcher | null;
-  stopRealtimeWatcher: () => void;
-  startIncrementalIndexer: () => IncrementalIndexer | null;
-  stopIncrementalIndexer: () => void;
 }
 
 export function createServer(options?: CreateServerOptions): CreateServerResult {
@@ -1166,11 +1160,6 @@ Example: Store a screenshot for visual reference`,
     }
   );
 
-  // ── Watcher infrastructure ────────────────────────────────────────
-
-  let realtimeWatcher: RealtimeWatcher | null = null;
-  let incrementalIndexer: IncrementalIndexer | null = null;
-
   return {
     server,
     indexManager,
@@ -1179,40 +1168,5 @@ Example: Store a screenshot for visual reference`,
     semanticBridge,
     init: ensureIndex,
     initEmbedder,
-    startRealtimeWatcher(sessionFilePath: string): RealtimeWatcher | null {
-      if (!indexManager) return null; // Not available on D1 path
-      if (realtimeWatcher) {
-        realtimeWatcher.stop();
-      }
-      realtimeWatcher = new RealtimeWatcher(sessionFilePath, indexManager.knowledge);
-      realtimeWatcher.start();
-      return realtimeWatcher;
-    },
-    stopRealtimeWatcher(): void {
-      if (realtimeWatcher) {
-        realtimeWatcher.stop();
-        realtimeWatcher = null;
-      }
-    },
-    startIncrementalIndexer(): IncrementalIndexer | null {
-      if (!indexManager) return null; // Not available on D1 path
-      if (incrementalIndexer) {
-        incrementalIndexer.stop();
-      }
-      incrementalIndexer = new IncrementalIndexer(
-        indexManager,
-        indexManager.knowledge,
-        entityStore,
-        indexManager.registry
-      );
-      incrementalIndexer.start();
-      return incrementalIndexer;
-    },
-    stopIncrementalIndexer(): void {
-      if (incrementalIndexer) {
-        incrementalIndexer.stop();
-        incrementalIndexer = null;
-      }
-    },
   };
 }

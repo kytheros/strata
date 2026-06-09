@@ -85,7 +85,7 @@ Key files:
 - `src/transports/http-transport.ts` — single-tenant HTTP transport
 - `src/transports/multi-tenant-http-transport.ts` — multi-tenant HTTP transport (owns the inline LRU user pool)
 
-`createServer()` in `src/server.ts` accepts an optional `{ dataDir }` parameter to override the database location. In multi-tenant mode, each user gets their own `createServer()` instance with isolated caches, IndexManager, and database. Watchers (RealtimeWatcher, IncrementalIndexer) are not started in multi-tenant mode.
+`createServer()` in `src/server.ts` accepts an optional `{ dataDir }` parameter to override the database location. In multi-tenant mode, each user gets their own `createServer()` instance with isolated caches, IndexManager, and database. Indexing is lazy-batch (`ensureIndex` on first use), not file-watcher based.
 
 ### Dense turn-lane in multi-tenant mode
 
