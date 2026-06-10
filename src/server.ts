@@ -82,9 +82,11 @@ export interface CreateServerOptions {
   /** Optional hook called after every tool call. Used by Pro for analytics recording. */
   onToolCall?: ToolCallHook;
   /**
-   * Generic external turn store for the dense turn-lane (Postgres PR2, D1 PR3).
-   * When both externalTurnStore and externalVectorSearch are provided and an
-   * embedding provider resolves, initEmbedder wires them into the search engine.
+   * Generic external turn store for the turn lane (Postgres PR2, D1 PR3).
+   * Always wired by initEmbedder for FTS turn persistence (#30) — even keyless
+   * or with STRATA_DENSE_TURN_LANE=off. The embedding provider is attached
+   * only when externalVectorSearch is also provided (so written vectors are
+   * readable) AND the dense lane is enabled.
    * Ignored on SQLite paths (which construct their own SqliteKnowledgeTurnStore).
    * Backend-agnostic: server.ts has no pg/d1 type imports.
    * Must implement IEmbeddableTurnStore (i.e., setEmbedder) so initEmbedder can
@@ -93,8 +95,9 @@ export interface CreateServerOptions {
   externalTurnStore?: IEmbeddableTurnStore | null;
   /**
    * Generic external vector search for the dense turn-lane (Postgres PR2, D1 PR3).
-   * Paired with externalTurnStore — both must be provided for the PG/D1 branch
-   * in initEmbedder to activate.
+   * Paired with externalTurnStore — both must be provided (with the lane
+   * enabled) for DENSE turn retrieval; the turn store alone still gives FTS
+   * turn persistence + FTS-only turn retrieval.
    */
   externalVectorSearch?: IVectorSearch | null;
 }
@@ -210,8 +213,9 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
   // On D1 path, db is null — bridge will gracefully degrade (no vector search).
   const semanticBridge = new SemanticSearchBridge(storage.documents, indexManager?.db ?? null);
 
-  // Dense turn-lane: turn store wired by initEmbedder() when a provider is present.
-  // Exposed to handleSearchHistory via closure (6th arg). Null until initEmbedder resolves.
+  // Turn store: ALWAYS wired by initEmbedder() — with an embedder when a provider
+  // is present and the dense lane is enabled, FTS-only otherwise. Exposed to
+  // handleSearchHistory via closure (6th arg). Null until initEmbedder resolves.
   let denseTurnStore: IKnowledgeTurnStore | null = null;
   // Whether the active turn store has an embedding provider wired (for ingestTurns #30).
   let denseTurnsEmbedded = false;
@@ -225,26 +229,38 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
   function initEmbedder(): Promise<void> {
     if (embedderInitPromise) return embedderInitPromise;
 
-    // Wire an FTS-only turn store for conversation-ingest (#30) when no embedding
-    // provider is available. createEmbeddingProvider() THROWS without creds, so this
-    // must run from the catch below as well as the no-provider else — otherwise hosted
-    // backends with no GEMINI_API_KEY (and the CI test env) silently write 0 turns.
-    // Idempotent: no-ops if a store is already wired or the kill-switch is off.
-    const wireKeylessTurnStore = () => {
-      if (denseTurnStore || !CONFIG.search.denseTurnLane.enabled) return;
-      if (options?.externalTurnStore) {
-        // PG / D1: the transport constructed the store (no SQLite indexManager here).
-        searchEngine.setKnowledgeTurnStore(options.externalTurnStore);
-        denseTurnStore = options.externalTurnStore;
-        denseTurnsEmbedded = false;
-        console.error("[strata] Dense turn-lane (PG/D1): FTS-only (no embedder)");
-      } else if (indexManager?.db) {
-        const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, null);
+    // Turn-store wiring (conversation-ingest #30 + turn-lane read path). A turn
+    // store is ALWAYS wired — FTS turn persistence is never gated by the
+    // STRATA_DENSE_TURN_LANE kill-switch. That switch governs only the dense
+    // side: per-turn embedding WRITES (the multi-tenant cost lever) and dense
+    // retrieval fusion (gated independently in search-history.ts and
+    // SqliteSearchEngine.searchTurns). createEmbeddingProvider() THROWS without
+    // creds, so the keyless call sites are the no-provider else AND the catch
+    // below. Idempotent: no-ops if a store is already wired.
+    const wireTurnStore = (embedder: EmbeddingProvider | null) => {
+      if (denseTurnStore) return;
+      const withEmbedder = embedder !== null && CONFIG.search.denseTurnLane.enabled;
+      // SQLite first: when an indexManager exists, the engine reads vectors from
+      // the SQLite VectorSearch — wiring an external store here would split
+      // writes and reads across backends (externalTurnStore is documented as
+      // ignored on SQLite paths).
+      if (indexManager?.db) {
+        const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, withEmbedder ? embedder : null);
         searchEngine.setKnowledgeTurnStore(turnStore);
+        // Also wire the turn store into the batch indexer so turns are written
+        // on buildFullIndex/incrementalUpdate (Task 7).
         indexManager.setTurnStore(turnStore);
         denseTurnStore = turnStore;
-        denseTurnsEmbedded = false;
-        console.error("[strata] Dense turn-lane: FTS-only (no embedder)");
+        denseTurnsEmbedded = withEmbedder;
+        console.error(`[strata] Turn store: ${withEmbedder ? "embedded" : "FTS-only"}`);
+      } else if (options?.externalTurnStore) {
+        // PG / D1: the transport constructed the store (no SQLite indexManager here).
+        // Always assign — clears any pre-attached embedder when the lane is off.
+        options.externalTurnStore.setEmbedder(withEmbedder ? embedder : null);
+        searchEngine.setKnowledgeTurnStore(options.externalTurnStore);
+        denseTurnStore = options.externalTurnStore;
+        denseTurnsEmbedded = withEmbedder;
+        console.error(`[strata] Turn store (PG/D1): ${withEmbedder ? "embedded" : "FTS-only"}`);
       }
     };
 
@@ -275,46 +291,33 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
               }
               // Null the engine embedder so the dense turn lane also degrades consistently.
               searchEngine.setEmbedder(null);
-              // Mismatch: still wire an FTS-only turn store for conversation-ingest (#30).
-              if (indexManager?.db && CONFIG.search.denseTurnLane.enabled) {
-                const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, null);
-                searchEngine.setKnowledgeTurnStore(turnStore);
-                indexManager.setTurnStore(turnStore);
-                denseTurnStore = turnStore;
-                denseTurnsEmbedded = false;
-              }
+              // Mismatch: wire an FTS-only turn store — don't write vectors under the wrong model.
+              wireTurnStore(null);
             } else {
               const providerLabel = active.provider === "gemini" ? "Gemini" : active.provider;
               console.error(`[strata] Semantic search: active (${providerLabel} embeddings)`);
 
-              // Dense turn-lane wiring (spec 2026-06-03-dense-turn-lane-production §3.2).
-              // Wire engine + turn store only when provider is present and lane is enabled.
-              // CONFIG.search.denseTurnLane.enabled defaults ON; kill-switch = STRATA_DENSE_TURN_LANE=off.
+              // Turn store: always wired (writes are never gated). The dense read
+              // lane (spec 2026-06-03-dense-turn-lane-production §3.2) — engine
+              // embedder + vector search — only when the kill-switch is on.
+              wireTurnStore(provider);
               if (CONFIG.search.denseTurnLane.enabled) {
-                const vectorSearch = new VectorSearch(indexManager.db);
-                const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, provider);
                 searchEngine.setEmbedder(provider);
-                searchEngine.setVectorSearch(vectorSearch);
-                searchEngine.setKnowledgeTurnStore(turnStore);
-                denseTurnStore = turnStore;
-                denseTurnsEmbedded = true;
-                // Also wire the turn store into the batch indexer so turns are written
-                // on buildFullIndex/incrementalUpdate (Task 7).
-                indexManager.setTurnStore(turnStore);
+                searchEngine.setVectorSearch(new VectorSearch(indexManager.db));
                 console.error("[strata] Dense turn-lane: active");
               }
             }
-          } else if (options?.externalTurnStore && options?.externalVectorSearch) {
-            // PG / D1 path: generic external turn store + vector search for the dense turn-lane.
-            // The transport (pg-multi-tenant-http-transport.ts, d1-transport.ts) constructs these
-            // stores and passes them here. server.ts stays backend-agnostic — no pg/d1 imports.
-            if (CONFIG.search.denseTurnLane.enabled) {
-              options.externalTurnStore.setEmbedder(provider);
+          } else if (options?.externalTurnStore) {
+            // PG / D1 path: generic external turn store (+ optional vector search) for
+            // the turn lane. The transport (pg-multi-tenant-http-transport.ts,
+            // d1-transport.ts) constructs these stores and passes them here.
+            // server.ts stays backend-agnostic — no pg/d1 imports. Turn store is
+            // always wired; embedder only when a vector search exists to read the
+            // vectors back (and the kill-switch is on).
+            wireTurnStore(options.externalVectorSearch ? provider : null);
+            if (CONFIG.search.denseTurnLane.enabled && options.externalVectorSearch) {
               searchEngine.setEmbedder(provider);
               searchEngine.setVectorSearch(options.externalVectorSearch);
-              searchEngine.setKnowledgeTurnStore(options.externalTurnStore);
-              denseTurnStore = options.externalTurnStore;
-              denseTurnsEmbedded = true;
               console.error("[strata] Dense turn-lane (PG/D1): active");
             } else {
               console.error("[strata] Semantic search: active (embeddings)");
@@ -324,14 +327,16 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
           }
         } else {
           console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
-          wireKeylessTurnStore();
+          wireTurnStore(null);
         }
       } catch {
         // No credentials available -- write-side embedding disabled. createEmbeddingProvider()
         // throws here (it never returns null), so this is the real no-creds path: still wire the
         // FTS-only turn store so conversation-ingest (#30) persists turns without vectors.
+        // Guarded: a throwing store constructor (broken schema) must degrade to the
+        // turnsWritten=0 warning, not permanently reject the memoized init promise.
         console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
-        wireKeylessTurnStore();
+        try { wireTurnStore(null); } catch {}
       }
     })();
 

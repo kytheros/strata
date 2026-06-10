@@ -76,6 +76,33 @@ describe("searchTurns hybrid", () => {
     expect(hits.some((h) => h.row.content.includes("Paris"))).toBe(true);
   });
 
+  // Kill-switch contract leg (c): the engine gate at sqlite-search-engine.ts
+  // (CONFIG.search.denseTurnLane.enabled, read live per query) is the ONLY
+  // enforcement for callers that reach searchTurns with the switch off — the
+  // explicit "deep"/"tirqdp" strategies do exactly that now that the turn store
+  // is always wired. Mutation-verified: deleting the enabled check from the
+  // engine fails this test (and previously failed none).
+  it("suppresses the dense vector lane when STRATA_DENSE_TURN_LANE=off even with embedder+VectorSearch wired", async () => {
+    process.env.STRATA_DENSE_TURN_LANE = "off";
+    const { CONFIG } = await import("../../src/config.js");
+    expect(CONFIG.search.denseTurnLane.enabled).toBe(false);
+
+    db = openDatabase(":memory:");
+    const embedder = makeEmbedder();
+    const turnStore = new SqliteKnowledgeTurnStore(db, embedder);
+    await turnStore.bulkInsert([
+      { sessionId: "s1", speaker: "assistant", content: "the capital is Paris", messageIndex: 0 },
+      { sessionId: "s1", speaker: "user", content: "tell me about rivers", messageIndex: 1 },
+    ]);
+    const engine = new SqliteSearchEngine(new SqliteDocumentStore(db), embedder, new VectorSearch(db));
+    engine.setKnowledgeTurnStore(turnStore);
+
+    // "which city" has no FTS5 overlap; with the switch off the vector lane must
+    // not run, so the axis-7 gold turn must NOT surface (FTS5-only behavior).
+    const hits = await engine.searchTurns("which city", { userId: undefined, project: undefined, limit: 5 });
+    expect(hits.some((h) => h.row.content.includes("Paris"))).toBe(false);
+  });
+
   it("is byte-identical to FTS5-only when no embedder (flag ON but engine has no embedder)", async () => {
     process.env.STRATA_DENSE_TURN_LANE = "on";
     db = openDatabase(":memory:");

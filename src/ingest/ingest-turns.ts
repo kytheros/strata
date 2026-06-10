@@ -119,7 +119,7 @@ export async function ingestTurns(deps: IngestTurnsDeps, input: IngestTurnsInput
     const ids = await deps.turnStore.bulkInsert(turns);
     turnsWritten = ids.length;
   } else {
-    warnings.push("turn store unavailable: dense-turn lane not written (no provider and keyless turn store not wired)");
+    warnings.push("turn store unavailable: turns not written (createServer received injected storage without an externalTurnStore — no backend to persist knowledge_turns)");
   }
 
   // 3) Doc chunks (FTS). tokenCount = whitespace word count (matches production ingest).

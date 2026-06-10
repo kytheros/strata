@@ -120,8 +120,15 @@ export const CONFIG = {
      * (cosine) turn lane via RRF, giving each turn its own dense signal.
      * Requires an embedder + VectorSearch on the engine; degrades to FTS5-only
      * when absent. Default ON when a provider is present; kill-switch via
-     * STRATA_DENSE_TURN_LANE=off. Turn embeddings are written at ingest whenever
-     * an embedder is present (independent of this flag).
+     * STRATA_DENSE_TURN_LANE=off.
+     *
+     * Kill-switch scope (=off): no per-turn embeddings are written (the
+     * multi-tenant cost lever) and the default search path stops fusing turn
+     * hits. FTS turn persistence is NEVER gated — ingest_turns,
+     * POST /ingest/turns, and batch indexing always write knowledge_turns, so
+     * re-enabling the lane has data to read (backfill vectors via
+     * `strata index --rebuild-turns`). Explicit retrieval strategies ("deep",
+     * "tirqdp") still use the FTS-only turn lane while the switch is off.
      */
     denseTurnLane: {
       /** Default ON (unset or any value other than "off"). Kill-switch: STRATA_DENSE_TURN_LANE=off. */

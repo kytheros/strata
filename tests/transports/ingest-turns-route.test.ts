@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { startMultiTenantHttpTransport } from "../../src/transports/multi-tenant-http-transport.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,17 +8,14 @@ const U = "11111111-1111-1111-1111-111111111111";
 let handle: Awaited<ReturnType<typeof startMultiTenantHttpTransport>>;
 const base = mkdtempSync(join(tmpdir(), "ingest-rt-"));
 
-// Pin the dense-turn-lane kill-switch to its default (ON) before any transport is
-// created — the per-user server reads STRATA_DENSE_TURN_LANE live, so a sibling test
-// file leaving it "off" in the shared worker would make ingest write 0 turns.
-const savedDTL = process.env.STRATA_DENSE_TURN_LANE;
-beforeAll(() => { delete process.env.STRATA_DENSE_TURN_LANE; });
+// No STRATA_DENSE_TURN_LANE pin needed: the turn store is always wired — the
+// kill-switch gates dense retrieval only, never FTS turn persistence.
 
 async function start(port: number) {
   handle = await startMultiTenantHttpTransport({ port, baseDir: base });
   return `http://127.0.0.1:${port}`;
 }
-afterAll(async () => { await handle?.close?.(); if (savedDTL === undefined) delete process.env.STRATA_DENSE_TURN_LANE; else process.env.STRATA_DENSE_TURN_LANE = savedDTL; });
+afterAll(async () => { await handle?.close?.(); });
 
 describe("POST /ingest/turns", () => {
   it("rejects a non-UUID X-Strata-User with 400 before touching any tenant DB", async () => {
