@@ -421,6 +421,14 @@ export async function startMultiTenantHttpTransport(
       }
       const userId = requireTenant(req, res);
       if (!userId) return; // guard already wrote the error response
+      // Early, clean 413 on a declared oversized body — before reading the stream
+      // (readBodyLarge's streaming cap stays as defense-in-depth for chunked bodies).
+      const declaredLen = Number(req.headers["content-length"] ?? 0);
+      if (Number.isFinite(declaredLen) && declaredLen > MAX_INGEST_BODY_BYTES) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Request body too large" }));
+        return;
+      }
       try {
         const body = await readBodyLarge(req);
         const payload = JSON.parse(body);
