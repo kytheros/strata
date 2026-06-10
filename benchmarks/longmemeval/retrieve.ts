@@ -14,6 +14,8 @@ import type Database from "better-sqlite3";
 import type { SearchResult } from "../../src/search/sqlite-search-engine.js";
 import type { IngestedQuestion } from "./ingest.js";
 import { strataSessionIdToIndex } from "./ingest.js";
+// Re-exported so prod-consumer-parity.ts can import it (alongside computeRecall) from retrieve.js.
+export { strataSessionIdToIndex };
 import type { LongMemQuestion, RetrievalResult } from "./types.js";
 import { questionTypeToAbility } from "./types.js";
 import { CONFIG } from "../../src/config.js";
@@ -334,8 +336,9 @@ export async function retrieveQuestion(
   };
 }
 
-/** Compute recall at K: what fraction of gold sessions appear in top-K retrieved */
-function computeRecall(
+/** Compute recall at K: what fraction of gold sessions appear in top-K retrieved.
+ *  Exported for prod-consumer-parity.ts (recall@20 on the agent-format arm). */
+export function computeRecall(
   retrieved: string[],
   gold: string[],
   k: number
