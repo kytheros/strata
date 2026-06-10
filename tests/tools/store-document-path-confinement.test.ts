@@ -2,8 +2,8 @@
  * Regression tests for store_document file_path confinement.
  *
  * Bug: file_path was passed straight to readFileSync with no validation,
- * letting a malicious or prompt-injected MCP client index arbitrary files
- * (~/.ssh/id_rsa, .env) and exfiltrate them through search_history.
+ * letting a malicious or prompt-injected MCP client index arbitrary sensitive
+ * files (SSH private keys, dotenv secrets) and leak them through search_history.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

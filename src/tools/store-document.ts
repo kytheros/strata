@@ -21,8 +21,8 @@ const SUPPORTED_MIME_TYPES = new Set([
 
 /**
  * file_path reads are confined to allowed root directories so a malicious or
- * prompt-injected MCP client cannot index arbitrary files (~/.ssh keys, .env)
- * and exfiltrate them through search. Defaults to the server's working
+ * prompt-injected MCP client cannot index arbitrary sensitive files (SSH
+ * private keys, dotenv secrets) and leak them through search. Defaults to the server's working
  * directory; operators widen it with STRATA_DOCUMENT_ROOTS (path-delimiter-
  * separated list) or disable confinement entirely with STRATA_DOCUMENT_ROOTS="*".
  */
