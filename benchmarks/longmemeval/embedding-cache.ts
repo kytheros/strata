@@ -12,6 +12,8 @@
  */
 import Database from "better-sqlite3";
 import { createHash } from "crypto";
+import type { EmbeddingProvider } from "../../src/extensions/vector-search/embedding-provider.js";
+import { resolveActiveEmbeddingModel } from "../../src/extensions/embeddings/active-model.js";
 
 /** Minimal embedder shape both GeminiEmbedder and CachedEmbedder satisfy. */
 export interface TextEmbedder {
@@ -98,8 +100,18 @@ export class EmbeddingCacheStore {
   }
 }
 
-/** Transparent caching wrapper around any TextEmbedder. */
-export class CachedEmbedder implements TextEmbedder {
+/**
+ * Transparent caching wrapper around any TextEmbedder.
+ *
+ * Implements the full EmbeddingProvider contract (not just TextEmbedder) so it
+ * can drive the dense turn-lane: SqliteKnowledgeTurnStore.embedTurns reads
+ * `embedder.modelName` / `embedder.supportsQuantization` to stamp the NOT-NULL
+ * knowledge_turn_embeddings.model column and choose the vector encoding. Without
+ * these getters, dense-turn embeds throw `NOT NULL constraint failed: ...model`
+ * and silently degrade to FTS-only — which broke dense-turn writes on BOTH
+ * --ingest=direct (ingestQuestion) and --ingest=api (ingestQuestionViaApi).
+ */
+export class CachedEmbedder implements EmbeddingProvider {
   constructor(
     private inner: TextEmbedder,
     private store: EmbeddingCacheStore,
@@ -108,6 +120,16 @@ export class CachedEmbedder implements TextEmbedder {
 
   get dimensions(): number {
     return this.inner.dimensions;
+  }
+
+  /** Model identifier for the dense turn-lane (knowledge_turn_embeddings.model). */
+  get modelName(): string {
+    return this.model;
+  }
+
+  /** TurboQuant support follows the active provider (Gemini only). */
+  get supportsQuantization(): boolean {
+    return resolveActiveEmbeddingModel().provider === "gemini";
   }
 
   async embed(text: string, taskType?: string): Promise<Float32Array> {
