@@ -111,7 +111,7 @@ export class EmbeddingCacheStore {
  * and silently degrade to FTS-only — which broke dense-turn writes on BOTH
  * --ingest=direct (ingestQuestion) and --ingest=api (ingestQuestionViaApi).
  */
-export class CachedEmbedder implements EmbeddingProvider {
+export class CachedEmbedder implements TextEmbedder, EmbeddingProvider {
   constructor(
     private inner: TextEmbedder,
     private store: EmbeddingCacheStore,
@@ -122,12 +122,26 @@ export class CachedEmbedder implements EmbeddingProvider {
     return this.inner.dimensions;
   }
 
-  /** Model identifier for the dense turn-lane (knowledge_turn_embeddings.model). */
+  /**
+   * Satisfies EmbeddingProvider.modelName — required by SqliteKnowledgeTurnStore
+   * to stamp the model column on knowledge_turn_embeddings rows (NOT NULL).
+   * Must match the model string the read path filters on
+   * (resolveActiveEmbeddingModel().model), which is what this.model already holds
+   * (set from CONFIG.embeddings.model in ingest.ts).
+   */
   get modelName(): string {
     return this.model;
   }
 
-  /** TurboQuant support follows the active provider (Gemini only). */
+  /**
+   * Satisfies EmbeddingProvider.supportsQuantization — required by
+   * SqliteKnowledgeTurnStore to drive encodeEmbeddingFor() (TurboQuant gate).
+   * For Gemini (the active provider in benchmarks) this is true; for any other
+   * provider it is false. We resolve at call time (not cached) so test overrides
+   * via process.env work correctly, matching the same logic used by
+   * GeminiEmbeddingProvider (which hardcodes true) and OpenAiCompatibleProvider
+   * (which hardcodes false).
+   */
   get supportsQuantization(): boolean {
     return resolveActiveEmbeddingModel().provider === "gemini";
   }

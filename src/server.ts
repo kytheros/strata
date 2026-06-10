@@ -410,12 +410,12 @@ Parameters:
 - project: Filter to specific project (optional)
 - limit: Max results, 1-100 (default: 20)
 - include_context: Show surrounding messages (default: false)
-- format: Response format — 'concise' (TOON, ~60% fewer tokens), 'standard' (default), or 'detailed' (full JSON)
+- format: Response format — 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON), or 'agent' (chronological, dated, deduplicated notes block for LLM agents — the recommended agent pipeline output)
 - max_chars: Maximum characters per result text (default: 2500, max: 10000)
 - after_date: Filter results after this date — ISO format (2024-01-15) or relative (7d, 30d, 1w, 1m) (optional)
 - before_date: Filter results before this date — ISO format (2024-01-15) or relative (7d, 30d, 1w, 1m) (optional)
 - model: Consuming model name for retrieval optimization (optional, e.g., 'gemini-2.0-flash', 'gpt-4o')
-- retrieval_strategy: Override per-query retrieval lane — "auto" (default), "tirqdp" (force turn-level), "legacy" (force BM25+chunk)
+- retrieval_strategy: Override per-query retrieval lane — "auto" (default), "tirqdp" (force turn-level), "legacy" (force BM25+chunk), "deep" (session-scoring + reranker + dense turns; recommended with format:"agent")
 
 Filter syntax (include in query string):
 - project:name — filter by project
@@ -425,23 +425,25 @@ Filter syntax (include in query string):
 
 Example: Search for Docker configuration discussions in a specific project
 Example: Find where we talked about login issues
-Example: Browse all sessions from the last 7 days — query: "", after_date: "7d"`,
+Example: Browse all sessions from the last 7 days — query: "", after_date: "7d"
+Example: Get agent-optimized context for a question — format: "agent"`,
       inputSchema: z.object({
         query: z.string().describe("Search query with optional inline filters (e.g., 'docker compose project:myapp after:7d'). Can be empty string for date-only browsing when after_date or before_date is set."),
         project: z.string().optional().describe("Filter to a specific project name or path"),
         limit: z.number().optional().describe("Maximum results (default: 20, max: 100)"),
         include_context: z.boolean().optional().describe("Include surrounding message context (default: false)"),
-        format: z.enum(["concise", "standard", "detailed"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON)"),
+        format: z.enum(["concise", "standard", "detailed", "agent"]).optional().describe("Response format: 'concise' (TOON, ~60% fewer tokens), 'standard' (default), 'detailed' (full JSON), 'agent' (chronological, dated, deduplicated notes block for LLM agents — the recommended agent pipeline output)"),
         user: z.string().optional().describe("Filter results to a specific user scope (omit to search all users)"),
         max_chars: z.number().optional().describe("Maximum characters per result text (default: 2500, max: 10000)"),
         after_date: z.string().optional().describe("Filter results after this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
         before_date: z.string().optional().describe("Filter results before this date (ISO format: 2024-01-15, or relative: 7d, 30d, 1w, 1m)"),
         model: z.string().optional().describe("Consuming model name for retrieval optimization (e.g., 'gemini-2.0-flash', 'gpt-4o')"),
-        retrieval_strategy: z.enum(["auto", "tirqdp", "legacy"]).optional().describe(
+        retrieval_strategy: z.enum(["auto", "tirqdp", "legacy", "deep"]).optional().describe(
           "Per-query retrieval strategy override. " +
           "\"auto\" (default): reads the global CONFIG.search.useTirQdp flag, current behavior. " +
           "\"tirqdp\": force turn-level TIR+QDP retrieval for this query — opt in for knowledge_update, preference, and extraction questions where TIR+QDP excels. Falls back to legacy if turn store is unavailable. " +
-          "\"legacy\": force BM25+chunk retrieval for this query — use for temporal or multi-session questions where legacy outperforms TIR+QDP."
+          "\"legacy\": force BM25+chunk retrieval for this query — use for temporal or multi-session questions where legacy outperforms TIR+QDP. " +
+          "\"deep\": session-scoring retrieval (candidate pool 60 / sessionK 20) + cross-encoder reranker + dense turn-lane fusion. The recommended pipeline for agents — pair with format:\"agent\" for highest recall quality. Local SQLite backend; falls back to legacy if the session/turn stores are unavailable."
         ),
       }).strict(),
       annotations: {

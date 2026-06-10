@@ -17,14 +17,16 @@ import { quantizedSearch, type QuantizedSearchInput } from "../../extensions/qua
 import { HEADER_VERSION } from "../../extensions/quantization/codec.js";
 import { CONFIG } from "../../config.js";
 import { resolveActiveEmbeddingModel } from "../../extensions/embeddings/active-model.js";
+import type { IVectorSearch, VectorSearchResult } from "../../extensions/embeddings/vector-search.js";
 
 const FLOAT32_3072_SIZE = 3072 * 4; // 12,288 bytes
 
-/** A single vector search result. */
-export interface D1VectorSearchResult {
-  entryId: string;
-  score: number;
-}
+/**
+ * D1VectorSearchResult is kept as a type alias for VectorSearchResult for
+ * backward compatibility. The two interfaces are structurally identical.
+ * Any external code importing D1VectorSearchResult continues to work.
+ */
+export type D1VectorSearchResult = VectorSearchResult;
 
 /** Row shape from the D1 embeddings table. */
 interface D1EmbeddingRow {
@@ -39,7 +41,7 @@ interface D1EmbeddingRow {
  *
  * All read queries are scoped to `activeModel` (defaults to resolveActiveEmbeddingModel().model).
  */
-export class D1VectorSearch {
+export class D1VectorSearch implements IVectorSearch {
   private activeModel: string;
 
   constructor(private db: D1Database, activeModel?: string) {
@@ -57,7 +59,7 @@ export class D1VectorSearch {
     project: string,
     limit: number,
     user?: string
-  ): Promise<D1VectorSearchResult[]> {
+  ): Promise<VectorSearchResult[]> {
     let sql = `
       SELECT e.id, e.embedding, e.format
       FROM embeddings e
@@ -80,12 +82,86 @@ export class D1VectorSearch {
     return this.rankByCosine(rows, queryVec, limit);
   }
 
+  /**
+   * Search ALL embeddings without project filtering.
+   * Implements IVectorSearch.searchAll.
+   */
+  async searchAll(
+    queryVec: Float32Array,
+    limit: number
+  ): Promise<VectorSearchResult[]> {
+    const result = await this.db
+      .prepare("SELECT id, embedding, format FROM embeddings WHERE model = ?")
+      .bind(this.activeModel)
+      .all<D1EmbeddingRow>();
+    if (result.results.length === 0) return [];
+    return this.rankByCosine(result.results, queryVec, limit);
+  }
+
+  /**
+   * Search document chunk embeddings.
+   * D1 does not have a document_chunks table — returns [] always.
+   * Implements IVectorSearch.searchDocumentChunks.
+   */
+  async searchDocumentChunks(
+    _queryVec: Float32Array,
+    _limit: number,
+    _project?: string
+  ): Promise<VectorSearchResult[]> {
+    // D1 does not have a document_chunks table. The store_document ingest path
+    // is not available on Cloudflare Workers. Returns [] always.
+    return [];
+  }
+
+  /**
+   * Search turn embeddings (knowledge_turn_embeddings) by cosine similarity,
+   * scoped to a user_id (and optionally project) via a JOIN to knowledge_turns.
+   * Implements IVectorSearch.searchTurnEmbeddings.
+   *
+   * CORRECTION 2 compliance: this is the ONLY method in the live engine path.
+   * User-scoping is enforced at the SQL level — no user-B data leaks to user-A.
+   */
+  async searchTurnEmbeddings(
+    queryVec: Float32Array,
+    limit: number,
+    opts?: { userId?: string | null; project?: string | null }
+  ): Promise<VectorSearchResult[]> {
+    const conditions: string[] = ["te.model = ?"];
+    const params: unknown[] = [this.activeModel];
+
+    if (opts?.userId !== undefined) {
+      if (opts.userId === null) {
+        conditions.push("t.user_id IS NULL");
+      } else {
+        conditions.push("t.user_id = ?");
+        params.push(opts.userId);
+      }
+    }
+    if (opts?.project !== undefined && opts.project !== null) {
+      conditions.push("t.project = ?");
+      params.push(opts.project);
+    }
+
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    // nosemgrep: sql-injection-template-literal -- where built from code-controlled clauses; user values bound via .bind()
+    const sql = `
+      SELECT te.turn_id AS id, te.embedding, te.format
+      FROM knowledge_turn_embeddings te
+      JOIN knowledge_turns t ON t.turn_id = te.turn_id
+      ${where}
+    `;
+
+    const result = await this.db.prepare(sql).bind(...params).all<D1EmbeddingRow>();
+    if (result.results.length === 0) return [];
+    return this.rankByCosine(result.results, queryVec, limit);
+  }
+
   /** Rank D1 embedding rows using quantized or float32 cosine similarity. */
   private rankByCosine(
     rows: D1EmbeddingRow[],
     queryVec: Float32Array,
     limit: number
-  ): D1VectorSearchResult[] {
+  ): VectorSearchResult[] {
     // Partition by format: use format column (authoritative) or legacy header-byte heuristic.
     const quantizedInputs: QuantizedSearchInput[] = [];
     const float32Rows: { id: string; buf: Buffer; format?: string | null }[] = [];
@@ -107,7 +183,7 @@ export class D1VectorSearch {
       }
     }
 
-    const results: D1VectorSearchResult[] = [];
+    const results: VectorSearchResult[] = [];
 
     // Dimension guard for quantized path (always Gemini-3072).
     const geminiDim = CONFIG.quantization.embeddingDim;

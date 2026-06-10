@@ -65,6 +65,13 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
   let totalChunks = 0;
   let parseErrors = 0;
   const toolSessionCounts: Record<string, number> = {};
+  // Real data legitimately contains resumed/continued sessions that share one
+  // sessionId across multiple files (each file is a distinct document row, but
+  // they collapse to a single distinct session_id). Track the DISTINCT
+  // sessionIds added so the integrity check below compares like-with-like
+  // (store-distinct == added-distinct) rather than the raw add count, which
+  // over-counts shared sessionIds.
+  const addedSessionIds = new Set<string>();
 
   beforeAll(async () => {
     tmpDbDir = join(tmpdir(), `strata-smoke-${Date.now()}`);
@@ -107,6 +114,7 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
             parserSessions++;
             totalSessions++;
             totalChunks++;
+            addedSessionIds.add(session.sessionId);
           } catch {
             parseErrors++;
           }
@@ -158,7 +166,12 @@ describe.skipIf(!hasAnyData)("Real Data Smoke Test", () => {
     expect(docCount).toBe(totalChunks);
 
     const sessionIds = await docStore.getSessionIds();
-    expect(sessionIds.size).toBe(totalSessions);
+    // Distinct sessions in the store must equal the distinct sessionIds added,
+    // NOT the raw add count: resumed/continued sessions legitimately share a
+    // sessionId across multiple files (observed in real data), so add-count
+    // over-counts. This still catches real loss (a dropped session) or
+    // spurious sessions (an extra session_id the store invented).
+    expect(sessionIds.size).toBe(addedSessionIds.size);
 
     const projects = await docStore.getProjects();
     expect(projects.size).toBeGreaterThan(0);

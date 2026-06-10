@@ -83,6 +83,12 @@ benchmarks/longmemeval/providers/*
 !benchmarks/longmemeval/planned-search.ts
 !benchmarks/longmemeval/query-decomposer.ts
 !benchmarks/longmemeval/query-expansion.ts
+# Read-path parity harness (spec 2026-06-05-readpath-parity-phase1-design.md).
+# parity-comparison.ts: 4-arm study (A/B/C/D) measuring production vs benchmark read paths.
+!benchmarks/longmemeval/parity-comparison.ts
+# Prod-consumer parity harness (2026-06-06).
+# prod-consumer-parity.ts: 4-arm diagnostic — PROD-CONSUMER/BENCHMARK/PROD-RESULTS/PROD-STRING-PARSED.
+!benchmarks/longmemeval/prod-consumer-parity.ts
 # Benchmark embedding cache — large, regenerable, never commit
 benchmarks/longmemeval/cache/embedding-cache.db
 benchmarks/longmemeval/cache/embedding-cache.db-wal

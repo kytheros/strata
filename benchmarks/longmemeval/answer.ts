@@ -856,64 +856,13 @@ export interface AnswerOptions {
   questionType?: string;
 }
 
-/**
- * Deduplicate SearchResult[] by sessionId → one entry per session.
- *
- * When the search pipeline returns chunk-level results, the same session can
- * appear as multiple SearchResult entries (each a different chunk). This causes
- * the answer model to see "Session 3" and "Session 7" that are actually the same
- * conversation — leading to double-counting on aggregate questions.
- *
- * Groups by sessionId, concatenates texts with "\n\n" separator (preserving chunk
- * order by assuming the search pipeline returns chunks in score order — the first
- * chunk seen per session is the highest-scored), keeps the best score and earliest
- * timestamp. Returns results sorted by score descending.
- */
-export function deduplicateToSessions(results: SearchResult[]): SearchResult[] {
-  const sessions = new Map<string, SearchResult & { texts: string[] }>();
-
-  for (const r of results) {
-    const existing = sessions.get(r.sessionId);
-    if (!existing) {
-      sessions.set(r.sessionId, {
-        ...r,
-        toolNames: r.toolNames ?? [],
-        texts: [r.text],
-      });
-    } else {
-      existing.texts.push(r.text);
-      // Keep the best score
-      if (r.score > existing.score) {
-        existing.score = r.score;
-      }
-      // Keep the earliest timestamp
-      if (r.timestamp < existing.timestamp) {
-        existing.timestamp = r.timestamp;
-      }
-      // Merge tool names — guard against undefined toolNames (e.g. from
-      // searchSessionLevel chunks that arrive reordered by dense-turn fusion).
-      for (const t of (r.toolNames ?? [])) {
-        if (!existing.toolNames.includes(t)) {
-          existing.toolNames.push(t);
-        }
-      }
-    }
-  }
-
-  // Concatenate texts and strip the temporary field
-  const deduped: SearchResult[] = [];
-  for (const entry of sessions.values()) {
-    const { texts, ...rest } = entry;
-    deduped.push({
-      ...rest,
-      text: texts.join("\n\n"),
-    });
-  }
-
-  // Sort by score descending (preserve ranking)
-  deduped.sort((a, b) => b.score - a.score);
-  return deduped;
-}
+// deduplicateToSessions now lives in src/ (single source of truth for the
+// recommended agent pipeline). IMPORT it (local binding for internal use at
+// lines 571/894/1141) AND re-export it for benchmark importers. A bare
+// `export { x } from "..."` would expose it to importers but leave NO local
+// binding, breaking generateAnswer's own calls (ReferenceError).
+import { deduplicateToSessions } from "../../src/search/dedupe-to-sessions.js";
+export { deduplicateToSessions };
 
 /**
  * Generate an answer for a single question using retrieved context.

@@ -11,6 +11,9 @@ export enum ResponseFormat {
 
   /** Full JSON — all fields */
   DETAILED = "detailed",
+
+  /** Chronologically-ordered, dated note block for LLM agents (recommended agent pipeline) */
+  AGENT = "agent",
 }
 
 /**
