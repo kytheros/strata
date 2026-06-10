@@ -225,6 +225,29 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
   function initEmbedder(): Promise<void> {
     if (embedderInitPromise) return embedderInitPromise;
 
+    // Wire an FTS-only turn store for conversation-ingest (#30) when no embedding
+    // provider is available. createEmbeddingProvider() THROWS without creds, so this
+    // must run from the catch below as well as the no-provider else — otherwise hosted
+    // backends with no GEMINI_API_KEY (and the CI test env) silently write 0 turns.
+    // Idempotent: no-ops if a store is already wired or the kill-switch is off.
+    const wireKeylessTurnStore = () => {
+      if (denseTurnStore || !CONFIG.search.denseTurnLane.enabled) return;
+      if (options?.externalTurnStore) {
+        // PG / D1: the transport constructed the store (no SQLite indexManager here).
+        searchEngine.setKnowledgeTurnStore(options.externalTurnStore);
+        denseTurnStore = options.externalTurnStore;
+        denseTurnsEmbedded = false;
+        console.error("[strata] Dense turn-lane (PG/D1): FTS-only (no embedder)");
+      } else if (indexManager?.db) {
+        const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, null);
+        searchEngine.setKnowledgeTurnStore(turnStore);
+        indexManager.setTurnStore(turnStore);
+        denseTurnStore = turnStore;
+        denseTurnsEmbedded = false;
+        console.error("[strata] Dense turn-lane: FTS-only (no embedder)");
+      }
+    };
+
     embedderInitPromise = (async () => {
       try {
         const provider = createEmbeddingProvider();
@@ -301,20 +324,14 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
           }
         } else {
           console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
-          // Keyless: still wire an FTS-only turn store so conversation-ingest (#30)
-          // can write the turn lane (BM25/FTS recall) without vectors.
-          if (indexManager?.db && CONFIG.search.denseTurnLane.enabled) {
-            const turnStore = new SqliteKnowledgeTurnStore(indexManager.db, null);
-            searchEngine.setKnowledgeTurnStore(turnStore);
-            indexManager.setTurnStore(turnStore);
-            denseTurnStore = turnStore;
-            denseTurnsEmbedded = false;
-            console.error("[strata] Dense turn-lane: FTS-only (no embedder)");
-          }
+          wireKeylessTurnStore();
         }
       } catch {
-        // No credentials available -- write-side embedding disabled
+        // No credentials available -- write-side embedding disabled. createEmbeddingProvider()
+        // throws here (it never returns null), so this is the real no-creds path: still wire the
+        // FTS-only turn store so conversation-ingest (#30) persists turns without vectors.
         console.error("[strata] Semantic search: inactive — set GEMINI_API_KEY or configure in dashboard");
+        wireKeylessTurnStore();
       }
     })();
 

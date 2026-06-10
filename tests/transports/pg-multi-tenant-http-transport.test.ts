@@ -126,9 +126,13 @@ describe.skipIf(process.platform === "win32")(
     let handle: HttpTransportHandle | undefined;
     let pgAvailable = false;
     let pool: pg.Pool | undefined;
+    // Pin the dense-turn-lane kill-switch to default (ON) — the per-user PG server reads it
+    // live; a sibling file leaving it "off" in the shared worker would make ingest write 0 turns.
+    const savedDTL = process.env.STRATA_DENSE_TURN_LANE;
 
     // Check Postgres availability before all tests in this suite
     beforeAll(async () => {
+      delete process.env.STRATA_DENSE_TURN_LANE;
       pool = new pg.Pool({ connectionString: PG_URL, max: 2 });
       try {
         await pool.query("SELECT 1");
@@ -159,6 +163,7 @@ describe.skipIf(process.platform === "win32")(
         await pool.query("DELETE FROM documents WHERE user_scope = $1", [UUID_A]).catch(() => {});
         await pool.end();
       }
+      if (savedDTL === undefined) delete process.env.STRATA_DENSE_TURN_LANE; else process.env.STRATA_DENSE_TURN_LANE = savedDTL;
     });
 
     it("exports startPgMultiTenantHttpTransport function", () => {

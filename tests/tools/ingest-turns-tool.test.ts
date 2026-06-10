@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { createServer } from "../../src/server.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +9,13 @@ function mkTmp() {
 }
 
 describe("ingest_turns MCP tool", () => {
+  // The turn-store wiring reads STRATA_DENSE_TURN_LANE live (default ON). Pin to the
+  // default so a sibling test file that leaves the kill-switch "off" in the shared
+  // worker can't make this write path silently no-op (turnsWritten=0).
+  const savedDTL = process.env.STRATA_DENSE_TURN_LANE;
+  beforeEach(() => { delete process.env.STRATA_DENSE_TURN_LANE; });
+  afterAll(() => { if (savedDTL === undefined) delete process.env.STRATA_DENSE_TURN_LANE; else process.env.STRATA_DENSE_TURN_LANE = savedDTL; });
+
   it("is registered with a strict schema and writes a session", async () => {
     const srv = createServer({ dataDir: mkTmp() });
     const tool = (srv.server as any)._registeredTools["ingest_turns"];
