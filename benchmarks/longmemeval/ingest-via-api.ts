@@ -23,6 +23,7 @@ import { CONFIG } from "../../src/config.js";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 import { ingestTurns } from "../../src/ingest/ingest-turns.js";
+import { parseSessionDate } from "./ingest.js";
 import type { IngestedQuestion } from "./ingest.js";
 import type { LongMemQuestion } from "./types.js";
 
@@ -65,17 +66,22 @@ export async function ingestQuestionViaApi(question: LongMemQuestion): Promise<I
 
   const sessions = question.haystack_sessions;
   const sessionIds = question.haystack_session_ids;
+  const dates = question.haystack_dates;
 
   let turnCount = 0;
   for (let idx = 0; idx < sessions.length; idx++) {
     const sessionId = `longmemeval-${idx}`;
+    // Stamp every turn/chunk with the REAL session date (parity with ingestQuestion).
+    // A production ingest payload carries created_at; without it the corpus is stamped
+    // "today" and temporal/recency reasoning breaks (headers show the wrong year).
+    const sessionMs = parseSessionDate(dates[idx]);
     const result = await ingestTurns(
       { turnStore, documents: docStore, knowledge: knowledgeStore, embedderPresent: embedder != null },
       {
         sessionId,
         project: "longmemeval",
         userId: undefined,
-        messages: sessions[idx].map((t) => ({ speaker: t.role as "user" | "assistant", content: t.content })),
+        messages: sessions[idx].map((t) => ({ speaker: t.role as "user" | "assistant", content: t.content, created_at: sessionMs })),
       }
     );
     turnCount += result.turnsWritten;
