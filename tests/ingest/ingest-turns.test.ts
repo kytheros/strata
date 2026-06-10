@@ -56,4 +56,29 @@ describe("ingestTurns", () => {
     expect(res.chunksWritten).toBeGreaterThanOrEqual(1);
     expect(res.warnings.some((w) => /turn store unavailable/i.test(w))).toBe(true);
   });
+
+  it("skips empty-content turns instead of rejecting the whole session, and warns", async () => {
+    const res = await ingestTurns({ turnStore, documents, knowledge, embedderPresent: false }, input({
+      messages: [
+        { speaker: "user", content: "how do I deploy the worker" },
+        { speaker: "assistant", content: "   " }, // whitespace-only
+        { speaker: "assistant", content: "" },     // empty
+        { speaker: "user", content: "thanks, that worked" },
+      ],
+    }));
+    expect(res.turnsWritten).toBe(2); // the two empties dropped, not rejected
+    expect((await turnStore.getBySessionId("sess-1")).length).toBe(2);
+    expect(res.warnings.some((w) => /skipped 2 empty/i.test(w))).toBe(true);
+  });
+
+  it("all-empty messages throw BEFORE replace-session deletes (no data loss)", async () => {
+    // Seed a real session first.
+    await ingestTurns({ turnStore, documents, knowledge, embedderPresent: false }, input());
+    expect((await turnStore.getBySessionId("sess-1")).length).toBe(2);
+    // An all-empty re-ingest must throw and leave the existing session intact.
+    await expect(ingestTurns({ turnStore, documents, knowledge, embedderPresent: false }, input({
+      messages: [{ speaker: "user", content: "" }, { speaker: "assistant", content: "  " }],
+    }))).rejects.toThrow(/empty content/i);
+    expect((await turnStore.getBySessionId("sess-1")).length).toBe(2); // untouched
+  });
 });

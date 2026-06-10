@@ -74,9 +74,16 @@ function validate(input: IngestTurnsInput): void {
   if (!input.sessionId || !input.sessionId.trim()) throw new Error("ingestTurns: sessionId is required");
   if (!Array.isArray(input.messages) || input.messages.length === 0) throw new Error("ingestTurns: messages must be a non-empty array");
   input.messages.forEach((m, i) => {
-    if (!m.content || !m.content.trim()) throw new Error(`ingestTurns: message[${i}] has empty content`);
     if (!VALID_SPEAKERS.has(m.speaker)) throw new Error(`ingestTurns: message[${i}] has invalid speaker '${m.speaker}'`);
   });
+}
+
+/** Drop messages whose content is empty or whitespace-only. Real conversations
+ *  carry empty turns (tool-only turns, redacted content, client quirks) — skip
+ *  them rather than reject the whole session. Returns the kept list + drop count. */
+function dropEmptyMessages(messages: IngestTurnsMessage[]): { kept: IngestTurnsMessage[]; dropped: number } {
+  const kept = messages.filter((m) => typeof m.content === "string" && m.content.trim().length > 0);
+  return { kept, dropped: messages.length - kept.length };
 }
 
 /**
@@ -90,6 +97,13 @@ export async function ingestTurns(deps: IngestTurnsDeps, input: IngestTurnsInput
   const userId = input.userId;
   const warnings: string[] = [];
 
+  // Normalize BEFORE any destructive write: drop empty-content turns, and bail
+  // on an all-empty payload so replace-session can't wipe a session in exchange
+  // for nothing.
+  const { kept: messages, dropped } = dropEmptyMessages(input.messages);
+  if (messages.length === 0) throw new Error("ingestTurns: all messages have empty content");
+  if (dropped > 0) warnings.push(`skipped ${dropped} empty-content message(s)`);
+
   // 1) Replace-session: clear all 3 reps for this session.
   if (deps.turnStore) await deps.turnStore.deleteBySessionId(input.sessionId);
   await deps.documents.removeSession(input.sessionId);
@@ -98,7 +112,7 @@ export async function ingestTurns(deps: IngestTurnsDeps, input: IngestTurnsInput
   // 2) Turns (+ dense vectors when an embedder is attached to the store).
   let turnsWritten = 0;
   if (deps.turnStore) {
-    const turns: KnowledgeTurnInput[] = input.messages.map((m, i) => ({
+    const turns: KnowledgeTurnInput[] = messages.map((m, i) => ({
       sessionId: input.sessionId, project, userId: userId ?? null,
       speaker: m.speaker, content: m.content, messageIndex: i, createdAt: m.created_at,
     }));
@@ -109,7 +123,7 @@ export async function ingestTurns(deps: IngestTurnsDeps, input: IngestTurnsInput
   }
 
   // 3) Doc chunks (FTS). tokenCount = whitespace word count (matches production ingest).
-  const session = buildParsedSession(input);
+  const session = buildParsedSession({ ...input, messages });
   let chunksWritten = 0;
   for (const chunk of chunkSession(session)) {
     await deps.documents.add(chunk.text, chunk.text.split(/\s+/).length, {
