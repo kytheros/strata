@@ -35,6 +35,7 @@ import { createPool } from "../storage/pg/pg-types.js";
 import { createSchema } from "../storage/pg/schema.js";
 import type { PgPool } from "../storage/pg/pg-types.js";
 import { resolveActiveEmbeddingModel } from "../extensions/embeddings/active-model.js";
+import { handleIngestTurnsRoute } from "./ingest-turns-route.js";
 
 /** UUID v4 pattern for header validation */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -256,6 +257,37 @@ export async function startPgMultiTenantHttpTransport(
     return entry;
   }
 
+  /**
+   * Tenant gate for non-MCP REST routes (mirrors the inline gate in
+   * handleMcpRequest): auth-proxy sentinel + X-Strata-User UUID. Writes the
+   * error response and returns null on failure.
+   */
+  function requireTenant(
+    req: import("node:http").IncomingMessage,
+    res: import("node:http").ServerResponse
+  ): string | null {
+    if (authProxy.required) {
+      const presented = req.headers["x-strata-verified"] as string | undefined;
+      if (!verifiedHeaderMatches(presented, authProxy.token!)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Missing or invalid X-Strata-Verified header" }, id: null }));
+        return null;
+      }
+    }
+    const userId = req.headers["x-strata-user"] as string | undefined;
+    if (!userId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Missing X-Strata-User header" }, id: null }));
+      return null;
+    }
+    if (!UUID_RE.test(userId)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Invalid X-Strata-User header: must be UUID format" }, id: null }));
+      return null;
+    }
+    return userId;
+  }
+
   // ── HTTP server ───────────────────────────────────────────────────────
 
   const httpServer = createHttpServer(async (req, res) => {
@@ -264,6 +296,18 @@ export async function startPgMultiTenantHttpTransport(
     if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok" }));
+      return;
+    }
+
+    // ── Conversation-ingest endpoint (#30) — same shared handler as SQLite ──
+    if (url.pathname === "/ingest/turns") {
+      await handleIngestTurnsRoute(req, res, {
+        requireTenant,
+        acquire: async (userId) => {
+          const userEntry = await acquireUser(userId);
+          return { ingestTurns: userEntry.mcpServer.ingestTurns, release: () => releaseUser(userId) };
+        },
+      });
       return;
     }
 

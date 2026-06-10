@@ -22,6 +22,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createServer } from "../server.js";
 import type { HttpTransportHandle } from "./http-transport.js";
+import { handleIngestTurnsRoute } from "./ingest-turns-route.js";
 
 /** UUID v4 pattern for header validation */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -310,23 +311,6 @@ export async function startMultiTenantHttpTransport(
     return userId;
   }
 
-  /** Larger body cap for conversation-ingest payloads (full sessions can be several MB). */
-  const MAX_INGEST_BODY_BYTES = 5 * 1_048_576;
-
-  function readBodyLarge(req: import("node:http").IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let total = 0;
-      req.on("data", (c: Buffer) => {
-        total += c.length;
-        if (total > MAX_INGEST_BODY_BYTES) { req.destroy(); reject(new Error("Request body too large")); return; }
-        chunks.push(c);
-      });
-      req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
-      req.on("error", reject);
-    });
-  }
-
   // ── HTTP server ────────────────────────────────────────────────────
 
   const httpServer = createHttpServer(async (req, res) => {
@@ -414,40 +398,13 @@ export async function startMultiTenantHttpTransport(
 
     // ── Conversation-ingest endpoint (#30) ───────────────────────────
     if (url.pathname === "/ingest/turns") {
-      if ((req.method ?? "").toUpperCase() !== "POST") {
-        res.writeHead(405, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Method not allowed" }));
-        return;
-      }
-      const userId = requireTenant(req, res);
-      if (!userId) return; // guard already wrote the error response
-      // Early, clean 413 on a declared oversized body — before reading the stream
-      // (readBodyLarge's streaming cap stays as defense-in-depth for chunked bodies).
-      const declaredLen = Number(req.headers["content-length"] ?? 0);
-      if (Number.isFinite(declaredLen) && declaredLen > MAX_INGEST_BODY_BYTES) {
-        res.writeHead(413, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Request body too large" }));
-        return;
-      }
-      try {
-        const body = await readBodyLarge(req);
-        const payload = JSON.parse(body);
-        const userEntry = await acquireUser(userId);
-        try {
-          const result = await userEntry.mcpServer.ingestTurns({
-            sessionId: payload.sessionId, project: payload.project, userId,
-            messages: payload.messages,
-          });
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(result));
-        } finally {
-          releaseUser(userId);
-        }
-      } catch (err) {
-        const tooLarge = err instanceof Error && /too large/i.test(err.message);
-        res.writeHead(tooLarge ? 413 : 400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: err instanceof Error ? err.message : "Bad request" }));
-      }
+      await handleIngestTurnsRoute(req, res, {
+        requireTenant,
+        acquire: async (userId) => {
+          const userEntry = await acquireUser(userId);
+          return { ingestTurns: userEntry.mcpServer.ingestTurns, release: () => releaseUser(userId) };
+        },
+      });
       return;
     }
 

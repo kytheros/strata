@@ -155,6 +155,8 @@ describe.skipIf(process.platform === "win32")(
         await pool
           .query("DELETE FROM knowledge WHERE user_scope = $1", [UUID_A])
           .catch(() => {});
+        await pool.query("DELETE FROM knowledge_turns WHERE user_id = $1", [UUID_A]).catch(() => {});
+        await pool.query("DELETE FROM documents WHERE user_scope = $1", [UUID_A]).catch(() => {});
         await pool.end();
       }
     });
@@ -219,6 +221,54 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(rows.length).toBeGreaterThan(0);
       expect(rows[0].summary).toContain("pg-multi-tenant round-trip");
+    });
+
+    it("POST /ingest/turns writes turns to Postgres for a valid tenant (#30)", async () => {
+      if (!pgAvailable) return;
+
+      handle = await startPgMultiTenantHttpTransport({
+        port: TEST_PORT,
+        connectionString: PG_URL,
+      });
+      const baseUrl = `http://localhost:${TEST_PORT}`;
+
+      // Non-POST is rejected by the shared route handler.
+      const getRes = await fetch(`${baseUrl}/ingest/turns`, { method: "GET", headers: { "X-Strata-User": UUID_A } });
+      expect(getRes.status).toBe(405);
+
+      // A non-UUID tenant is rejected before any DB work.
+      const badRes = await fetch(`${baseUrl}/ingest/turns`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Strata-User": "not-a-uuid" },
+        body: JSON.stringify({ sessionId: "s", messages: [{ speaker: "user", content: "hi" }] }),
+      });
+      expect(badRes.status).toBe(400);
+
+      // Valid ingest persists turns to Postgres.
+      const res = await fetch(`${baseUrl}/ingest/turns`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Strata-User": UUID_A },
+        body: JSON.stringify({
+          sessionId: "pg-ingest-rt-1",
+          project: "pg-rt",
+          messages: [
+            { speaker: "user", content: "what port does the api use" },
+            { speaker: "assistant", content: "" }, // empty turn must be skipped, not rejected
+            { speaker: "assistant", content: "the api listens on 8080" },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { turnsWritten: number; sessionId: string; warnings: string[] };
+      expect(body.turnsWritten).toBe(2); // empty turn dropped
+      expect(body.sessionId).toBe("pg-ingest-rt-1");
+
+      // Confirm rows landed in Postgres (not ephemeral SQLite).
+      const { rows } = await pool!.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM knowledge_turns WHERE user_id = $1 AND session_id = $2",
+        [UUID_A, "pg-ingest-rt-1"]
+      );
+      expect(Number(rows[0].n)).toBe(2);
     });
 
     it("emits deprecation warning when maxDbs is set alongside connectionString", async () => {
