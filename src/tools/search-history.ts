@@ -215,7 +215,12 @@ export async function handleSearchHistory(
   knowledgeStore?: IKnowledgeStore,
   /** Optional turn store — activates the dense turn-lane (CONFIG.search.denseTurnLane.enabled,
    *  default ON when a provider is present) and the legacy TIR+QDP lane
-   *  (CONFIG.search.useTirQdp). Bypassed when retrieval_strategy:"legacy" is set. */
+   *  (CONFIG.search.useTirQdp). Bypassed when retrieval_strategy:"legacy" is set.
+   *  The store is always wired by server.ts (writes are never gated); the
+   *  STRATA_DENSE_TURN_LANE kill-switch gates only the dense READ side — the
+   *  default-path fusion branch below plus the vector lane inside
+   *  engine.searchTurns. Explicit "deep"/"tirqdp" strategies honor the caller
+   *  and use the (then FTS-only) turn lane even when the switch is off. */
   turnStore?: IKnowledgeTurnStore
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
@@ -339,7 +344,10 @@ export async function handleSearchHistory(
       }
     }
 
-    // Dense turn-lane fusion (carries the shipped SSA win; matches retrieve.ts:276-278)
+    // Dense turn-lane fusion (carries the shipped SSA win; matches retrieve.ts:276-278).
+    // "deep" is an explicit caller opt-in, so this fires on store presence alone —
+    // with STRATA_DENSE_TURN_LANE=off, engine.searchTurns degrades to FTS5-only
+    // (the kill-switch is enforced at query time inside the engine).
     if (turnStore) {
       engine.setKnowledgeTurnStore(turnStore);
       const turnHits = await engine.searchTurns(args.query, {
@@ -421,7 +429,8 @@ export async function handleSearchHistory(
     // the chunk lane (existing search results) and the turn lane
     // (knowledge_turns FTS hits) via RRF, then apply QDP pruning.
     // Activated by: CONFIG.search.useTirQdp=true (auto), or retrieval_strategy="tirqdp".
-    // NOTE: This branch only runs when the dense-turn-lane is OFF (kill-switch).
+    // NOTE: This branch only runs when the dense-turn-lane is OFF (kill-switch) —
+    // the dense branch above catches everything else. searchTurns is FTS5-only here.
 
     // Chunk lane: existing search path (semantic bridge or FTS5)
     const chunkSearchResults = asyncSearch

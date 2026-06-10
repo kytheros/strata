@@ -156,6 +156,13 @@ function parseArgs(): {
   /** --no-full: stop after the stratified smoke slice; do NOT auto-continue to the full 500Q run.
    *  Lets the lead inspect the slice (e.g. IE-regression check) before committing to the full run. */
   noFull: boolean;
+  /**
+   * --ingest=direct|api (default: "direct")
+   * When "api", routes the corpus through the production ingestTurns write-path
+   * (src/ingest/ingest-turns.ts) instead of the benchmark ingestQuestion path.
+   * Used to validate the new write-path reproduces the published number (#30).
+   */
+  ingestMode: "direct" | "api";
 } {
   const args = process.argv.slice(2);
 
@@ -216,7 +223,10 @@ function parseArgs(): {
   const kuCot = args.includes("--ku-cot");
   const noFull = args.includes("--no-full");
 
-  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull };
+  const ingestArg = args.find((a) => a.startsWith("--ingest="));
+  const ingestMode = (ingestArg?.split("=")[1] ?? "direct") as "direct" | "api";
+
+  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode };
 }
 
 // ---------------------------------------------------------------------------
@@ -594,6 +604,8 @@ export interface PcpRunResult {
 // Single-question runner
 // ---------------------------------------------------------------------------
 
+let INGEST_MODE: "direct" | "api" = "direct";
+
 async function runOneQuestion(
   question: LongMemQuestion,
   arm: PcpArmLabel,
@@ -603,7 +615,12 @@ async function runOneQuestion(
   runTimestamp: string,
   maxChars: number = 2500,
 ): Promise<PcpRunResult> {
-  const ingested = await ingestQuestion(question);
+  const { ingestQuestionViaApi } = INGEST_MODE === "api"
+    ? await import("./ingest-via-api.js")
+    : { ingestQuestionViaApi: null };
+  const ingested = INGEST_MODE === "api"
+    ? await ingestQuestionViaApi!(question)
+    : await ingestQuestion(question);
 
   let judgeInput: string;
   let contextLength: number;
@@ -1640,12 +1657,16 @@ function verifyFromDisk(
 
 async function main(): Promise<void> {
   loadEnv();
-  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull } = parseArgs();
+  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode } = parseArgs();
   PROMPT_VARIANT = promptVariant;
   AGENT_FORMAT = agentFormat;
   DEEP_RETRIEVAL = deep;
   STRUCTURED = structured;
   KU_COT = kuCot;
+  INGEST_MODE = ingestMode;
+  if (ingestMode === "api") {
+    console.log(`INGEST MODE: api — routing corpus through production ingestTurns write-path (#30 validation)`);
+  }
   if (maxChars !== 2500) {
     console.log(`max_chars OVERRIDE: ${maxChars} (default 2500) — PROD-CONSUMER + PROD-STRING-PARSED arms`);
   }

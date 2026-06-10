@@ -12,6 +12,7 @@ import {
   type ParsedSession,
   type SessionFileInfo,
 } from "../parsers/session-parser.js";
+import { chunkSession as sharedChunkSession } from "./chunk-session.js";
 import { tokenize } from "./tokenizer.js";
 import { BM25Index, type SerializedBM25 } from "./bm25.js";
 import { TFIDFIndex, type SerializedTFIDF } from "./tfidf.js";
@@ -156,90 +157,12 @@ export class IndexManager {
 
   /**
    * Chunk a session into indexable pieces.
-   * Strategy: group consecutive same-role messages, split long chunks.
+   * Delegates to the shared chunkSession export (src/indexing/chunk-session.ts)
+   * so the conversation-ingest write-path (#30) can reuse the same AutoResearch-tuned
+   * chunker without duplicating logic.
    */
-  private chunkSession(
-    session: ParsedSession
-  ): Array<{
-    text: string;
-    role: "user" | "assistant" | "mixed";
-    timestamp: number;
-    toolNames: string[];
-    messageIndex: number;
-  }> {
-    const chunks: Array<{
-      text: string;
-      role: "user" | "assistant" | "mixed";
-      timestamp: number;
-      toolNames: string[];
-      messageIndex: number;
-    }> = [];
-
-    const { chunkSize, maxChunksPerSession } = CONFIG.indexing;
-    let currentText = "";
-    let currentRole: "user" | "assistant" | "mixed" | null = null;
-    let currentTimestamp = 0;
-    let currentToolNames: string[] = [];
-    let currentMessageIndex = 0;
-
-    const flush = () => {
-      if (currentText.trim() && currentRole) {
-        // Split if too long
-        const words = currentText.split(/\s+/);
-        for (let i = 0; i < words.length; i += chunkSize) {
-          if (chunks.length >= maxChunksPerSession) return;
-          chunks.push({
-            text: words.slice(i, i + chunkSize).join(" "),
-            role: currentRole,
-            timestamp: currentTimestamp,
-            toolNames: [...currentToolNames],
-            messageIndex: currentMessageIndex,
-          });
-        }
-      }
-      currentText = "";
-      currentRole = null;
-      currentToolNames = [];
-    };
-
-    for (let i = 0; i < session.messages.length; i++) {
-      const msg = session.messages[i];
-
-      // Group user+assistant exchanges together for better context
-      if (currentRole && currentRole !== msg.role) {
-        // If switching from user to assistant, keep them together
-        if (currentRole === "user" && msg.role === "assistant") {
-          currentRole = "mixed";
-        } else {
-          flush();
-        }
-      }
-
-      if (!currentRole) {
-        currentRole = msg.role;
-        currentTimestamp = msg.timestamp
-          ? new Date(msg.timestamp).getTime() || 0
-          : 0;
-        currentMessageIndex = i;
-      }
-
-      currentText += (currentText ? "\n" : "") + msg.text;
-      if (msg.toolNames.length > 0) {
-        currentToolNames.push(...msg.toolNames);
-      }
-      if (msg.toolInputSnippets.length > 0) {
-        currentText += " " + msg.toolInputSnippets.join(" ");
-      }
-
-      // Flush if chunk is getting large
-      const wordCount = currentText.split(/\s+/).length;
-      if (wordCount >= chunkSize * 1.5) {
-        flush();
-      }
-    }
-
-    flush();
-    return chunks;
+  private chunkSession(session: ParsedSession) {
+    return sharedChunkSession(session);
   }
 
   /**

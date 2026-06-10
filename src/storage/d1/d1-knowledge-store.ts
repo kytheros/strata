@@ -432,6 +432,22 @@ export class D1KnowledgeStore implements IKnowledgeStore {
     await this.deleteEntry(id);
   }
 
+  /**
+   * Delete every entry belonging to a session (replace-session idempotency for #30).
+   * Delegates to deleteEntry (which uses this.userId for tenant isolation).
+   */
+  async deleteBySessionId(sessionId: string, user?: string): Promise<number> {
+    const effectiveUser = user ?? this.userId;
+    const sql = "SELECT id FROM knowledge WHERE session_id = ? AND user = ?";
+    const stmt = this.db.prepare(sql).bind(sessionId, effectiveUser);
+    const { results } = await stmt.all<{ id: string }>();
+    let removed = 0;
+    for (const r of results ?? []) {
+      if (await this.deleteEntry(r.id)) removed++;
+    }
+    return removed;
+  }
+
   async getHistory(entryId: string, limit: number = 20): Promise<KnowledgeHistoryRow[]> {
     const effectiveLimit = Math.min(Math.max(limit, 1), 100);
     const result = await this.db

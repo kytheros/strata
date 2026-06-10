@@ -22,6 +22,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createServer } from "../server.js";
 import type { HttpTransportHandle } from "./http-transport.js";
+import { handleIngestTurnsRoute } from "./ingest-turns-route.js";
 
 /** UUID v4 pattern for header validation */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -279,6 +280,37 @@ export async function startMultiTenantHttpTransport(
     }, idleTimeoutMs);
   }
 
+  // ── Shared tenant guard (#30) ─────────────────────────────────────
+  // Validates X-Strata-Verified (when required) and X-Strata-User UUID.
+  // On failure, writes the error response and returns null.
+  // On success, returns the validated userId.
+  // Captured as a closure so it has access to `authProxy`.
+  function requireTenant(
+    req: import("node:http").IncomingMessage,
+    res: import("node:http").ServerResponse
+  ): string | null {
+    if (authProxy.required) {
+      const presented = req.headers["x-strata-verified"] as string | undefined;
+      if (!verifiedHeaderMatches(presented, authProxy.token!)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Missing or invalid X-Strata-Verified header" }, id: null }));
+        return null;
+      }
+    }
+    const userId = req.headers["x-strata-user"] as string | undefined;
+    if (!userId) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Missing X-Strata-User header" }, id: null }));
+      return null;
+    }
+    if (!UUID_RE.test(userId)) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Invalid X-Strata-User header: must be UUID format" }, id: null }));
+      return null;
+    }
+    return userId;
+  }
+
   // ── HTTP server ────────────────────────────────────────────────────
 
   const httpServer = createHttpServer(async (req, res) => {
@@ -361,6 +393,18 @@ export async function startMultiTenantHttpTransport(
           );
         }
       }
+      return;
+    }
+
+    // ── Conversation-ingest endpoint (#30) ───────────────────────────
+    if (url.pathname === "/ingest/turns") {
+      await handleIngestTurnsRoute(req, res, {
+        requireTenant,
+        acquire: async (userId) => {
+          const userEntry = await acquireUser(userId);
+          return { ingestTurns: userEntry.mcpServer.ingestTurns, release: () => releaseUser(userId) };
+        },
+      });
       return;
     }
 

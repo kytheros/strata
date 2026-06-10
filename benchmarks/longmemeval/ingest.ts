@@ -97,7 +97,7 @@ function estimateTokens(text: string): number {
 }
 
 /** Parse session date string to timestamp (ms). Handles "2023/05/20 (Sat) 02:21" format. */
-function parseSessionDate(dateStr: string): number {
+export function parseSessionDate(dateStr: string): number {
   // Strip day-of-week in parentheses: "2023/05/20 (Sat) 02:21" → "2023/05/20 02:21"
   const cleaned = dateStr.replace(/\s*\([^)]*\)\s*/, " ").trim();
   const ts = new Date(cleaned).getTime();

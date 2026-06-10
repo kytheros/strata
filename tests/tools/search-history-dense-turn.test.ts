@@ -16,6 +16,7 @@ import type { IKnowledgeTurnStore, KnowledgeTurnHit } from "../../src/storage/in
 function fakeEngine(): SqliteSearchEngine {
   return {
     search: async () => [],
+    searchSessionLevel: async () => [], // deep strategy's session lane
     searchTurns: async (_q: string, _opts: unknown): Promise<KnowledgeTurnHit[]> => [
       // A turn hit with ZERO lexical overlap with "electromagnetic flux capacitor"
       // (the turn content is deliberately "xyzzy plugh" — pure noise; would be
@@ -83,6 +84,30 @@ describe("handleSearchHistory dense-turn fusion branch", () => {
 
     // When lane is off, zero-overlap turn must NOT appear (no turn fusion)
     expect(result).not.toContain("xyzzy plugh");
+  });
+
+  it("explicit retrieval_strategy='deep' still uses the turn lane when the kill-switch is off (explicit-strategy contract)", async () => {
+    // The turn store is always wired now; "deep" is an explicit caller opt-in that
+    // fires on store presence alone. With the switch off the engine degrades the
+    // turn lane to FTS5-only, but the fusion must still happen — re-gating the
+    // deep branch on CONFIG.search.denseTurnLane.enabled would revert this contract.
+    process.env.STRATA_DENSE_TURN_LANE = "off";
+
+    const result = await handleSearchHistory(
+      fakeEngine(),
+      {
+        query: "electromagnetic flux capacitor",
+        limit: 10,
+        retrieval_strategy: "deep",
+      },
+      undefined,
+      undefined,
+      undefined,
+      fakeTurnStore(),
+    );
+
+    // The turn hit must be fused into the deep results despite the kill-switch.
+    expect(result).toContain("xyzzy plugh");
   });
 
   it("does not surface turn hits when retrieval_strategy='legacy' even with dense lane ON (BLOCKER guard)", async () => {

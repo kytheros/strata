@@ -54,6 +54,7 @@ describe("search_history TIR+QDP flag dispatch (TIRQDP-2.1)", () => {
 
   // Save original flag so we can restore it after each test
   const originalFlag = CONFIG.search.useTirQdp;
+  const savedDTL = process.env.STRATA_DENSE_TURN_LANE;
 
   beforeEach(async () => {
     db = openDatabase(":memory:");
@@ -82,6 +83,8 @@ describe("search_history TIR+QDP flag dispatch (TIRQDP-2.1)", () => {
   afterEach(() => {
     // Restore flag to its original value
     CONFIG.search.useTirQdp = originalFlag;
+    if (savedDTL === undefined) delete process.env.STRATA_DENSE_TURN_LANE;
+    else process.env.STRATA_DENSE_TURN_LANE = savedDTL;
     db.close();
   });
 
@@ -109,6 +112,10 @@ describe("search_history TIR+QDP flag dispatch (TIRQDP-2.1)", () => {
 
   it("TIR+QDP path (useTirQdp=true) returns at least one result with source: 'turn'", async () => {
     CONFIG.search.useTirQdp = true;
+    // Pin the dense lane OFF so this actually exercises the tirqdp branch
+    // (fuseCommunityLanes + QDP). With the lane at its default (ON), the dense
+    // branch catches the call first and this test silently tests the wrong path.
+    process.env.STRATA_DENSE_TURN_LANE = "off";
 
     const result = await handleSearchHistory(
       engine,

@@ -100,7 +100,17 @@ export class EmbeddingCacheStore {
   }
 }
 
-/** Transparent caching wrapper around any TextEmbedder. */
+/**
+ * Transparent caching wrapper around any TextEmbedder.
+ *
+ * Implements the full EmbeddingProvider contract (not just TextEmbedder) so it
+ * can drive the dense turn-lane: SqliteKnowledgeTurnStore.embedTurns reads
+ * `embedder.modelName` / `embedder.supportsQuantization` to stamp the NOT-NULL
+ * knowledge_turn_embeddings.model column and choose the vector encoding. Without
+ * these getters, dense-turn embeds throw `NOT NULL constraint failed: ...model`
+ * and silently degrade to FTS-only — which broke dense-turn writes on BOTH
+ * --ingest=direct (ingestQuestion) and --ingest=api (ingestQuestionViaApi).
+ */
 export class CachedEmbedder implements TextEmbedder, EmbeddingProvider {
   constructor(
     private inner: TextEmbedder,

@@ -72,4 +72,11 @@ export interface IKnowledgeStore {
    * Implementations without async embedding may return 0 immediately.
    */
   flushPendingEmbeddings(): Promise<number>;
+
+  /**
+   * Delete every entry belonging to a session (replace-session idempotency).
+   * Optionally scoped to a user/tenant. Returns the number of entries removed.
+   * Keeps FTS/history/embeddings consistent (delegates to per-entry deletion).
+   */
+  deleteBySessionId(sessionId: string, user?: string): Promise<number>;
 }

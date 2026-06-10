@@ -77,6 +77,10 @@ describe("LongMemEval benchmark TIRQDP instrumentation (Stage 1.5)", () => {
 
   it("handleSearchHistory with useTirQdp=true includes source:turn results", async () => {
     CONFIG.search.useTirQdp = true;
+    // Pin the dense lane OFF so the call actually routes to the tirqdp branch —
+    // with the lane at its default (ON), the dense branch catches it first and
+    // this test exercises the wrong path.
+    process.env.STRATA_DENSE_TURN_LANE = "off";
 
     const question = makeFixtureQuestion();
     const ingested = await ingestQuestion(question);
@@ -97,6 +101,7 @@ describe("LongMemEval benchmark TIRQDP instrumentation (Stage 1.5)", () => {
       // Must include at least one turn-sourced result
       expect(result).toContain('"source":"turn"');
     } finally {
+      delete process.env.STRATA_DENSE_TURN_LANE;
       closeIngested(ingested);
     }
   });

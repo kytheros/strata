@@ -91,12 +91,12 @@ Key files:
 
 When `GEMINI_API_KEY` is present, Strata automatically activates the dense turn-lane (per-turn vector embeddings) for every tenant. This improves recall on within-session questions but has cost implications in multi-tenant deployments because **all tenants share the same API key**:
 
-- **Default ON** when a provider is present. Kill-switch: set `STRATA_DENSE_TURN_LANE=off` to disable for all tenants.
+- **Default ON** when a provider is present. Kill-switch: set `STRATA_DENSE_TURN_LANE=off` to disable for all tenants. The switch gates the *dense* side only — per-turn embedding writes (the cost) and dense retrieval fusion. FTS turn persistence (`ingest_turns`, `POST /ingest/turns`, batch indexing) is never gated, so re-enabling the lane has data to read; backfill missing vectors with `strata index --rebuild-turns`.
 - **Concurrency cap**: a process-global semaphore limits concurrent `embedBatch` calls to `STRATA_DENSE_TURN_MAX_CONCURRENCY` (default 5). This prevents one large tenant's initial index build from exhausting quota and degrading all others to FTS5-only search. Raise the cap on a dedicated host with higher quota; lower it if you see 429 errors from the embedding API.
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `STRATA_DENSE_TURN_LANE` | on | Set to `off` to disable dense turn-lane for all tenants. |
+| `STRATA_DENSE_TURN_LANE` | on | Set to `off` to disable per-turn embedding writes + dense retrieval for all tenants (FTS turn persistence is never gated). |
 | `STRATA_DENSE_TURN_MAX_CONCURRENCY` | 5 | Max concurrent embedding batch calls across all tenants. |
 | `STRATA_AGENT_FORMAT_DEDUPE` | on | Set to `off` to disable dedup-to-sessions in the `format:"agent"` output (useful for A/B validation per spec §4.3). |
 
