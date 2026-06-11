@@ -26,20 +26,25 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 
-const OVERRIDE_FILE = join(homedir(), ".strata", "dashboard-overrides.json");
-
 export interface OverrideMap {
   [dotPath: string]: unknown;
 }
 
+/**
+ * Resolved per call (not at module load) so STRATA_DATA_DIR redirection
+ * works the same way it does for the database — an env-redirected
+ * instance must not read or write the real ~/.strata.
+ */
 export function getOverridesFilePath(): string {
-  return OVERRIDE_FILE;
+  const dataDir = process.env.STRATA_DATA_DIR || join(homedir(), ".strata");
+  return join(dataDir, "dashboard-overrides.json");
 }
 
 export function loadOverrides(): OverrideMap {
-  if (!existsSync(OVERRIDE_FILE)) return {};
+  const file = getOverridesFilePath();
+  if (!existsSync(file)) return {};
   try {
-    const raw = readFileSync(OVERRIDE_FILE, "utf-8");
+    const raw = readFileSync(file, "utf-8");
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as OverrideMap;
@@ -55,9 +60,10 @@ export function loadOverrides(): OverrideMap {
  * Callers that want to merge with existing should `loadOverrides()` first.
  */
 export function saveOverrides(overrides: OverrideMap): void {
-  const dir = dirname(OVERRIDE_FILE);
+  const file = getOverridesFilePath();
+  const dir = dirname(file);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(OVERRIDE_FILE, JSON.stringify(overrides, null, 2), "utf-8");
+  writeFileSync(file, JSON.stringify(overrides, null, 2), "utf-8");
 }
 
 /**
