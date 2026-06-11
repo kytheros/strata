@@ -250,7 +250,7 @@ export function buildAgentContext(results: SearchResult[], query: string, maxCha
   // v2: removed deduplication instruction — it caused over-merging and over-splitting
   // regressions in v1. Simple scan-all instruction avoids that class of failure.
   const header = isAggregationQuery(query)
-    ? `[Counting guidance] This question asks for a count or total. Scan every note before answering — do not stop after the first relevant note. List every matching item you find across all notes, then give the final count.\n\n`
+    ? `[Counting guidance] This question asks for a count or total. Scan every note before answering — do not stop after the first relevant note.\n\n`
     : "";
   return header + lines.join("\n");
 }

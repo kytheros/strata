@@ -24,6 +24,8 @@ describe("buildAgentContext counting guidance (C1, #37)", () => {
     const out = buildAgentContext([mk(0), mk(1)], "How many plants did I acquire?", 2500);
     expect(out).toMatch(/^\[Counting guidance\]/);
     expect(out).toContain("Scan every note before answering");
+    // v3: scan-only header — no enumeration instruction
+    expect(out).not.toContain("List every matching item");
     expect(out).toContain("note 0 body");
     expect(out).toContain("note 1 body");
   });
