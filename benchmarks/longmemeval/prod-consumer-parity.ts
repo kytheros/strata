@@ -1416,7 +1416,12 @@ async function runArm(
   const completed = loadCompleted(runId);
   const results: PcpRunResult[] = [];
 
-  // Load already-completed results from checkpoint
+  // Load already-completed results from checkpoint.
+  // NOTE: loadCompleted reads ALL records under this runId — if a prior run used a
+  // larger question set (e.g. full-500) and this run uses --ids, the final -pc.json
+  // will contain all prior records plus the new ones. analyze-flips.cjs filters by
+  // ms133-ids.txt so this has no impact on gate analysis; readers of -pc.json directly
+  // should be aware the file may contain non-MS questions from a prior run.
   for (const [, record] of completed) {
     results.push(record as PcpRunResult);
   }
@@ -1817,8 +1822,8 @@ async function main(): Promise<void> {
     questions = questions.filter((q) => ID_FILTER.has(q.question_id));
     console.log(`--ids filter active: ${questions.length} questions selected`);
   }
-  if (Number.isFinite(limit) && limit < dataset.length) {
-    questions = dataset.slice(0, limit);
+  if (Number.isFinite(limit) && limit < questions.length) {
+    questions = questions.slice(0, limit);
     console.log(`\nDEBUG: capped to first ${limit} questions.`);
   }
 

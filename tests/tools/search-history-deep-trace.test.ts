@@ -7,12 +7,14 @@
  *      postFusion, finalSlice) and the trace shape is correct.
  *  (b) When no traceCollector is provided, the function works normally
  *      without error (zero-overhead default).
- *  (c) Knowledge-merge eviction is detectable: a session present in
- *      sessionLane but absent from postKnowledge means it was evicted.
+ *  (c) Post-#33 invariant: a session present in sessionLane is ALWAYS
+ *      present in postKnowledge — knowledge entries no longer evict sessions.
+ *      postKnowledge is the merged+sorted (unsliced) list.
  *  (d) Slice eviction is detectable: sessions present in postFusion but
  *      absent from finalSlice were lost at the slice step.
  *
- * Spec: kytheros/strata#38 Step 0, Part 1 (deep-trace instrumentation).
+ * Spec: kytheros/strata#38 Step 0, Part 1 (deep-trace instrumentation);
+ *       #33 (supplement-not-displace knowledge merge fix).
  */
 import { describe, it, expect, vi } from "vitest";
 import { handleSearchHistory } from "../../src/tools/search-history.js";
@@ -143,33 +145,30 @@ describe("handleSearchHistory deep-path trace", () => {
     expect(fusedIds).toContain("s-turn");
   });
 
-  it("detects knowledge-merge eviction: session in sessionLane but absent from postKnowledge", async () => {
-    // Mock a knowledge store that returns a very high-scoring result that pushes s-low out
-    // Build 20 session lane results with high scores, then one lower-score victim
+  it("post-#33 invariant: session in sessionLane is ALWAYS present in postKnowledge (no eviction)", async () => {
+    // Pre-fix: 20 session-lane sessions + a high-scoring knowledge bomb would evict the
+    // lowest-scoring session at postKnowledge via sort+slice(0,20). Post-fix: postKnowledge
+    // is the merged+sorted list WITHOUT a slice, so all sessions survive regardless of
+    // knowledge scores.
     const victim = makeResult("s-victim", 0.1);
-    const highScorers: SearchResult[] = Array.from({ length: 20 }, (_, i) =>
+    const highScorers: SearchResult[] = Array.from({ length: 19 }, (_, i) =>
       makeResult(`s-hi-${i}`, 10 - i * 0.01, Date.UTC(2026, 0, i + 1))
     );
-    // The session lane is 1 victim + 20 high scorers — fits in limit=20 before knowledge merge
-    const sessionResults = [victim, ...highScorers.slice(0, 19)]; // 20 total
+    const sessionResults = [victim, ...highScorers]; // 20 total — fills limit=20 exactly
 
-    // Knowledge store returns a very high scoring result (score > victim's score)
-    // This will push victim out of the slice(0, limit=20) after merging
-    const knowledgeBomber = makeResult("s-knowledge-bomb", 100);
-
-    // Fake db with searchKnowledge
+    // Knowledge entry with a score far above the victim — pre-fix would evict the victim.
     const fakeDb = {
       prepare: (_sql: string) => ({
         all: (..._params: unknown[]) => [{
           id: "k1",
           type: "decision",
           project: "test",
-          session_id: knowledgeBomber.sessionId,
+          session_id: "s-knowledge-bomb",
           timestamp: Date.now(),
           summary: "knowledge bomb summary test query",
           details: "knowledge bomb details test query",
           tags: "[]",
-          importance: 10.0,
+          importance: 10.0,  // score = 100 >> victim's 0.1
         }],
       }),
     };
@@ -188,21 +187,20 @@ describe("handleSearchHistory deep-path trace", () => {
     );
 
     const trace = capturedTrace!;
-    // sessionLane should include victim
-    const laneIds = new Set(trace.sessionLane.map(e => e.sessionId));
-    expect(laneIds.has("s-victim")).toBe(true);
 
-    // If evicted by knowledge merge, victim should be absent from postKnowledge
-    // (this is the eviction we want to be able to detect)
-    // Note: depending on exact scores the victim may or may not survive;
-    // the important thing is the trace makes this auditable
+    // NEW INVARIANT (#33 fix): every session in sessionLane must appear in postKnowledge.
+    // postKnowledge is merged+sorted but NOT sliced, so no session can be displaced.
+    const laneIds = new Set(trace.sessionLane.map(e => e.sessionId));
     const postKnowIds = new Set(trace.postKnowledge.map(e => e.sessionId));
-    const victimSurvived = postKnowIds.has("s-victim");
-    const knowledgeBombPresent = postKnowIds.has("s-knowledge-bomb");
-    // Either victim survived OR knowledge bomb evicted it — trace makes both visible
-    expect(knowledgeBombPresent || !victimSurvived || victimSurvived).toBe(true); // structural
-    // The structural guarantee: knowledgeBomber IS in postKnowledge
-    expect(knowledgeBombPresent).toBe(true);
+    for (const id of laneIds) {
+      expect(postKnowIds.has(id)).toBe(true);
+    }
+
+    // The knowledge entry is also present in postKnowledge (it was merged in)
+    expect(postKnowIds.has("s-knowledge-bomb")).toBe(true);
+
+    // The victim specifically survives (was the pre-fix eviction target)
+    expect(postKnowIds.has("s-victim")).toBe(true);
   });
 
   it("does NOT call traceCollector for non-deep strategies", async () => {

@@ -120,10 +120,11 @@ export interface DeepTraceFinalEntry extends DeepTraceEntry {
  * stage of the deep retrieval path:
  *
  *   sessionLane    — after engine.searchSessionLevel (pre-knowledge-merge)
- *   postKnowledge  — after knowledge merge + sort + slice(0, limit)
+ *   postKnowledge  — after knowledge merge + sort (no slice; #33 fix: knowledge
+ *                    entries can no longer evict sessions at this stage)
  *   postFusion     — after fuseDenseTurnLane (pre-dedup and pre-final-slice)
- *   finalSlice     — after deduplicateToSessions + slice(0, limit), with
- *                    per-session char allocation
+ *   finalSlice     — after sliceWithKnowledgeSupplement(deduplicateToSessions(…),
+ *                    limit, DEEP_KNOWLEDGE_CAP), with per-session char allocation
  *
  * All arrays are ordered by descending score at their respective stage.
  * Zero overhead when no DeepTraceCollector is provided.
