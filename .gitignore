@@ -76,6 +76,7 @@ benchmarks/longmemeval/providers/*
 # ingest-via-api.ts: routes LongMemEval corpus through production ingestTurns.
 # prod-consumer-parity.ts: 4-arm consumer-fidelity diagnostic + --ingest=api flag.
 !benchmarks/longmemeval/ingest-via-api.ts
+!benchmarks/longmemeval/ingest-via-api-pg.ts
 !benchmarks/longmemeval/prod-consumer-parity.ts
 # Pro-pipeline benchmark module — LLM extraction + knowledge retrieval for LongMemEval.
 !benchmarks/longmemeval/pro-pipeline.ts

@@ -163,6 +163,14 @@ function parseArgs(): {
    * Used to validate the new write-path reproduces the published number (#30).
    */
   ingestMode: "direct" | "api";
+  /**
+   * --backend=sqlite|pg (default: "sqlite")
+   * When "pg", all stores are backed by Postgres (strata-pg29 container for #29
+   * validation). Requires --ingest=api (direct ingest has no PG code path).
+   * PG_URL env var controls the connection string; falls back to
+   * postgresql://postgres:test@localhost:15432/postgres.
+   */
+  backend: "sqlite" | "pg";
 } {
   const args = process.argv.slice(2);
 
@@ -226,7 +234,10 @@ function parseArgs(): {
   const ingestArg = args.find((a) => a.startsWith("--ingest="));
   const ingestMode = (ingestArg?.split("=")[1] ?? "direct") as "direct" | "api";
 
-  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode };
+  const backendArg = args.find((a) => a.startsWith("--backend="));
+  const backend = (backendArg?.split("=")[1] ?? "sqlite") as "sqlite" | "pg";
+
+  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode, backend };
 }
 
 // ---------------------------------------------------------------------------
@@ -605,6 +616,21 @@ export interface PcpRunResult {
 // ---------------------------------------------------------------------------
 
 let INGEST_MODE: "direct" | "api" = "direct";
+let BACKEND: "sqlite" | "pg" = "sqlite";
+
+/**
+ * Close an ingested question's resources.
+ * For SQLite: calls db.close(). For PG: no-op (pool is shared across questions).
+ */
+function closeIngestedCompat(
+  ingested: Awaited<ReturnType<typeof ingestQuestion>>,
+  isPg: boolean,
+): void {
+  if (!isPg) {
+    closeIngested(ingested);
+  }
+  // PG: pool is module-level shared — do NOT close between questions.
+}
 
 async function runOneQuestion(
   question: LongMemQuestion,
@@ -615,12 +641,25 @@ async function runOneQuestion(
   runTimestamp: string,
   maxChars: number = 2500,
 ): Promise<PcpRunResult> {
-  const { ingestQuestionViaApi } = INGEST_MODE === "api"
-    ? await import("./ingest-via-api.js")
-    : { ingestQuestionViaApi: null };
-  const ingested = INGEST_MODE === "api"
-    ? await ingestQuestionViaApi!(question)
-    : await ingestQuestion(question);
+  // ── Ingest routing ────────────────────────────────────────────────────────
+  // PG backend always routes via ingest-via-api-pg.ts (requires --ingest=api,
+  // enforced in main() at startup). SQLite uses ingest-via-api.ts when
+  // --ingest=api, or the legacy ingestQuestion path when --ingest=direct.
+  let ingested: Awaited<ReturnType<typeof ingestQuestion>>;
+  let _isPg = false;
+  if (BACKEND === "pg") {
+    const { ingestQuestionViaApiPg } = await import("./ingest-via-api-pg.js");
+    const pgIngested = await ingestQuestionViaApiPg(question);
+    ingested = pgIngested as unknown as Awaited<ReturnType<typeof ingestQuestion>>;
+    _isPg = true;
+  } else {
+    const { ingestQuestionViaApi } = INGEST_MODE === "api"
+      ? await import("./ingest-via-api.js")
+      : { ingestQuestionViaApi: null };
+    ingested = INGEST_MODE === "api"
+      ? await ingestQuestionViaApi!(question)
+      : await ingestQuestion(question);
+  }
 
   let judgeInput: string;
   let contextLength: number;
@@ -642,7 +681,10 @@ async function runOneQuestion(
     // When AGENT_FORMAT: use format:"agent" + unified recommended prompt +
     // compute recall@20 from production SearchResult[] (agent-format pipeline spec).
 
-    const bridge = new SemanticSearchBridge(ingested.docStore, ingested.db);
+    // PG backend: no better-sqlite3 handle — SemanticSearchBridge degrades to
+    // FTS5 fallback (db=null path). Knowledge vector search goes via PgVectorSearch
+    // inside SqliteSearchEngine; chunk hybrid search is skipped for PG.
+    const bridge = new SemanticSearchBridge(ingested.docStore, _isPg ? null : ingested.db);
     let _bridgeReturnedNonNull = false;
 
     // Capture raw chunk results for recall@20 computation in agent-format arm.
@@ -681,7 +723,10 @@ async function runOneQuestion(
     const rawString = await handleSearchHistory(
       ingested.searchEngine,
       searchArgs,
-      ingested.db,
+      // PG backend: no SQLite db handle — pass undefined so handleSearchHistory
+      // uses knowledgeStore (provided below) for knowledge search rather than
+      // falling back to the SQLite `searchKnowledge` function.
+      _isPg ? undefined : ingested.db,
       asyncSearch,
       ingested.knowledgeStore,
       ingested.turnStore,
@@ -853,7 +898,7 @@ async function runOneQuestion(
       { votes: judgeVotes }
     );
 
-    closeIngested(ingested);
+    closeIngestedCompat(ingested, _isPg);
     return {
       questionId: question.question_id,
       questionType: question.question_type,
@@ -918,7 +963,7 @@ async function runOneQuestion(
       { votes: judgeVotes }
     );
 
-    closeIngested(ingested);
+    closeIngestedCompat(ingested, _isPg);
     const result: PcpRunResult = {
       questionId: question.question_id,
       questionType: question.question_type,
@@ -956,7 +1001,7 @@ async function runOneQuestion(
     const limit = 20;
 
     // Build asyncSearch closure (SemanticSearchBridge, mirrors Arm PROD-CONSUMER)
-    const bridge = new SemanticSearchBridge(ingested.docStore, ingested.db);
+    const bridge = new SemanticSearchBridge(ingested.docStore, _isPg ? null : ingested.db);
     const asyncSearch = async (query: string, options: SearchOptions): Promise<SearchResult[]> => {
       const hybridResults = await bridge.search(query, options);
       if (hybridResults !== null) return hybridResults;
@@ -1027,7 +1072,7 @@ async function runOneQuestion(
       { votes: judgeVotes }
     );
 
-    closeIngested(ingested);
+    closeIngestedCompat(ingested, _isPg);
     return {
       questionId: question.question_id,
       questionType: question.question_type,
@@ -1051,7 +1096,7 @@ async function runOneQuestion(
     // handleSearchHistory string → productionStringToSearchResults → generateAnswer.
     // The LEGACY round-trip. Kept as regression reference only.
 
-    const bridge = new SemanticSearchBridge(ingested.docStore, ingested.db);
+    const bridge = new SemanticSearchBridge(ingested.docStore, _isPg ? null : ingested.db);
     const asyncSearch = async (query: string, options: SearchOptions): Promise<SearchResult[]> => {
       const hybridResults = await bridge.search(query, options);
       if (hybridResults !== null) return hybridResults;
@@ -1073,7 +1118,7 @@ async function runOneQuestion(
     const rawString = await handleSearchHistory(
       ingested.searchEngine,
       args,
-      ingested.db,
+      _isPg ? undefined : ingested.db,
       asyncSearch,
       ingested.knowledgeStore,
       ingested.turnStore,
@@ -1111,7 +1156,7 @@ async function runOneQuestion(
       { votes: judgeVotes }
     );
 
-    closeIngested(ingested);
+    closeIngestedCompat(ingested, _isPg);
     return {
       questionId: question.question_id,
       questionType: question.question_type,
@@ -1657,13 +1702,32 @@ function verifyFromDisk(
 
 async function main(): Promise<void> {
   loadEnv();
-  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode } = parseArgs();
+  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode, backend } = parseArgs();
   PROMPT_VARIANT = promptVariant;
   AGENT_FORMAT = agentFormat;
   DEEP_RETRIEVAL = deep;
   STRUCTURED = structured;
   KU_COT = kuCot;
   INGEST_MODE = ingestMode;
+  BACKEND = backend;
+
+  // --backend=pg requires --ingest=api: the PG code path only exists in ingest-via-api-pg.ts
+  if (backend === "pg" && ingestMode !== "api") {
+    console.error(
+      `--backend=pg requires --ingest=api.\n` +
+      `  The Postgres backend only has a production ingestTurns write-path.\n` +
+      `  Re-run with: --backend=pg --ingest=api`
+    );
+    process.exit(1);
+  }
+
+  if (backend === "pg") {
+    const pgUrl = process.env.PG_URL ?? "postgresql://postgres:test@localhost:15432/postgres";
+    console.log(`BACKEND: postgres (PG_URL=${pgUrl})`);
+    console.log(`  All stores: PgDocumentStore + PgKnowledgeStore + PgKnowledgeTurnStore + PgVectorSearch`);
+    console.log(`  Isolation: TRUNCATE all content tables between questions`);
+  }
+
   if (ingestMode === "api") {
     console.log(`INGEST MODE: api — routing corpus through production ingestTurns write-path (#30 validation)`);
   }
@@ -1776,6 +1840,10 @@ async function main(): Promise<void> {
 
     if (noFull) {
       console.log(`\nSmoke passed — --no-full set, STOPPING after the slice (not running full 500Q).`);
+      if (backend === "pg") {
+        const { closeAllPg } = await import("./ingest-via-api-pg.js");
+        await closeAllPg();
+      }
       return;
     }
     console.log(`\nSmoke passed — proceeding to full 500Q run.`);
@@ -1856,6 +1924,13 @@ async function main(): Promise<void> {
       "PROD-STRING-PARSED": join(RESULTS_DIR, `${runIds["PROD-STRING-PARSED"]}.json`),
     };
     verifyFromDisk(resultPaths, armsToDo);
+  }
+
+  // PG cleanup: drain the shared pool after the run completes
+  if (backend === "pg") {
+    const { closeAllPg } = await import("./ingest-via-api-pg.js");
+    await closeAllPg();
+    console.log(`\nPG pool closed.`);
   }
 }
 
