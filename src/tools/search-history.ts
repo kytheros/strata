@@ -87,6 +87,62 @@ function isLowConfidence(results: SearchResult[]): boolean {
   return results.length > 0 && results[0].score < CONFIG.search.lowConfidenceThreshold;
 }
 
+// ---------------------------------------------------------------------------
+// Deep-path trace types (kytheros/strata#38 Step 0 instrumentation)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single entry captured at each stage of the deep retrieval path.
+ * Carries the sessionId and score so per-stage presence and ranking are
+ * both auditable. The optional `source` mirrors SearchResult.source to
+ * distinguish knowledge-store entries ("document") from conversation
+ * sessions and turn hits.
+ */
+export interface DeepTraceEntry {
+  sessionId: string;
+  score: number;
+  /** "session" = from sessionLane, "knowledge" = injected by knowledge merge,
+   *  "turn" = from dense turn-lane fusion. Omitted when source is ambiguous. */
+  source?: "session" | "knowledge" | "turn";
+}
+
+/**
+ * Final-context entry: same as DeepTraceEntry plus the char budget consumed
+ * by this session after buildAgentContext / toRecords truncation.
+ */
+export interface DeepTraceFinalEntry extends DeepTraceEntry {
+  /** Characters of text content allocated to this session in the final output. */
+  charAllocation: number;
+}
+
+/**
+ * Per-query trace capturing ordered session/entry IDs + scores at each
+ * stage of the deep retrieval path:
+ *
+ *   sessionLane    — after engine.searchSessionLevel (pre-knowledge-merge)
+ *   postKnowledge  — after knowledge merge + sort + slice(0, limit)
+ *   postFusion     — after fuseDenseTurnLane (pre-dedup and pre-final-slice)
+ *   finalSlice     — after deduplicateToSessions + slice(0, limit), with
+ *                    per-session char allocation
+ *
+ * All arrays are ordered by descending score at their respective stage.
+ * Zero overhead when no DeepTraceCollector is provided.
+ */
+export interface DeepPathTrace {
+  sessionLane: DeepTraceEntry[];
+  postKnowledge: DeepTraceEntry[];
+  postFusion: DeepTraceEntry[];
+  finalSlice: DeepTraceFinalEntry[];
+}
+
+/**
+ * Callback invoked once per deep-path query with the fully-populated trace.
+ * Signature is intentionally simple: a pure side-effect collector.
+ * When the env var STRATA_DEEP_TRACE=1 is set, the server wires in a
+ * process-global collector that attaches the trace to the result.
+ */
+export type DeepTraceCollector = (trace: DeepPathTrace) => void;
+
 export interface SearchHistoryArgs {
   query: string;
   project?: string;
@@ -221,7 +277,11 @@ export async function handleSearchHistory(
    *  default-path fusion branch below plus the vector lane inside
    *  engine.searchTurns. Explicit "deep"/"tirqdp" strategies honor the caller
    *  and use the (then FTS-only) turn lane even when the switch is off. */
-  turnStore?: IKnowledgeTurnStore
+  turnStore?: IKnowledgeTurnStore,
+  /** Optional per-query deep-path trace collector (#38 Step 0 instrumentation).
+   *  Zero overhead when omitted. Only fires on retrieval_strategy:"deep" queries.
+   *  Enable process-wide via STRATA_DEEP_TRACE=1 or pass explicitly per-call. */
+  traceCollector?: DeepTraceCollector
 ): Promise<string> {
   const maxChars = Math.min(Math.max(args.max_chars ?? 2500, 1), 10000);
 
@@ -321,33 +381,52 @@ export async function handleSearchHistory(
     const DEEP_SESSION_K = 20;      // mirrors retrieve.ts:223 — do NOT lower
 
     // Session lane: session-scoring + reranker + events
-    let sessionLane = await engine.searchSessionLevel(args.query, {
+    const sessionLaneRaw = await engine.searchSessionLevel(args.query, {
       ...searchOptions,
       limit: DEEP_CANDIDATE_POOL,
       sessionK: DEEP_SESSION_K,
     });
+    // Tag each result with source:"session" for trace disambiguation.
+    let sessionLane: SearchResult[] = sessionLaneRaw.map(r =>
+      r.source ? r : { ...r, source: "conversation" as const }
+    );
+
+    // Trace stage 1: session lane (pre-knowledge-merge)
+    const traceSessionLane: DeepTraceEntry[] = traceCollector
+      ? sessionLane.map(r => ({ sessionId: r.sessionId, score: r.score, source: "session" as const }))
+      : [];
 
     // Merge knowledge entries (identical to every other branch)
     if (knowledgeStore) {
       const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
       if (knowledgeResults.length > 0) {
-        sessionLane = [...sessionLane, ...knowledgeResults]
+        sessionLane = [...sessionLane, ...knowledgeResults.map(r => ({ ...r, source: "document" as const }))]
           .sort((a, b) => b.score - a.score)
           .slice(0, limit);
       }
     } else if (db) {
       const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
       if (knowledgeResults.length > 0) {
-        sessionLane = [...sessionLane, ...knowledgeResults]
+        sessionLane = [...sessionLane, ...knowledgeResults.map(r => ({ ...r, source: "document" as const }))]
           .sort((a, b) => b.score - a.score)
           .slice(0, limit);
       }
     }
 
+    // Trace stage 2: post-knowledge-merge
+    const tracePostKnowledge: DeepTraceEntry[] = traceCollector
+      ? sessionLane.map(r => ({
+          sessionId: r.sessionId,
+          score: r.score,
+          source: (r.source === "document" ? "knowledge" : "session") as DeepTraceEntry["source"],
+        }))
+      : [];
+
     // Dense turn-lane fusion (carries the shipped SSA win; matches retrieve.ts:276-278).
     // "deep" is an explicit caller opt-in, so this fires on store presence alone —
     // with STRATA_DENSE_TURN_LANE=off, engine.searchTurns degrades to FTS5-only
     // (the kill-switch is enforced at query time inside the engine).
+    let preFinalFused: SearchResult[];
     if (turnStore) {
       engine.setKnowledgeTurnStore(turnStore);
       const turnHits = await engine.searchTurns(args.query, {
@@ -365,10 +444,36 @@ export async function handleSearchHistory(
       // Fix: deduplicate sessions FIRST (collapsing turns into parent sessions), THEN
       // slice to limit. This ensures ~DEEP_SESSION_K (≈20) distinct sessions reach the
       // answer model, mirroring how retrieve.ts preserves session coverage.
-      const fused = fuseDenseTurnLane(sessionLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults);
-      results = deduplicateToSessions(fused).slice(0, limit);
+      preFinalFused = fuseDenseTurnLane(sessionLane, turnHits, CONFIG.search.denseTurnLane.maxTurnResults);
     } else {
-      results = deduplicateToSessions(sessionLane).slice(0, limit);
+      preFinalFused = sessionLane;
+    }
+
+    // Trace stage 3: post-fusion (pre-dedup, pre-final-slice)
+    const tracePostFusion: DeepTraceEntry[] = traceCollector
+      ? preFinalFused.map(r => ({
+          sessionId: r.sessionId,
+          score: r.score,
+          source: (r.source === "turn" ? "turn" : r.source === "document" ? "knowledge" : "session") as DeepTraceEntry["source"],
+        }))
+      : [];
+
+    results = deduplicateToSessions(preFinalFused).slice(0, limit);
+
+    // Trace stage 4: finalSlice with per-session char allocation
+    if (traceCollector) {
+      const traceFinalSlice: DeepTraceFinalEntry[] = results.map(r => ({
+        sessionId: r.sessionId,
+        score: r.score,
+        source: (r.source === "turn" ? "turn" : r.source === "document" ? "knowledge" : "session") as DeepTraceEntry["source"],
+        charAllocation: Math.min(r.text.length, maxChars),
+      }));
+      traceCollector({
+        sessionLane: traceSessionLane,
+        postKnowledge: tracePostKnowledge,
+        postFusion: tracePostFusion,
+        finalSlice: traceFinalSlice,
+      });
     }
 
   } else if (CONFIG.search.denseTurnLane.enabled && turnStore && args.retrieval_strategy !== "legacy") {
