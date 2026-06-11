@@ -462,7 +462,10 @@ export async function handleSearchHistory(
         }))
       : [];
 
-    results = sliceWithKnowledgeSupplement(deduplicateToSessions(preFinalFused), limit, DEEP_KNOWLEDGE_CAP);
+    results = sliceWithKnowledgeSupplement(deduplicateToSessions(preFinalFused), limit, DEEP_KNOWLEDGE_CAP, {
+      charBudget: CONFIG.session.deepContextCharBudget,
+      perNoteCharCap: maxChars,
+    });
 
     // Trace stage 4: finalSlice with per-session char allocation
     if (traceCollector) {

@@ -260,6 +260,12 @@ export const CONFIG = {
      *  of distinct sessions. Gate-flipped via AutoResearch; do not change without
      *  re-running the MS-slice gate. */
     maxChunksPerSessionInPool: 0,
+    /** CB lever (#37): total char budget for session notes in the deep-path final
+     *  slice (0 = disabled). Soft guard — the note crossing the budget is kept.
+     *  Targets the A0 200k-char context regressions; OFF-arm evidence says the
+     *  affected questions answer correctly at <=118k chars. Gate-flipped via
+     *  AutoResearch; do not change without re-running the MS-slice gate. */
+    deepContextCharBudget: 0,
   },
 
   // Cross-encoder reranking (Phase 2b)

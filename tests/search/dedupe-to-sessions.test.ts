@@ -171,3 +171,49 @@ describe("sliceWithKnowledgeSupplement (#33 fix)", () => {
     expect(out.find(e => e.sessionId === "kn-1")).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// sliceWithKnowledgeSupplement charBudget (CB lever, #37)
+// ---------------------------------------------------------------------------
+
+describe("sliceWithKnowledgeSupplement charBudget (CB lever, #37)", () => {
+  // helper: session entry with given id and text length
+  const sess = (id: string, len: number): SearchResult => ({
+    sessionId: id, project: "p", text: "x".repeat(len), score: 1,
+    confidence: 0.5, timestamp: 1, toolNames: [], role: "assistant" as const,
+  });
+  const know = (id: string): SearchResult => ({ ...sess(id, 100), source: "document" as const });
+
+  it("budget disabled (no opts / 0): identical to current behavior", () => {
+    const entries = [sess("a", 50), sess("b", 50), sess("c", 50)];
+    expect(sliceWithKnowledgeSupplement(entries, 2, 5).map(r => r.sessionId)).toEqual(["a", "b"]);
+    expect(sliceWithKnowledgeSupplement(entries, 2, 5, { charBudget: 0 }).map(r => r.sessionId)).toEqual(["a", "b"]);
+  });
+
+  it("soft guard: admits the session that crosses the budget, rejects the next", () => {
+    const entries = [sess("a", 60), sess("b", 60), sess("c", 60)];
+    // cum before b = 60 < 100 → b admitted (crosses to 120); cum before c = 120 ≥ 100 → c rejected
+    const out = sliceWithKnowledgeSupplement(entries, 20, 5, { charBudget: 100 });
+    expect(out.map(r => r.sessionId)).toEqual(["a", "b"]);
+  });
+
+  it("perNoteCharCap bounds each note's budget cost", () => {
+    const entries = [sess("a", 1000), sess("b", 1000), sess("c", 1000)];
+    // cost capped at 40/note: cum before c = 80 < 100 → c admitted; all three fit
+    const out = sliceWithKnowledgeSupplement(entries, 20, 5, { charBudget: 100, perNoteCharCap: 40 });
+    expect(out.map(r => r.sessionId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("knowledge entries are not budget-counted and survive budget exhaustion", () => {
+    const entries = [sess("a", 60), sess("b", 60), know("k1"), sess("c", 60), know("k2")];
+    const out = sliceWithKnowledgeSupplement(entries, 20, 1, { charBudget: 100 });
+    // sessions a,b admitted (c rejected by budget); knowledge capped at 1 → k1 only
+    expect(out.map(r => r.sessionId)).toEqual(["a", "b", "k1"]);
+  });
+
+  it("limit still binds when tighter than budget", () => {
+    const entries = [sess("a", 10), sess("b", 10), sess("c", 10)];
+    const out = sliceWithKnowledgeSupplement(entries, 2, 5, { charBudget: 100000 });
+    expect(out.map(r => r.sessionId)).toEqual(["a", "b"]);
+  });
+});

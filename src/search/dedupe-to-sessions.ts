@@ -53,21 +53,37 @@ export function deduplicateToSessions(
  * (source === "document") never displace session evidence: they pass through
  * as supplemental notes, capped at `knowledgeCap`. Input is expected
  * score-descending (deduplicateToSessions output); relative order is preserved.
+ *
+ * Optional CB lever (#37): `opts.charBudget` (0 = disabled) applies a soft
+ * char-budget guard on session notes — the note that crosses the budget is
+ * still kept (soft), but subsequent sessions are rejected. Cost per note is
+ * `Math.min(text.length, opts.perNoteCharCap ?? Infinity)`, mirroring the
+ * format layer's per-note truncation at maxChars. Knowledge entries are never
+ * budget-counted. Gate-flipped via AutoResearch; do not change defaults
+ * without re-running the MS-slice gate.
  */
 export function sliceWithKnowledgeSupplement(
   entries: SearchResult[],
   limit: number,
   knowledgeCap: number,
+  opts?: { charBudget?: number; perNoteCharCap?: number },
 ): SearchResult[] {
+  const budget = opts?.charBudget ?? 0;
+  const noteCap = opts?.perNoteCharCap ?? Infinity;
   const out: SearchResult[] = [];
   let sessions = 0;
   let knowledge = 0;
+  let cum = 0;
   for (const r of entries) {
     if (r.source === "document") {
       if (knowledge < knowledgeCap) { out.push(r); knowledge++; }
-    } else if (sessions < limit) {
+    } else if (sessions < limit && (budget <= 0 || cum < budget)) {
+      // Soft char-budget guard (CB lever, #37): admit sessions while cumulative
+      // formatted size is under budget; the note that crosses the line is kept.
+      // Cost model mirrors the format layer's per-note truncation at maxChars.
       out.push(r);
       sessions++;
+      cum += Math.min(r.text.length, noteCap);
     }
   }
   return out;
