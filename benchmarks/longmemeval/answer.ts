@@ -895,7 +895,7 @@ export async function generateAnswer(
   // Without dedup, the answer model sees "Session 3" and "Session 7" that are actually
   // the same conversation, causing double-counting on aggregate questions.
   // Group by sessionId, concatenate texts in order, keep best score/timestamp.
-  const deduped = deduplicateToSessions(context);
+  const deduped = deduplicateToSessions(context, { preserveOrder: true });
   const trimmedContext = deduped.slice(0, topK);
 
   // Auto-select provider-specific variant from generic "chain-of-note"
@@ -1142,7 +1142,7 @@ export async function generateAnswerTwoPass(
   const knowledgeContext = options?.knowledgeContext;
 
   // Deduplicate chunks → full sessions
-  const deduped = deduplicateToSessions(context);
+  const deduped = deduplicateToSessions(context, { preserveOrder: true });
   const trimmedContext = deduped.slice(0, topK);
 
   // Format history for extraction (use OpenAI triple-quote format)

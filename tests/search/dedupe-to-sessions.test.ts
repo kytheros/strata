@@ -68,6 +68,32 @@ describe("deduplicateToSessions", () => {
 });
 
 // ---------------------------------------------------------------------------
+// deduplicateToSessions — preserveOrder (#40 A2)
+// ---------------------------------------------------------------------------
+
+describe("deduplicateToSessions preserveOrder (#40 A2)", () => {
+  it("default: re-sorts by raw score (existing behavior)", () => {
+    const out = deduplicateToSessions([
+      r({ sessionId: "a", score: 1, text: "a" }),
+      r({ sessionId: "b", score: 9, text: "b" }),
+      r({ sessionId: "c", score: 5, text: "c" }),
+    ]);
+    expect(out.map((res) => res.sessionId)).toEqual(["b", "c", "a"]);
+  });
+  it("preserveOrder: keeps first-occurrence (fusion) order despite raw scores", () => {
+    // Fusion put "a" first even though its raw score is lowest — that ranking
+    // must survive dedup, or turn-sourced sessions get sliced off downstream.
+    const out = deduplicateToSessions([
+      r({ sessionId: "a", score: 0.01, text: "a" }),
+      r({ sessionId: "b", score: 9, text: "b" }),
+      r({ sessionId: "a", score: 0.02, text: "a2" }),
+      r({ sessionId: "c", score: 5, text: "c" }),
+    ], { preserveOrder: true });
+    expect(out.map((res) => res.sessionId)).toEqual(["a", "b", "c"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sliceWithKnowledgeSupplement
 // ---------------------------------------------------------------------------
 

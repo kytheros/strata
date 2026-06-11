@@ -8,7 +8,10 @@ import type { SearchResult } from "./sqlite-search-engine.js";
  * texts with "\n\n", keeps the best score and earliest timestamp, merges tool
  * names. Returns results sorted by score descending.
  */
-export function deduplicateToSessions(results: SearchResult[]): SearchResult[] {
+export function deduplicateToSessions(
+  results: SearchResult[],
+  opts?: { preserveOrder?: boolean },
+): SearchResult[] {
   const sessions = new Map<string, SearchResult & { texts: string[] }>();
 
   for (const r of results) {
@@ -35,7 +38,10 @@ export function deduplicateToSessions(results: SearchResult[]): SearchResult[] {
     const { texts, ...rest } = entry;
     deduped.push({ ...rest, text: texts.join("\n\n") });
   }
-  deduped.sort((a, b) => b.score - a.score);
+  // #40: with preserveOrder, keep first-occurrence order — when the input is
+  // RRF-fusion output, raw scores live on different scales (session-DCG vs
+  // turn-RRF) and re-sorting by them discards the fusion ranking.
+  if (!opts?.preserveOrder) deduped.sort((a, b) => b.score - a.score);
   return deduped;
 }
 
