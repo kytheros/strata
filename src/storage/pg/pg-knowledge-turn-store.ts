@@ -154,6 +154,19 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
         await this.upsertTurnEmbedding(filteredIds[i], buf, modelName, format);
       }
     } catch (err) {
+      // FK violation (23503) on knowledge_turn_embeddings means the parent turn was
+      // deleted concurrently while this embed was in flight (replace-session delete,
+      // or the benchmark harness's per-question TRUNCATE landing during embedBatch's
+      // network call). The embedding is moot — the turn is gone — so swallow it
+      // quietly. It only ever races stale turns outside the active write, never the
+      // turns being scored. Emitting it as a raw ERROR would crash nothing but would
+      // pollute logs and the benchmark error gate. All other errors stay loud.
+      if ((err as { code?: string })?.code === "23503") {
+        console.error(
+          `[strata] PgKnowledgeTurnStore: skipped ${ids.length} turn embedding(s) — parent turn(s) deleted concurrently`
+        );
+        return;
+      }
       console.error(`[strata] PgKnowledgeTurnStore: failed to embed ${ids.length} turns:`, err);
     }
   }

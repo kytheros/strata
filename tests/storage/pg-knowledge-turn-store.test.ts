@@ -12,7 +12,7 @@
  * Issue: kytheros/strata#9 (0004_knowledge_turns.sql applied by runner)
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { createSchema, dropSchema } from "../../src/storage/pg/schema.js";
@@ -193,6 +193,44 @@ describe("PgKnowledgeTurnStore (#9)", () => {
         dimensions: dim,
       };
     }
+
+    it("bulkInsert embed window vs concurrent TRUNCATE → FK 23503 swallowed, no throw, no ERROR log", async () => {
+      if (!pool) return;
+
+      // The benchmark harness TRUNCATEs all tables between questions — it does NOT
+      // go through deleteBySessionId, so the T3 drain can't protect this path.
+      // bulkInsert COMMITs the turns, then embedBatch makes a (slow) network call,
+      // then upserts the vectors. If a TRUNCATE lands during the embed call, the
+      // upsert references a now-deleted turn → FK violation (23503). That race only
+      // ever touches turns OUTSIDE the scored question (stale cross-question embeds),
+      // so the correct behavior is to swallow 23503 quietly — NOT crash, NOT emit a
+      // counted ERROR log that pollutes the benchmark error gate.
+      const embedder = makeFakeEmbedderTurn(4, 60); // 60ms embed window
+      const storeWithEmbed = new PgKnowledgeTurnStore(pool!, embedder as any);
+      const sessionId = `trunc-race-${randomUUID()}`;
+
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        // Fire bulkInsert WITHOUT awaiting — turns COMMIT, then embed sleeps 60ms.
+        const bulkPromise = storeWithEmbed.bulkInsert([
+          makeTurn({ sessionId, content: "turn that gets truncated mid-embed" }),
+        ]);
+        // Let the COMMIT land, then TRUNCATE while embedBatch is still sleeping.
+        await new Promise((r) => setTimeout(r, 15));
+        await pool!.query("TRUNCATE TABLE knowledge_turns CASCADE");
+
+        // bulkInsert must resolve (the FK on the embed upsert is swallowed, not thrown).
+        await expect(bulkPromise).resolves.toBeDefined();
+
+        // And no 23503 should have been logged as a raw ERROR object.
+        const loggedFk = errSpy.mock.calls.some((call) =>
+          call.some((a) => a && typeof a === "object" && (a as { code?: string }).code === "23503")
+        );
+        expect(loggedFk).toBe(false);
+      } finally {
+        errSpy.mockRestore();
+      }
+    });
 
     it("insert() + immediate deleteBySessionId → no orphaned embeddings rows", async () => {
       if (!pool) return;
