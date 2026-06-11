@@ -259,7 +259,7 @@ export const CONFIG = {
      *  pool (0 = disabled). Prevents one dominant session from starving the pool
      *  of distinct sessions. Gate-flipped via AutoResearch; do not change without
      *  re-running the MS-slice gate. */
-    maxChunksPerSessionInPool: 0,
+    maxChunksPerSessionInPool: 8,
   },
 
   // Cross-encoder reranking (Phase 2b)
