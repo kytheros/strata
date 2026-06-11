@@ -265,7 +265,7 @@ export const CONFIG = {
      *  Targets the A0 200k-char context regressions; OFF-arm evidence says the
      *  affected questions answer correctly at <=118k chars. Gate-flipped via
      *  AutoResearch; do not change without re-running the MS-slice gate. */
-    deepContextCharBudget: 0,
+    deepContextCharBudget: 130000,
   },
 
   // Cross-encoder reranking (Phase 2b)
