@@ -69,12 +69,14 @@ export function isExistentialQuestion(q: string): boolean {
 
 /**
  * Composite aggregation-intent trigger for counting-aware context assembly
- * (#37 C1). Deterministic and label-free: discrete counting OR duration/sum.
- * "how much" catches money/quantity sums that isCountingQuestion's
- * duration-exclusion would otherwise drop.
+ * (#37 C1, v2). Deterministic and label-free: discrete counting OR duration/sum.
+ * Deliberately excludes bare "/how much/" — that pattern fires on comparative
+ * and superlative queries ("who spent the most") that are NOT aggregation questions
+ * and regress when given counting guidance. "How much total/money/cost" is
+ * covered by isCountingQuestion's /total/ clause.
  */
 export function isAggregationQuery(q: string): boolean {
-  return isCountingQuestion(q) || isDurationQuestion(q) || /how much/i.test(q);
+  return isCountingQuestion(q) || isDurationQuestion(q);
 }
 
 /**

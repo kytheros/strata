@@ -23,6 +23,7 @@ describe("buildAgentContext counting guidance (C1, #37)", () => {
   it("prepends counting guidance for aggregation queries", () => {
     const out = buildAgentContext([mk(0), mk(1)], "How many plants did I acquire?", 2500);
     expect(out).toMatch(/^\[Counting guidance\]/);
+    expect(out).toContain("Scan every note before answering");
     expect(out).toContain("note 0 body");
     expect(out).toContain("note 1 body");
   });
