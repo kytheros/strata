@@ -68,6 +68,16 @@ export function isExistentialQuestion(q: string): boolean {
 }
 
 /**
+ * Composite aggregation-intent trigger for counting-aware context assembly
+ * (#37 C1). Deterministic and label-free: discrete counting OR duration/sum.
+ * "how much" catches money/quantity sums that isCountingQuestion's
+ * duration-exclusion would otherwise drop.
+ */
+export function isAggregationQuery(q: string): boolean {
+  return isCountingQuestion(q) || isDurationQuestion(q) || /how much/i.test(q);
+}
+
+/**
  * Composite classifier. Returns true when EITHER:
  *   isExistentialQuestion(q) (present-tense "Is X a/an/the Y" pattern), OR
  *   (hasTemporalMarker(q) OR isCurrentStateQuery(q)) AND hasCurrentStateMarker(q)

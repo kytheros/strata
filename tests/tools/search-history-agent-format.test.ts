@@ -7,6 +7,36 @@ import { SqliteSearchEngine } from "../../src/search/sqlite-search-engine.js";
 import { handleSearchHistory, buildAgentContext } from "../../src/tools/search-history.js";
 import type { KnowledgeEntry } from "../../src/knowledge/knowledge-store.js";
 import type { SearchResult } from "../../src/search/sqlite-search-engine.js";
+
+describe("buildAgentContext counting guidance (C1, #37)", () => {
+  const mk = (i: number): SearchResult => ({
+    sessionId: `s-${i}`,
+    project: "p",
+    text: `note ${i} body`,
+    score: 5 - i,
+    confidence: 0.9,
+    timestamp: Date.UTC(2026, 0, i + 1),
+    toolNames: [],
+    role: "assistant" as const,
+  });
+
+  it("prepends counting guidance for aggregation queries", () => {
+    const out = buildAgentContext([mk(0), mk(1)], "How many plants did I acquire?", 2500);
+    expect(out).toMatch(/^\[Counting guidance\]/);
+    expect(out).toContain("note 0 body");
+    expect(out).toContain("note 1 body");
+  });
+
+  it("does not prepend guidance for non-aggregation queries", () => {
+    const out = buildAgentContext([mk(0)], "What did I decide about the migration?", 2500);
+    expect(out).not.toContain("[Counting guidance]");
+  });
+
+  it("does not prepend guidance on the empty-result sentinel", () => {
+    const out = buildAgentContext([], "How many plants did I acquire?", 2500);
+    expect(out).toBe('No relevant memory found for "How many plants did I acquire?".');
+  });
+});
 function entry(over: Partial<KnowledgeEntry>): KnowledgeEntry {
   return {
     id: `e-${Math.random().toString(36).slice(2, 8)}`,

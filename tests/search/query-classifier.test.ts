@@ -5,7 +5,23 @@ import {
   hasHistoricalMarker,
   isTemporalCurrentStateQuestion,
   isExistentialQuestion,
+  isAggregationQuery,
 } from "../../src/search/query-classifier.js";
+
+describe("isAggregationQuery (C1 trigger, #37)", () => {
+  it("fires on discrete counting", () => {
+    expect(isAggregationQuery("How many plants did I acquire in the last month?")).toBe(true);
+    expect(isAggregationQuery("What is the total number of goals and assists I have?")).toBe(true);
+  });
+  it("fires on duration/sum aggregation", () => {
+    expect(isAggregationQuery("How many hours in total did I spend driving?")).toBe(true);
+    expect(isAggregationQuery("How much total money have I spent on bike-related expenses?")).toBe(true);
+  });
+  it("does not fire on plain factual or temporal queries", () => {
+    expect(isAggregationQuery("What did I decide about the database migration?")).toBe(false);
+    expect(isAggregationQuery("When did I visit the dentist?")).toBe(false);
+  });
+});
 
 describe("query-classifier — two-signal temporal-current-state", () => {
   describe("hasTemporalMarker", () => {

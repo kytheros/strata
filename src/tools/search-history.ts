@@ -16,6 +16,7 @@ import type { CommunityChunkResult } from "../search/recall-fusion-community.js"
 import { recallQdpCommunity } from "../search/recall-qdp-community.js";
 import { fuseDenseTurnLane } from "../search/dense-turn-fusion.js";
 import { deduplicateToSessions, sliceWithKnowledgeSupplement } from "../search/dedupe-to-sessions.js";
+import { isAggregationQuery } from "../search/query-classifier.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -244,7 +245,12 @@ export function buildAgentContext(results: SearchResult[], query: string, maxCha
     const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
     lines.push(`Note ${i + 1} (${dateStr}):\n${text}\n`);
   }
-  return lines.join("\n");
+  // C1 (#37): query-conditional counting guidance, adjacent to the data.
+  // Deterministic trigger — no LLM in the trigger path (Step-0 §5 requirement).
+  const header = isAggregationQuery(query)
+    ? `[Counting guidance] This question asks for a count or total. The notes below are in chronological order and may mention the same event more than once. Before answering: (1) scan EVERY note and list each distinct matching event with its date; (2) merge mentions that describe the same dated event; (3) compute the answer from the merged list.\n\n`
+    : "";
+  return header + lines.join("\n");
 }
 
 /**
