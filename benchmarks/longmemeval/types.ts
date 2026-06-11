@@ -133,6 +133,32 @@ export interface AnswerResult {
    * Present only when --gap-coverage flag was active; absent in flag-off runs.
    */
   gapNewChunkCount?: number;
+
+  // ── Retrieval fields ─────────────────────────────────────────────────────
+  // Mirrored from RetrievalResult so a single perQuestion record is self-
+  // contained for offline failure analysis without requiring a re-run.
+  // Present when the harness ran the retrieval phase; absent on records
+  // restored from checkpoints written before this change.
+
+  /** Ordered list of LongMemEval session IDs returned by the retrieval pass. */
+  retrievedSessionIds?: string[];
+  /** Gold session IDs the question expects to be retrieved. */
+  goldSessionIds?: string[];
+  /** Fraction of gold sessions in top-5 retrieved. */
+  evidenceRecall5?: number;
+  /** Fraction of gold sessions in top-10 retrieved. */
+  evidenceRecall10?: number;
+  /** Fraction of gold sessions in top-20 retrieved. */
+  evidenceRecall20?: number;
+  /** Mean Reciprocal Rank of first gold session in retrieved list. */
+  mrr?: number;
+  /** Retrieval latency in milliseconds. */
+  retrievalLatencyMs?: number;
+  /**
+   * Recall@K from the turn-lane retrieval pass.
+   * Present only when the turn-lane side-by-side diagnostic ran.
+   */
+  turnRecallAtK?: number;
 }
 
 /** Per-ability accuracy breakdown */

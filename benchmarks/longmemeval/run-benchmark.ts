@@ -1014,6 +1014,16 @@ async function main() {
         ...(agentLoopData ? { agentLoop: agentLoopData } : {}),
         ...(voteBreakdown ? { voteBreakdown } : {}),
         ...(gapCoverageFired !== undefined ? { gapCoverageFired, gapNewChunkCount } : {}),
+        // Recall fields from the retrieval pass — persist so per-question
+        // records are self-contained for offline multi-session failure analysis.
+        retrievedSessionIds: retrieval.retrievedSessionIds,
+        goldSessionIds: retrieval.goldSessionIds,
+        evidenceRecall5: retrieval.evidenceRecall5,
+        evidenceRecall10: retrieval.evidenceRecall10,
+        evidenceRecall20: retrieval.evidenceRecall20,
+        mrr: retrieval.mrr,
+        retrievalLatencyMs: retrieval.latencyMs,
+        ...(retrieval.turnRecallAtK !== undefined ? { turnRecallAtK: retrieval.turnRecallAtK } : {}),
       };
       answerResults.push(answerRecord);
 
@@ -1154,6 +1164,18 @@ async function main() {
       answerLatencyMs: r.answerLatencyMs,
       judgeLatencyMs: r.judgeLatencyMs,
       ...(r.voteBreakdown ? { voteBreakdown: r.voteBreakdown } : {}),
+      // Recall fields — present on records from this run; absent on records
+      // restored from pre-#38 checkpoints (optional fields, safe to spread).
+      ...(r.retrievedSessionIds !== undefined ? {
+        retrievedSessionIds: r.retrievedSessionIds,
+        goldSessionIds: r.goldSessionIds,
+        evidenceRecall5: r.evidenceRecall5,
+        evidenceRecall10: r.evidenceRecall10,
+        evidenceRecall20: r.evidenceRecall20,
+        mrr: r.mrr,
+        retrievalLatencyMs: r.retrievalLatencyMs,
+      } : {}),
+      ...(r.turnRecallAtK !== undefined ? { turnRecallAtK: r.turnRecallAtK } : {}),
     }));
   }
 
