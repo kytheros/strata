@@ -91,6 +91,14 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
   // embedder is mutable (not readonly) so initEmbedder can late-inject via setEmbedder().
   private embedder: EmbeddingProvider | null;
 
+  /**
+   * Pending embed promises from fire-and-forget insert() calls.
+   * deleteBySessionId() drains this set before issuing the DELETE so that
+   * in-flight embed INSERTs cannot violate the knowledge_turn_embeddings FK.
+   * (T3 fix — ticket #29)
+   */
+  private pendingInsertEmbeds: Set<Promise<void>> = new Set();
+
   constructor(private readonly pool: PgPool, embedder?: EmbeddingProvider | null) {
     this.embedder = embedder ?? null;
   }
@@ -170,8 +178,12 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
       ],
     );
     if (this.embedder) {
-      // Fire-and-forget — embedTurns never throws
-      this.embedTurns([turnId], [turn.content]).catch(() => {});
+      // Track the embed promise so deleteBySessionId() can await it before deleting,
+      // preventing FK violations on knowledge_turn_embeddings (T3 fix — ticket #29).
+      const embedPromise: Promise<void> = this.embedTurns([turnId], [turn.content]).finally(() => {
+        this.pendingInsertEmbeds.delete(embedPromise);
+      });
+      this.pendingInsertEmbeds.add(embedPromise);
     }
     return turnId;
   }
@@ -322,6 +334,16 @@ export class PgKnowledgeTurnStore implements IKnowledgeTurnStore {
   // ── deleteBySessionId ────────────────────────────────────────────────────────
 
   async deleteBySessionId(sessionId: string): Promise<void> {
+    // T3 fix (ticket #29): drain any in-flight embed promises from insert() before
+    // issuing the DELETE. Without this, a fire-and-forget embed from a prior insert()
+    // can target a knowledge_turn_embeddings row whose FK parent (knowledge_turns) is
+    // already deleted → PG error 23503. The embed already catches and logs errors
+    // silently, but draining here guarantees the correct ordering:
+    //   embed INSERT completes → ON DELETE CASCADE handles cleanup → parent DELETE fires
+    // This matches the latency semantics of bulkInsert (which already awaits embedTurns).
+    if (this.pendingInsertEmbeds.size > 0) {
+      await Promise.allSettled([...this.pendingInsertEmbeds]);
+    }
     await this.pool.query(
       "DELETE FROM knowledge_turns WHERE session_id = $1",
       [sessionId],

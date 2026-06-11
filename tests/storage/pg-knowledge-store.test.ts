@@ -208,4 +208,157 @@ describe("PgKnowledgeStore", () => {
     const { resolveActiveEmbeddingModel } = await import("../../src/extensions/embeddings/active-model.js");
     expect(resolveActiveEmbeddingModel().model).toBe("gemini-embedding-001");
   });
+
+  // ── T1 (ticket #29): PgKnowledgeStore embedding write path ──────────────────
+
+  describe("embedding writes (T1 / #29)", () => {
+    /** Fake embedder — returns deterministic Float32Array of given dim, tracks call count. */
+    function makeFakeEmbedder(dim = 4) {
+      let calls = 0;
+      const embed = async (_text: string): Promise<Float32Array> => {
+        calls++;
+        const v = new Float32Array(dim);
+        v.fill(0.5);
+        return v;
+      };
+      const embedBatch = async (texts: string[]): Promise<Float32Array[]> => {
+        calls += texts.length;
+        return texts.map(() => { const v = new Float32Array(dim); v.fill(0.5); return v; });
+      };
+      return {
+        embed,
+        embedBatch,
+        get calls() { return calls; },
+        modelName: "test-model-v1",
+        supportsQuantization: false,
+        dimensions: dim,
+      };
+    }
+
+    it("setEmbedder() exists and is callable", async () => {
+      if (!pool) return;
+      // setEmbedder must exist as a method (TypeScript structural check at runtime)
+      expect(typeof (store as any).setEmbedder).toBe("function");
+      // Must not throw when called with null
+      expect(() => (store as any).setEmbedder(null)).not.toThrow();
+    });
+
+    it("addEntry with embedder → row lands in embeddings table with correct model", async () => {
+      if (!pool) return;
+
+      const fakeEmbedder = makeFakeEmbedder(4);
+      // Wire the embedder via setEmbedder (the new T1 method)
+      (store as any).setEmbedder(fakeEmbedder);
+
+      const entry = makeEntry({ summary: "embedding test", details: "details for embedding" });
+      await store.addEntry(entry);
+      // flushPendingEmbeddings must actually await the embed before returning
+      await store.flushPendingEmbeddings();
+
+      const { rows } = await pool!.query<{ id: string; model: string; embedding: Buffer }>(
+        "SELECT id, model, embedding FROM embeddings WHERE id = $1",
+        [entry.id]
+      );
+      expect(rows.length).toBe(1);
+      expect(rows[0].model).toBe("test-model-v1");
+      // Buffer should be non-empty (4 float32 = 16 bytes)
+      expect(rows[0].embedding.length).toBeGreaterThan(0);
+    });
+
+    it("flushPendingEmbeddings() returns count of embeddings awaited", async () => {
+      if (!pool) return;
+
+      const fakeEmbedder = makeFakeEmbedder(4);
+      (store as any).setEmbedder(fakeEmbedder);
+
+      const e1 = makeEntry({ id: "flush-e1", summary: "flush entry 1", details: "d1" });
+      const e2 = makeEntry({ id: "flush-e2", summary: "flush entry 2", details: "d2" });
+      await store.addEntry(e1);
+      await store.addEntry(e2);
+
+      const count = await store.flushPendingEmbeddings();
+      expect(count).toBeGreaterThanOrEqual(1); // at least the pending ones were awaited
+    });
+
+    it("setEmbedder(null) is a no-op — no embeddings written", async () => {
+      if (!pool) return;
+
+      (store as any).setEmbedder(null);
+      const entry = makeEntry({ id: "no-embed-entry", summary: "no embedder" });
+      await store.addEntry(entry);
+      await store.flushPendingEmbeddings();
+
+      const { rows } = await pool!.query(
+        "SELECT id FROM embeddings WHERE id = $1",
+        [entry.id]
+      );
+      expect(rows.length).toBe(0);
+    });
+
+    it("beginBatchEmbed + flushBatchEmbed writes all queued embeddings", async () => {
+      if (!pool) return;
+
+      const fakeEmbedder = makeFakeEmbedder(4);
+      (store as any).setEmbedder(fakeEmbedder);
+      (store as any).beginBatchEmbed();
+
+      const entries = [
+        makeEntry({ id: "batch-e1", summary: "batch one", details: "d1" }),
+        makeEntry({ id: "batch-e2", summary: "batch two", details: "d2" }),
+        makeEntry({ id: "batch-e3", summary: "batch three", details: "d3" }),
+      ];
+      for (const e of entries) {
+        await store.addEntry(e);
+      }
+
+      // While batch mode is active, no embeddings should be in the table yet
+      const { rows: beforeFlush } = await pool!.query(
+        "SELECT COUNT(*) AS cnt FROM embeddings"
+      );
+      // Note: fire-and-forget embedEntryAsync in non-batch mode may write some;
+      // in batch mode (batchEmbedActive=true) nothing should be written yet.
+
+      const stored = await (store as any).flushBatchEmbed();
+      expect(stored).toBe(3);
+
+      const { rows } = await pool!.query<{ count: string }>(
+        "SELECT COUNT(*) AS count FROM embeddings WHERE model = $1",
+        ["test-model-v1"]
+      );
+      expect(Number(rows[0].count)).toBe(3);
+      // Call count = 1 batch call covering all 3 texts
+      expect(fakeEmbedder.calls).toBe(3); // embedBatch counts each text
+    });
+
+    it("PgVectorSearch.search finds entry after embedding write", async () => {
+      if (!pool) return;
+      const { PgVectorSearch } = await import("../../src/storage/pg/pg-vector-search.js");
+
+      // Use the same model name in both the embedder and PgVectorSearch so
+      // the WHERE model=$2 filter matches the written row.
+      const MODEL = "test-model-v1";
+      const fakeEmbedder = makeFakeEmbedder(4);
+      // fakeEmbedder already has modelName = "test-model-v1"
+      (store as any).setEmbedder(fakeEmbedder);
+
+      const entry = makeEntry({
+        id: "vec-entry-1",
+        summary: "vector search target",
+        details: "should be found by cosine",
+        project: "vec-project",
+      });
+      await store.addEntry(entry);
+      await store.flushPendingEmbeddings();
+
+      // Initialize PgVectorSearch with the same model the embedder wrote
+      const vs = new PgVectorSearch(pool!, MODEL);
+      // Query with a vector identical to what the fake embedder produces (all 0.5)
+      const queryVec = new Float32Array(4);
+      queryVec.fill(0.5);
+
+      const results = await vs.search(queryVec, "vec-project", 10);
+      expect(results.some((r) => r.entryId === "vec-entry-1")).toBe(true);
+      expect(results[0].score).toBeGreaterThan(0);
+    });
+  });
 });

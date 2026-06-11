@@ -3,7 +3,8 @@
  *
  * Implements IDocumentStore using pg Pool async APIs.
  * Mirrors D1DocumentStore method-for-method, with Postgres-specific SQL:
- * - ts_rank(tsv, plainto_tsquery(...)) for FTS (positive scores, higher=better)
+ * - ts_rank(tsv, plainto_tsquery(...)) for FTS, NEGATED on return to honor the
+ *   FtsSearchResult BM25 sign convention (negative, more negative = better)
  * - $1/$2/... parameterized queries instead of ?
  * - ON CONFLICT DO UPDATE instead of INSERT OR REPLACE
  */
@@ -118,8 +119,13 @@ export class PgDocumentStore implements IDocumentStore {
 
   /**
    * Full-text search using Postgres tsvector with ts_rank ranking.
-   * Returns positive scores (higher = better match).
-   * No sign flip needed -- unlike FTS5 bm25() which returns negative scores.
+   *
+   * Rank is returned NEGATED (-ts_rank) to honor the IDocumentStore BM25 sign
+   * convention: negative, more negative = better. SQLite and D1 return raw
+   * bm25() (already negative) and SqliteSearchEngine consumes every backend
+   * as `score: -r.rank` (6 call sites). Returning positive ts_rank here
+   * inverted the entire chunk + deep-session ranking on PG — gold sessions
+   * sorted LAST, multi-session accuracy collapsed 75%→54% (#29 finding).
    */
   async search(query: string, limit: number = 20, user?: string): Promise<FtsSearchResult[]> {
     if (!query.trim()) return [];
@@ -140,7 +146,7 @@ export class PgDocumentStore implements IDocumentStore {
     if (rows.length > 0) {
       return rows.map((row) => ({
         chunk: rowToChunk(row),
-        rank: row.rank,
+        rank: -row.rank, // BM25 sign convention: negative, more negative = better
       }));
     }
 
@@ -157,7 +163,7 @@ export class PgDocumentStore implements IDocumentStore {
       );
       return wsRows.map((row) => ({
         chunk: rowToChunk(row),
-        rank: row.rank,
+        rank: -row.rank, // BM25 sign convention: negative, more negative = better
       }));
     } catch {
       return [];

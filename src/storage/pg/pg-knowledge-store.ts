@@ -17,6 +17,15 @@ import type {
 import { parseProcedureDetails } from "../../knowledge/procedure-extractor.js";
 import type { ProcedureDetails } from "../../knowledge/procedure-extractor.js";
 import { resolveActiveEmbeddingModel } from "../../extensions/embeddings/active-model.js";
+import { encodeEmbeddingFor } from "../sqlite-knowledge-store.js";
+
+/** Minimal embedder interface — compatible with GeminiEmbedder and EmbeddingProvider. */
+type KnowledgeEmbedder = {
+  embed(text: string, taskType: string): Promise<Float32Array>;
+  embedBatch?(texts: string[], taskType: string): Promise<Float32Array[]>;
+  readonly modelName?: string;
+  readonly supportsQuantization?: boolean;
+};
 
 /** Row shape returned from Postgres queries against the knowledge table. */
 interface PgKnowledgeRow {
@@ -76,12 +85,112 @@ function mergeStringArrays(base: string[], incoming: string[]): string[] {
 export class PgKnowledgeStore implements IKnowledgeStore {
   private userId: string;
 
+  /** Optional embedder for generating vector embeddings on write. */
+  private embedder: KnowledgeEmbedder | null;
+
+  /** In-flight embedding promises (tracked for flushPendingEmbeddings). */
+  private pendingEmbeddings: Set<Promise<void>> = new Set();
+
+  /**
+   * When true, embedEntryAsync() enqueues entries for batched embedding
+   * via flushBatchEmbed() instead of firing per-entry API calls.
+   */
+  private batchEmbedActive: boolean = false;
+
+  /** Queue of entries waiting for batch embedding (id -> text). Map dedups by id. */
+  private batchEmbedQueue: Map<string, string> = new Map();
+
   constructor(
     private pool: PgPool,
     userId: string,
-    private embedder?: { embed(text: string, taskType: string): Promise<Float32Array> } | null,
+    embedder?: KnowledgeEmbedder | null,
   ) {
     this.userId = userId;
+    this.embedder = embedder ?? null;
+  }
+
+  /**
+   * Late-inject an embedder after construction (used by initEmbedder PG branch in server.ts).
+   * Passing null disables embedding (clears any previously set embedder).
+   */
+  setEmbedder(embedder: KnowledgeEmbedder | null): void {
+    this.embedder = embedder;
+  }
+
+  /**
+   * Encode a Float32Array embedding, routing through encodeEmbeddingFor with
+   * the embedder's quantization flag. Never quantizes non-Gemini providers.
+   */
+  private encodeEmbedding(vec: Float32Array): { buf: Buffer; format: string } {
+    const supportsQuant = (this.embedder as any)?.supportsQuantization ?? false;
+    return encodeEmbeddingFor(vec, supportsQuant);
+  }
+
+  /**
+   * Enable batch embedding mode. While active, embedEntryAsync() queues entries
+   * instead of firing per-entry API calls. Call flushBatchEmbed() to generate
+   * all queued embeddings via a single embedBatch() call.
+   *
+   * Use this when ingesting many entries in a row (e.g. ingest_conversation)
+   * to reduce API round-trips.
+   */
+  beginBatchEmbed(): void {
+    this.batchEmbedActive = true;
+  }
+
+  /**
+   * Generate embeddings for all entries queued during batch mode and persist
+   * them. Drains batchEmbedQueue and disables batch mode. Safe to call when
+   * the queue is empty or when no embedder is configured (returns 0).
+   *
+   * @returns The number of embeddings successfully generated and stored.
+   */
+  async flushBatchEmbed(): Promise<number> {
+    const queueSize = this.batchEmbedQueue.size;
+    if (queueSize === 0 || !this.embedder) {
+      this.batchEmbedActive = false;
+      this.batchEmbedQueue.clear();
+      return 0;
+    }
+
+    const ids: string[] = [];
+    const texts: string[] = [];
+    for (const [id, text] of this.batchEmbedQueue) {
+      ids.push(id);
+      texts.push(text);
+    }
+    this.batchEmbedQueue.clear();
+    this.batchEmbedActive = false;
+
+    let stored = 0;
+    try {
+      const embedBatch = this.embedder.embedBatch
+        ? (t: string[]) => this.embedder!.embedBatch!(t, "RETRIEVAL_DOCUMENT")
+        : async (t: string[]) => Promise.all(t.map((txt) => this.embedder!.embed(txt, "RETRIEVAL_DOCUMENT")));
+
+      const vectors = await embedBatch(texts);
+      const now = Date.now();
+      const modelName = (this.embedder as any)?.modelName ?? resolveActiveEmbeddingModel().model;
+
+      for (let i = 0; i < vectors.length; i++) {
+        try {
+          const { buf, format } = this.encodeEmbedding(vectors[i]);
+          await this.pool.query(
+            `INSERT INTO embeddings (id, embedding, model, created_at, format)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (id) DO UPDATE SET embedding = $2, model = $3, created_at = $4, format = $5`,
+            [ids[i], buf, modelName, now, format]
+          );
+          stored++;
+        } catch (err) {
+          console.error(`[strata-pg] Failed to store batch embedding for entry ${ids[i]}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error(`[strata-pg] Batch embedding failed for ${ids.length} entries:`, err);
+    }
+
+    return stored;
   }
 
   async addEntry(entry: KnowledgeEntry): Promise<void> {
@@ -147,18 +256,33 @@ export class PgKnowledgeStore implements IKnowledgeStore {
 
   /**
    * Asynchronously generate and store an embedding for a knowledge entry.
-   * Failures are caught and logged -- never propagated to the caller.
+   *
+   * Default mode: fires the embedding immediately as a Promise tracked in
+   * pendingEmbeddings. flushPendingEmbeddings() awaits them.
+   *
+   * Batch mode (when batchEmbedActive is true): enqueues the entry's text into
+   * batchEmbedQueue. The caller must invoke flushBatchEmbed() to actually
+   * generate and store embeddings. Map dedups by id.
+   *
+   * Failures are caught and logged — never propagated to the caller.
+   * No-op when embedder is null (current behavior preserved).
    */
   private embedEntryAsync(entry: KnowledgeEntry): void {
     if (!this.embedder) return;
 
     const text = entry.summary + " " + entry.details;
-    this.embedder
+
+    if (this.batchEmbedActive) {
+      this.batchEmbedQueue.set(entry.id, text);
+      return;
+    }
+
+    const modelName = (this.embedder as any)?.modelName ?? resolveActiveEmbeddingModel().model;
+
+    const promise = this.embedder
       .embed(text, "RETRIEVAL_DOCUMENT")
       .then(async (vec) => {
-        const embeddingData = Buffer.from(
-          vec.buffer.slice(vec.byteOffset, vec.byteOffset + vec.byteLength)
-        );
+        const { buf, format } = this.encodeEmbedding(vec);
         // PG keeps a single-column PK on embeddings.id; provider coexistence is deferred
         // (v1) — one embedding model per entry; switching providers re-indexes in place.
         // See spec §7.1/§18. ON CONFLICT (id) is intentional and consistent with the schema.
@@ -166,12 +290,17 @@ export class PgKnowledgeStore implements IKnowledgeStore {
           `INSERT INTO embeddings (id, embedding, model, created_at, format)
            VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (id) DO UPDATE SET embedding = $2, model = $3, created_at = $4, format = $5`,
-          [entry.id, embeddingData, resolveActiveEmbeddingModel().model, Date.now(), "float32"]
+          [entry.id, buf, modelName, Date.now(), format]
         );
       })
       .catch((err) => {
         console.error(`[strata-pg] Failed to embed entry ${entry.id}:`, err);
+      })
+      .finally(() => {
+        this.pendingEmbeddings.delete(promise);
       });
+
+    this.pendingEmbeddings.add(promise);
   }
 
   async getEntry(id: string): Promise<KnowledgeEntry | undefined> {
@@ -641,9 +770,19 @@ export class PgKnowledgeStore implements IKnowledgeStore {
   }
 
   /**
-   * No-op: Pg store handles embeddings via pgvector triggers, not fire-and-forget promises.
+   * Wait for all pending embedding operations to complete.
+   *
+   * Embedding generation is fire-and-forget during addEntry/upsertEntry/updateEntry.
+   * Callers that need embeddings to be persisted before returning (e.g., ingestTurns
+   * at line 144: `await deps.knowledge.flushPendingEmbeddings()`) should await this
+   * after all entries have been added.
+   *
+   * @returns The number of embedding operations that were awaited.
    */
   async flushPendingEmbeddings(): Promise<number> {
-    return 0;
+    const count = this.pendingEmbeddings.size;
+    if (count === 0) return 0;
+    await Promise.all([...this.pendingEmbeddings]);
+    return count;
   }
 }

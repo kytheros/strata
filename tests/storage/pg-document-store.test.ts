@@ -138,7 +138,34 @@ describe("PgDocumentStore", () => {
     const results = await store.search("PostgreSQL database");
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results[0].chunk.text).toContain("PostgreSQL");
-    expect(results[0].rank).toBeGreaterThan(0); // Postgres returns positive scores
+    // IDocumentStore contract: BM25 sign convention — negative, more negative = better.
+    // SqliteSearchEngine consumes this as `score: -r.rank` at 6 call sites; a positive
+    // ts_rank here INVERTS the entire chunk + deep-session ranking on PG (#29 finding:
+    // multi-session collapsed 75%→54% because gold sessions sorted last).
+    expect(results[0].rank).toBeLessThan(0);
+  });
+
+  it("orders results best-first with BM25 sign convention (more negative = better)", async () => {
+    if (!pool) return;
+    await store.add(
+      "PostgreSQL database PostgreSQL indexing PostgreSQL performance tuning",
+      8,
+      makeMetadata({ messageIndex: 0 })
+    );
+    await store.add(
+      "A note that mentions PostgreSQL once among other things",
+      8,
+      makeMetadata({ messageIndex: 1 })
+    );
+
+    const results = await store.search("PostgreSQL");
+    expect(results.length).toBe(2);
+    // Best match (3x term frequency) first…
+    expect(results[0].chunk.text).toContain("performance tuning");
+    // …and the engine's `-rank` negation must rank it first too: rank strictly
+    // more negative than the weaker match.
+    expect(results[0].rank).toBeLessThan(results[1].rank);
+    expect(results[1].rank).toBeLessThan(0);
   });
 
   it("should search by date range", async () => {

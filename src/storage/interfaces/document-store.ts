@@ -7,7 +7,15 @@
 
 import type { DocumentChunk, DocumentMetadata } from "../../indexing/document-store.js";
 
-/** A single FTS search result with BM25 rank. */
+/**
+ * A single FTS search result with BM25 rank.
+ *
+ * CONTRACT: `rank` uses the BM25 sign convention — NEGATIVE, more negative =
+ * better match — regardless of backend. SQLite/D1 `bm25()` is natively
+ * negative; Postgres `ts_rank` is positive and MUST be negated by the store
+ * (see PgDocumentStore.search). SqliteSearchEngine relies on this at every
+ * `score: -r.rank` site; a positive rank inverts the whole ranking (#29).
+ */
 export interface FtsSearchResult {
   chunk: DocumentChunk;
   rank: number;

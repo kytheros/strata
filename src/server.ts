@@ -269,9 +269,13 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
         const provider = createEmbeddingProvider();
         if (provider) {
           // Inject the provider into the knowledge store for write-side embedding.
-          // Only works for SqliteKnowledgeStore (has embedder field); D1 store handles this internally.
+          // SQLite path: inject via direct field assignment (SqliteKnowledgeStore.embedder).
+          // PG/D1 path: inject via setEmbedder() if the store exposes it (backend-agnostic).
+          // server.ts never imports pg/d1 types — check presence of setEmbedder at runtime.
           if (indexManager) {
             (indexManager.knowledge as any).embedder = provider; // eslint-disable-line @typescript-eslint/no-explicit-any
+          } else if (typeof (storage.knowledge as any).setEmbedder === "function") { // eslint-disable-line @typescript-eslint/no-explicit-any
+            (storage.knowledge as any).setEmbedder(provider); // eslint-disable-line @typescript-eslint/no-explicit-any
           }
 
           // Mismatch check: warn when the corpus has vectors for other models but none
@@ -314,6 +318,8 @@ export function createServer(options?: CreateServerOptions): CreateServerResult 
             // server.ts stays backend-agnostic — no pg/d1 imports. Turn store is
             // always wired; embedder only when a vector search exists to read the
             // vectors back (and the kill-switch is on).
+            // Knowledge store embedding (T2 #29): null on mismatch path is handled above;
+            // provider was already injected via setEmbedder() before this branch.
             wireTurnStore(options.externalVectorSearch ? provider : null);
             if (CONFIG.search.denseTurnLane.enabled && options.externalVectorSearch) {
               searchEngine.setEmbedder(provider);
