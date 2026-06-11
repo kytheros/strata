@@ -401,6 +401,91 @@ function makeKnowledgeEntry(
   };
 }
 
+describe("deep branch: knowledge-merge supplements session-lane (no eviction, #33 fix)", () => {
+  it("high-importance knowledge entries with NEW sessionIds do NOT displace any session at the limit", async () => {
+    // 20 session-lane sessions scored 0.1..2.0 — ALL below knowledge score 10.0.
+    // Pre-fix behavior: [...sessions, ...knowledge].sort().slice(0, 20) evicted
+    // sess-0..sess-4. Post-fix: sessions keep all 20 slots; the 5 knowledge
+    // entries append as supplemental notes (DEEP_KNOWLEDGE_CAP = 5).
+    const SESSION_COUNT = 20;
+    const sessionResults: SearchResult[] = Array.from({ length: SESSION_COUNT }, (_, i) =>
+      makeResult({
+        sessionId: `sess-${i}`,
+        score: 0.1 * (i + 1),
+        timestamp: Date.UTC(2026, 0, i + 1),
+        text: `session ${i} text`,
+      }),
+    );
+    const knowledgeEntries = Array.from({ length: 5 }, (_, i) =>
+      makeKnowledgeEntry(`kn-${i}`, `kn-${i}`, `knowledge entry ${i}`, 1.0, Date.UTC(2026, 1, i + 1))
+    );
+    const engine = {
+      search: async () => [],
+      searchAsync: async () => [],
+      searchSessionLevel: async () => sessionResults,
+      searchTurns: async (): Promise<KnowledgeTurnHit[]> => [],
+      setKnowledgeTurnStore: vi.fn(),
+      setEmbedder: vi.fn(),
+      setVectorSearch: vi.fn(),
+      setReranker: vi.fn(),
+    } as unknown as SqliteSearchEngine;
+
+    const out = await handleSearchHistory(
+      engine,
+      { query: "knowledge supplement query", limit: 20, retrieval_strategy: "deep", format: "agent" },
+      undefined, undefined,
+      makeKnowledgeStore(knowledgeEntries),
+      undefined,
+    );
+
+    // ALL 20 session-lane sessions survive — including the 5 lowest-scoring.
+    for (let i = 0; i < SESSION_COUNT; i++) {
+      expect(out).toContain(`session ${i} text`);
+    }
+    // All 5 knowledge entries also appear (within the cap).
+    for (let i = 0; i < 5; i++) {
+      expect(out).toContain(`knowledge entry ${i}`);
+    }
+  });
+
+  it("knowledge entries beyond DEEP_KNOWLEDGE_CAP are dropped, sessions untouched", async () => {
+    const sessionResults: SearchResult[] = Array.from({ length: 20 }, (_, i) =>
+      makeResult({
+        sessionId: `sess-${i}`,
+        score: 0.1 * (i + 1),
+        timestamp: Date.UTC(2026, 0, i + 1),
+        text: `session ${i} text`,
+      }),
+    );
+    // 8 knowledge entries, descending importance → only the top 5 survive the cap.
+    const knowledgeEntries = Array.from({ length: 8 }, (_, i) =>
+      makeKnowledgeEntry(`kn-${i}`, `kn-${i}`, `knowledge entry ${i}`, 1.0 - i * 0.05, Date.UTC(2026, 1, i + 1))
+    );
+    const engine = {
+      search: async () => [],
+      searchAsync: async () => [],
+      searchSessionLevel: async () => sessionResults,
+      searchTurns: async (): Promise<KnowledgeTurnHit[]> => [],
+      setKnowledgeTurnStore: vi.fn(),
+      setEmbedder: vi.fn(),
+      setVectorSearch: vi.fn(),
+      setReranker: vi.fn(),
+    } as unknown as SqliteSearchEngine;
+
+    const out = await handleSearchHistory(
+      engine,
+      { query: "knowledge cap query", limit: 20, retrieval_strategy: "deep", format: "agent" },
+      undefined, undefined,
+      makeKnowledgeStore(knowledgeEntries),
+      undefined,
+    );
+
+    for (let i = 0; i < 20; i++) expect(out).toContain(`session ${i} text`);
+    for (let i = 0; i < 5; i++) expect(out).toContain(`knowledge entry ${i}`);
+    for (let i = 5; i < 8; i++) expect(out).not.toContain(`knowledge entry ${i}`);
+  });
+});
+
 describe("deep branch: knowledge-merge supplements session-lane (no eviction)", () => {
   it("session-lane sessions are not evicted when knowledgeResults have same sessionIds", async () => {
     // Edge case: knowledgeResults reference sessionIds already in the session lane.

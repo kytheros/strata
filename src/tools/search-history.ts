@@ -15,7 +15,7 @@ import { fuseCommunityLanes } from "../search/recall-fusion-community.js";
 import type { CommunityChunkResult } from "../search/recall-fusion-community.js";
 import { recallQdpCommunity } from "../search/recall-qdp-community.js";
 import { fuseDenseTurnLane } from "../search/dense-turn-fusion.js";
-import { deduplicateToSessions } from "../search/dedupe-to-sessions.js";
+import { deduplicateToSessions, sliceWithKnowledgeSupplement } from "../search/dedupe-to-sessions.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -379,6 +379,9 @@ export async function handleSearchHistory(
     // both the pool AND sessionK, starving the scoring step of candidates.
     const DEEP_CANDIDATE_POOL = 60; // mirrors retrieve.ts:223 — do NOT lower
     const DEEP_SESSION_K = 20;      // mirrors retrieve.ts:223 — do NOT lower
+    // #33 fix: knowledge entries supplement the session lane (never displace it).
+    // Cap keeps the final context bounded at limit + DEEP_KNOWLEDGE_CAP notes.
+    const DEEP_KNOWLEDGE_CAP = 5;
 
     // Session lane: session-scoring + reranker + events
     const sessionLaneRaw = await engine.searchSessionLevel(args.query, {
@@ -396,20 +399,20 @@ export async function handleSearchHistory(
       ? sessionLane.map(r => ({ sessionId: r.sessionId, score: r.score, source: "session" as const }))
       : [];
 
-    // Merge knowledge entries (identical to every other branch)
-    if (knowledgeStore) {
-      const knowledgeResults = await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions);
+    // #33 fix: append knowledge as supplemental candidates — no re-slice here.
+    // The final slice below is source-aware: sessions keep all `limit` slots,
+    // knowledge passes through capped at DEEP_KNOWLEDGE_CAP. (The old
+    // sort+slice(0, limit) evicted gold sessions: 4 directly traced label-free
+    // MS failures — see #33 / #38 Step 0.)
+    {
+      const knowledgeResults = knowledgeStore
+        ? await searchKnowledgeViaStore(knowledgeStore, args.query, searchOptions)
+        : db
+          ? searchKnowledge(db, args.query, searchOptions)
+          : [];
       if (knowledgeResults.length > 0) {
         sessionLane = [...sessionLane, ...knowledgeResults.map(r => ({ ...r, source: "document" as const }))]
-          .sort((a, b) => b.score - a.score)
-          .slice(0, limit);
-      }
-    } else if (db) {
-      const knowledgeResults = searchKnowledge(db, args.query, searchOptions);
-      if (knowledgeResults.length > 0) {
-        sessionLane = [...sessionLane, ...knowledgeResults.map(r => ({ ...r, source: "document" as const }))]
-          .sort((a, b) => b.score - a.score)
-          .slice(0, limit);
+          .sort((a, b) => b.score - a.score);
       }
     }
 
@@ -458,7 +461,7 @@ export async function handleSearchHistory(
         }))
       : [];
 
-    results = deduplicateToSessions(preFinalFused).slice(0, limit);
+    results = sliceWithKnowledgeSupplement(deduplicateToSessions(preFinalFused), limit, DEEP_KNOWLEDGE_CAP);
 
     // Trace stage 4: finalSlice with per-session char allocation
     if (traceCollector) {
