@@ -10,7 +10,7 @@ function makeEntry(overrides: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
     project: "p",
     sessionId: "sess1",
     timestamp: Date.now(),
-    summary: "s",
+    summary: "a realistic summary title",
     details: "d",
     tags: [],
     relatedFiles: [],

@@ -12,7 +12,7 @@ const BASE_ENTRY = {
   project: "p",
   sessionId: "s",
   timestamp: 0,
-  summary: "sum",
+  summary: "a realistic summary title",
   details: "det",
   tags: [],
   relatedFiles: [],

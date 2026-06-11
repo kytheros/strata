@@ -77,15 +77,30 @@ const EPISODIC_PATTERNS = [
   /(?:I (?:paid|spent)\s+\$?\d+)(.{5,100})/i,
 ];
 
+// Word boundaries (\b) and anchored capture starts are load-bearing:
+// without \b, "toFixed(2)" matches "fixed"; without the anchor, the
+// capture starts at whatever follows the keyword — "resolved, per scope
+// discipline)" yielded the summary ", per scope discipline)". Both
+// defects accounted for ~36% garbage titles on the 2026-06-11 audit.
+// CAPTURE_START permits letters/digits plus legitimate technical openers
+// (backticks, quotes, paths, env-style identifiers).
+const CAPTURE_START = `[A-Za-z0-9\`"'$@/\\\\~_-]`;
+
 const SOLUTION_PATTERNS = [
-  /(?:fixed|solved|resolved|the fix was|the issue was|the problem was|solution was|that worked)\s*[:\s]?\s*(.{10,200})/i,
-  /(?:works?(?:ed)? (?:now|correctly|properly|after))\s+(.{10,120})/i,
-  /(?:root cause|underlying issue)(?:\s+was)?\s*[:\s]\s*(.{10,200})/i,
+  new RegExp(
+    `\\b(?:fixed|solved|resolved|the fix was|the issue was|the problem was|solution was|that worked)\\b\\s*:?\\s+(${CAPTURE_START}.{9,199})`,
+    "i"
+  ),
+  new RegExp(`\\bworks?(?:ed)? (?:now|correctly|properly|after)\\b\\s+(${CAPTURE_START}.{9,119})`, "i"),
+  new RegExp(`\\b(?:root cause|underlying issue)(?:\\s+was)?\\s*:?\\s+(${CAPTURE_START}.{9,199})`, "i"),
 ];
 
 const ERROR_PATTERNS = [
-  /(?:error|Error|ERROR|exception|Exception|ECONNREFUSED|ENOENT|EPERM|EACCES|ETIMEDOUT|SIGKILL|SIGTERM|OOM|segfault|panic|fatal)\s*[:\s]?\s*(.{5,150})/i,
-  /(?:failed|failing|broken|crash(?:ed|ing)?|not working)\s*[:\s]?\s*(.{5,100})/i,
+  new RegExp(
+    `\\b(?:error|exception|ECONNREFUSED|ENOENT|EPERM|EACCES|ETIMEDOUT|SIGKILL|SIGTERM|OOM|segfault|panic|fatal)\\b\\s*:?\\s+(${CAPTURE_START}.{4,149})`,
+    "i"
+  ),
+  new RegExp(`\\b(?:failed|failing|broken|crash(?:ed|ing)?|not working)\\b\\s*:?\\s+(${CAPTURE_START}.{4,99})`, "i"),
 ];
 
 /**

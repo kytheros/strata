@@ -48,8 +48,8 @@ describe("SqliteKnowledgeStore", () => {
     });
 
     it("should skip duplicates by project+type+summary", async () => {
-      const entry1 = makeEntry({ id: "e1", project: "proj", type: "solution", summary: "Same" });
-      const entry2 = makeEntry({ id: "e2", project: "proj", type: "solution", summary: "Same" });
+      const entry1 = makeEntry({ id: "e1", project: "proj", type: "solution", summary: "Same summary title" });
+      const entry2 = makeEntry({ id: "e2", project: "proj", type: "solution", summary: "Same summary title" });
 
       await store.addEntry(entry1);
       await store.addEntry(entry2);
@@ -151,8 +151,8 @@ describe("SqliteKnowledgeStore", () => {
 
   describe("getGlobalLearnings", () => {
     it("should return learning entries sorted by occurrences", async () => {
-      await store.addEntry(makeEntry({ id: "e1", type: "learning", summary: "L1", occurrences: 5 }));
-      await store.addEntry(makeEntry({ id: "e2", type: "learning", summary: "L2", occurrences: 10 }));
+      await store.addEntry(makeEntry({ id: "e1", type: "learning", summary: "Learning one summary", occurrences: 5 }));
+      await store.addEntry(makeEntry({ id: "e2", type: "learning", summary: "Learning two summary", occurrences: 10 }));
       await store.addEntry(makeEntry({ id: "e3", type: "solution", summary: "Not a learning" }));
 
       const results = await store.getGlobalLearnings();
@@ -173,8 +173,8 @@ describe("SqliteKnowledgeStore", () => {
 
   describe("getAllEntries", () => {
     it("should return all entries", async () => {
-      await store.addEntry(makeEntry({ id: "e1", summary: "S1" }));
-      await store.addEntry(makeEntry({ id: "e2", summary: "S2" }));
+      await store.addEntry(makeEntry({ id: "e1", summary: "Summary one" }));
+      await store.addEntry(makeEntry({ id: "e2", summary: "Summary two" }));
       expect(await store.getAllEntries()).toHaveLength(2);
     });
   });

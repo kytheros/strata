@@ -6,6 +6,7 @@
 
 import type Database from "better-sqlite3";
 import type { KnowledgeEntry } from "../knowledge/knowledge-store.js";
+import { sanitizeAndValidateSummary } from "../knowledge/knowledge-evaluator.js";
 import { parseProcedureDetails } from "../knowledge/procedure-extractor.js";
 import type { ProcedureDetails } from "../knowledge/procedure-extractor.js";
 import type { GeminiEmbedder } from "../extensions/embeddings/gemini-embedder.js";
@@ -289,8 +290,25 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
   /**
    * Add a knowledge entry. Skips duplicates by project+type+summary.
    * Logs an "add" event to knowledge_history (skipped for dedup rejections).
+   *
+   * The summary passes through sanitizeAndValidateSummary first — this is
+   * the single funnel every writer uses (heuristic extractors, LLM
+   * extractors with their heuristic merge/fallback, REST transport,
+   * store_memory), so malformed titles are repaired or rejected here
+   * regardless of origin.
    */
   async addEntry(entry: KnowledgeEntry): Promise<void> {
+    const validation = sanitizeAndValidateSummary(entry.summary);
+    if (!validation.ok) {
+      console.warn(
+        `[knowledge-store] rejected malformed summary (${validation.reason}): ${entry.summary.slice(0, 80)}`
+      );
+      return;
+    }
+    if (validation.repaired !== entry.summary) {
+      entry = { ...entry, summary: validation.repaired };
+    }
+
     const user = entry.user || this.defaultUser;
     const dup = this.stmts.hasDuplicate.get(entry.project, entry.type, entry.summary, user);
     if (dup) return;
@@ -322,8 +340,19 @@ export class SqliteKnowledgeStore implements IKnowledgeStore {
 
   /**
    * Upsert a knowledge entry (insert or replace by ID).
+   * Applies the same summary gate as addEntry.
    */
   async upsertEntry(entry: KnowledgeEntry): Promise<void> {
+    const validation = sanitizeAndValidateSummary(entry.summary);
+    if (!validation.ok) {
+      console.warn(
+        `[knowledge-store] rejected malformed summary (${validation.reason}): ${entry.summary.slice(0, 80)}`
+      );
+      return;
+    }
+    if (validation.repaired !== entry.summary) {
+      entry = { ...entry, summary: validation.repaired };
+    }
     this.stmts.upsert.run(entryToRow(entry));
     this.embedEntryAsync(entry);
   }

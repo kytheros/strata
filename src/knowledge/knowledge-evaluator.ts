@@ -73,6 +73,61 @@ function isRelevant(content: string): boolean {
 }
 
 // ============================================================================
+// Summary sanitation + validation (title-shape gate)
+// ============================================================================
+
+export interface SummaryValidation {
+  ok: boolean;
+  /** The sanitized summary to persist when ok. */
+  repaired: string;
+  reason?: string;
+}
+
+// ESC-prefixed ANSI sequences plus bare SGR-like tokens ("[32m") — the
+// chunking pipeline sometimes strips the ESC byte but leaves the token.
+const ANSI_TOKENS = /\[[0-9;]*[A-Za-z]|\[\d{1,3}(?:;\d{1,3})*m/g;
+
+// Characters a real title can open with: letters, digits, backtick-quoted
+// code, or a quotation.
+const VALID_START = /^[A-Za-z0-9`"']/;
+
+/**
+ * Sanitize a knowledge summary and decide whether it is a real title.
+ *
+ * Repairs (always applied): ANSI stripping, whitespace collapsing,
+ * trimming leading punctuation noise. Rejections (the 2026-06-11 audit's
+ * fragment classes): too short after repair, mostly non-letters (code
+ * shrapnel, test-runner counters), markdown-table debris, and
+ * punctuation-start fragments whose remainder is too short to stand
+ * alone as a title.
+ */
+export function sanitizeAndValidateSummary(raw: string): SummaryValidation {
+  const stripped = raw.replace(ANSI_TOKENS, "").replace(/\s+/g, " ").trim();
+  const startedMalformed = !VALID_START.test(stripped);
+  const repaired = stripped.replace(/^[^A-Za-z0-9`"']+/, "").trim();
+
+  if (repaired.length < 6) {
+    return { ok: false, repaired, reason: "too short after repair" };
+  }
+
+  const nonSpace = repaired.replace(/\s+/g, "");
+  const letters = (repaired.match(/[A-Za-z]/g) ?? []).length;
+  if (nonSpace.length > 0 && letters / nonSpace.length < 0.4) {
+    return { ok: false, repaired, reason: "mostly non-letters (code/output shrapnel)" };
+  }
+
+  if ((repaired.match(/\|/g) ?? []).length >= 3) {
+    return { ok: false, repaired, reason: "markdown-table debris" };
+  }
+
+  if (startedMalformed && repaired.length < 30) {
+    return { ok: false, repaired, reason: "punctuation-start fragment" };
+  }
+
+  return { ok: true, repaired };
+}
+
+// ============================================================================
 // Evaluator
 // ============================================================================
 
