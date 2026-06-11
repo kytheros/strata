@@ -16,7 +16,6 @@ import type { CommunityChunkResult } from "../search/recall-fusion-community.js"
 import { recallQdpCommunity } from "../search/recall-qdp-community.js";
 import { fuseDenseTurnLane } from "../search/dense-turn-fusion.js";
 import { deduplicateToSessions, sliceWithKnowledgeSupplement } from "../search/dedupe-to-sessions.js";
-import { isAggregationQuery } from "../search/query-classifier.js";
 
 /**
  * Search the knowledge table for stored memories matching a query.
@@ -245,14 +244,7 @@ export function buildAgentContext(results: SearchResult[], query: string, maxCha
     const text = r.text.length > maxChars ? r.text.slice(0, maxChars) + "..." : r.text;
     lines.push(`Note ${i + 1} (${dateStr}):\n${text}\n`);
   }
-  // C1 (#37, v2): query-conditional counting guidance, adjacent to the data.
-  // Deterministic trigger — no LLM in the trigger path (Step-0 §5 requirement).
-  // v2: removed deduplication instruction — it caused over-merging and over-splitting
-  // regressions in v1. Simple scan-all instruction avoids that class of failure.
-  const header = isAggregationQuery(query)
-    ? `[Counting guidance] This question asks for a count or total. Scan every note before answering — do not stop after the first relevant note.\n\n`
-    : "";
-  return header + lines.join("\n");
+  return lines.join("\n");
 }
 
 /**

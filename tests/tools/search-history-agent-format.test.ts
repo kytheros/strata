@@ -8,7 +8,7 @@ import { handleSearchHistory, buildAgentContext } from "../../src/tools/search-h
 import type { KnowledgeEntry } from "../../src/knowledge/knowledge-store.js";
 import type { SearchResult } from "../../src/search/sqlite-search-engine.js";
 
-describe("buildAgentContext counting guidance (C1, #37)", () => {
+describe("buildAgentContext counting guidance (C1 killed — header removed, #37)", () => {
   const mk = (i: number): SearchResult => ({
     sessionId: `s-${i}`,
     project: "p",
@@ -20,12 +20,9 @@ describe("buildAgentContext counting guidance (C1, #37)", () => {
     role: "assistant" as const,
   });
 
-  it("prepends counting guidance for aggregation queries", () => {
+  it("does not prepend any counting guidance header (ladder killed)", () => {
     const out = buildAgentContext([mk(0), mk(1)], "How many plants did I acquire?", 2500);
-    expect(out).toMatch(/^\[Counting guidance\]/);
-    expect(out).toContain("Scan every note before answering");
-    // v3: scan-only header — no enumeration instruction
-    expect(out).not.toContain("List every matching item");
+    expect(out).not.toContain("[Counting guidance]");
     expect(out).toContain("note 0 body");
     expect(out).toContain("note 1 body");
   });
@@ -35,7 +32,7 @@ describe("buildAgentContext counting guidance (C1, #37)", () => {
     expect(out).not.toContain("[Counting guidance]");
   });
 
-  it("does not prepend guidance on the empty-result sentinel", () => {
+  it("returns the empty-result sentinel for counting queries with no results", () => {
     const out = buildAgentContext([], "How many plants did I acquire?", 2500);
     expect(out).toBe('No relevant memory found for "How many plants did I acquire?".');
   });
