@@ -255,6 +255,11 @@ export const CONFIG = {
     entityBoostExisting: 0.0,
     /** Max recency boost for knowledge-update queries (0 = disabled, 0.5 = 1.0x oldest to 1.5x newest) */
     recencyBoostMax: 0.5,
+    /** #41 A3: max chunks per session admitted to the session-aggregation candidate
+     *  pool (0 = disabled). Prevents one dominant session from starving the pool
+     *  of distinct sessions. Gate-flipped via AutoResearch; do not change without
+     *  re-running the MS-slice gate. */
+    maxChunksPerSessionInPool: 0,
   },
 
   // Cross-encoder reranking (Phase 2b)

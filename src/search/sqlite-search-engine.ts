@@ -11,7 +11,7 @@ import type { FtsSearchResult } from "../storage/interfaces/document-store.js";
 import type { IKnowledgeTurnStore, KnowledgeTurnHit, KnowledgeTurnSearchOptions } from "../storage/interfaces/knowledge-turn-store.js";
 import { parseQuery, type QueryFilters } from "./query-processor.js";
 import type { DocumentChunk } from "../indexing/document-store.js";
-import { applyBoosts, applyFilters, reciprocalRankFusion, aggregateToSessionScores, applySessionBoosts, applyTurnRecencyBoost, type RankedResult, type SessionScore } from "./result-ranker.js";
+import { applyBoosts, applyFilters, reciprocalRankFusion, aggregateToSessionScores, applySessionBoosts, applyTurnRecencyBoost, capChunksPerSession, type RankedResult, type SessionScore } from "./result-ranker.js";
 import { CONFIG } from "../config.js";
 import type { IVectorSearch, VectorSearchResult } from "../extensions/embeddings/vector-search.js";
 import type { EmbeddingProvider } from "../extensions/vector-search/embedding-provider.js";
@@ -663,7 +663,8 @@ export class SqliteSearchEngine {
 
     // ---- Session-level aggregation ----
 
-    const sessionScores = aggregateToSessionScores(rankedChunks);
+    const pooledChunks = capChunksPerSession(rankedChunks, CONFIG.session.maxChunksPerSessionInPool);
+    const sessionScores = aggregateToSessionScores(pooledChunks);
 
     // Inject knowledge/entity session signals into session scores.
     // Sessions found via knowledge/entity but NOT via FTS get a new SessionScore entry.

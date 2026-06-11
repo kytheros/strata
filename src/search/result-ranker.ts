@@ -584,3 +584,23 @@ function speakerRank(speaker: string): number {
   if (speaker === "assistant") return 1;
   return 2; // system or other
 }
+
+/**
+ * Cap chunks per session in a rank-ordered chunk list (#41 A3).
+ * Frees candidate-pool slots monopolized by one dominant session so more
+ * distinct sessions survive into session aggregation. cap <= 0 disables.
+ */
+export function capChunksPerSession(chunks: RankedResult[], cap: number): RankedResult[] {
+  if (cap <= 0) return chunks;
+  const counts = new Map<string, number>();
+  const out: RankedResult[] = [];
+  for (const c of chunks) {
+    const sid = c.doc.sessionId;
+    const n = counts.get(sid) ?? 0;
+    if (n < cap) {
+      out.push(c);
+      counts.set(sid, n + 1);
+    }
+  }
+  return out;
+}
