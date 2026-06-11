@@ -25,6 +25,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { isJunkEntityName } from "../knowledge/entity-extractor.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,6 +36,13 @@ export interface CleanEntitiesOptions {
   dryRun?: boolean;
   /** Optional project filter. When set, only entities in this project are considered. */
   project?: string;
+  /**
+   * When true, additionally remove single-mention alphabetic hyphen
+   * compounds typed "library" (prose junk like "on-screen",
+   * "evidence-based"). Bounded risk: a real package mentioned exactly
+   * once is recreated on its next mention.
+   */
+  aggressive?: boolean;
   /** Optional output sink (defaults to console.log). */
   log?: (line: string) => void;
 }
@@ -102,12 +110,48 @@ export function isTagFragment(canonicalName: string): boolean {
   return false;
 }
 
+// ── Junk shapes beyond tag fragments (2026-06-12 audit) ──────────────────────
+
+/**
+ * Decide whether an entity row is junk under the extended rule set:
+ *   - tag fragments (isTagFragment)
+ *   - shape junk shared with the extractor (dates, ranges, hex fragments,
+ *     embedded timestamps — isJunkEntityName)
+ *   - trailing sentence punctuation ("multi-session.") — duplicate rows of
+ *     their clean-named twins, created before extraction-time normalization
+ *   - [aggressive] single-mention purely-alphabetic hyphen compounds typed
+ *     "library" — the NPM_PATTERN prose-junk tail
+ */
+export function isJunkEntity(
+  row: { canonical_name: string; type?: string; mention_count?: number },
+  aggressive = false
+): boolean {
+  const name = row.canonical_name.toLowerCase().trim();
+
+  if (isTagFragment(name)) return true;
+  if (isJunkEntityName(name)) return true;
+  if (/[.,;:]$/.test(name)) return true;
+
+  if (
+    aggressive &&
+    row.type === "library" &&
+    (row.mention_count ?? 0) <= 1 &&
+    /^[a-z]+(?:-[a-z]+)+$/.test(name)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 // ── Row shape ─────────────────────────────────────────────────────────────────
 
 interface EntityRow {
   id: string;
   canonical_name: string;
   project: string | null;
+  type: string;
+  mention_count: number;
 }
 
 // ── Core function ─────────────────────────────────────────────────────────────
@@ -125,12 +169,12 @@ interface EntityRow {
 export async function cleanEntities(
   opts: CleanEntitiesOptions
 ): Promise<CleanEntitiesResult> {
-  const { db, dryRun = false, project, log = console.log } = opts;
+  const { db, dryRun = false, project, aggressive = false, log = console.log } = opts;
   const startMs = Date.now();
 
   // ── 1. Query all entities (optionally filtered by project) ────────────────
 
-  let sql = "SELECT id, canonical_name, project FROM entities";
+  let sql = "SELECT id, canonical_name, project, type, mention_count FROM entities";
   const params: (string | null)[] = [];
 
   if (project) {
@@ -147,16 +191,16 @@ export async function cleanEntities(
 
   // ── 2. Identify pollution candidates ─────────────────────────────────────
 
-  const polluted = rows.filter((r) => isTagFragment(r.canonical_name));
+  const polluted = rows.filter((r) => isJunkEntity(r, aggressive));
 
   if (polluted.length === 0) {
-    log(`[clean-entities] Scanned ${rows.length} entities — no tag-fragment pollution found.`);
+    log(`[clean-entities] Scanned ${rows.length} entities — no junk-entity pollution found.`);
     return { entitiesRemoved: 0, junctionRowsRemoved: 0, relationsRemoved: 0, elapsedMs: Date.now() - startMs };
   }
 
   log(
-    `[clean-entities] Found ${polluted.length} tag-fragment entit${polluted.length === 1 ? "y" : "ies"} ` +
-    `out of ${rows.length} total${dryRun ? " [dry-run]" : ""}.`
+    `[clean-entities] Found ${polluted.length} junk entit${polluted.length === 1 ? "y" : "ies"} ` +
+    `out of ${rows.length} total${aggressive ? " [aggressive]" : ""}${dryRun ? " [dry-run]" : ""}.`
   );
 
   // ── 3. Remove each polluted entity ───────────────────────────────────────
@@ -180,15 +224,24 @@ export async function cleanEntities(
     "DELETE FROM entities WHERE id = ?"
   );
 
+  const LOG_DETAIL_CAP = 20;
+  let logged = 0;
+
   for (const entity of polluted) {
     const jCount = (countJunction.get(entity.id) as { n: number }).n;
     const rCount = (countRelations.get(entity.id, entity.id) as { n: number }).n;
 
-    log(
-      `[clean-entities] ${dryRun ? "[dry-run] " : ""}Removing entity "${entity.canonical_name}" ` +
-      `(id=${entity.id.slice(0, 8)}) ` +
-      `— ${jCount} junction row${jCount !== 1 ? "s" : ""}, ${rCount} relation${rCount !== 1 ? "s" : ""}`
-    );
+    if (logged < LOG_DETAIL_CAP) {
+      log(
+        `[clean-entities] ${dryRun ? "[dry-run] " : ""}Removing entity "${entity.canonical_name}" ` +
+        `(id=${entity.id.slice(0, 8)}) ` +
+        `— ${jCount} junction row${jCount !== 1 ? "s" : ""}, ${rCount} relation${rCount !== 1 ? "s" : ""}`
+      );
+      logged++;
+      if (logged === LOG_DETAIL_CAP && polluted.length > LOG_DETAIL_CAP) {
+        log(`[clean-entities] … and ${polluted.length - LOG_DETAIL_CAP} more (detail logging capped).`);
+      }
+    }
 
     junctionRowsRemoved += jCount;
     relationsRemoved += rCount;
@@ -228,9 +281,10 @@ export async function runCleanEntities(
   const db = openDatabase();
   const project = flags.project ? String(flags.project) : undefined;
   const dryRun = Boolean(flags["dry-run"]);
+  const aggressive = Boolean(flags.aggressive);
 
   try {
-    const result = await cleanEntities({ db, project, dryRun });
+    const result = await cleanEntities({ db, project, dryRun, aggressive });
     console.log(
       `\nSummary: ${result.entitiesRemoved} entit${result.entitiesRemoved !== 1 ? "ies" : "y"} ${dryRun ? "found (dry-run)" : "removed"}, ` +
       `${result.junctionRowsRemoved} junction row${result.junctionRowsRemoved !== 1 ? "s" : ""} ${dryRun ? "found" : "removed"}, ` +

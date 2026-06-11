@@ -2,8 +2,75 @@ import { describe, it, expect } from "vitest";
 import {
   extractEntities,
   extractRelations,
+  isJunkEntityName,
   type ExtractedEntity,
 } from "../../src/knowledge/entity-extractor.js";
+
+// 2026-06-12 audit regressions: junk shapes that polluted the founder
+// corpus entity graph (8,657 entities, 81.5% typed "library" because
+// NPM_PATTERN matches any hyphenated token).
+describe("extractEntities — junk filtering", () => {
+  it("does not extract tool-output artifact tags as entities", () => {
+    const names = extractEntities(
+      "the output-file tag and local-command-caveat block plus a teammate-message arrived"
+    ).map((e) => e.canonicalName);
+    expect(names).not.toContain("output-file");
+    expect(names).not.toContain("local-command-caveat");
+    expect(names).not.toContain("teammate-message");
+  });
+
+  it("does not extract dates, numeric ranges, or hex fragments", () => {
+    const names = extractEntities(
+      "between 2026-03-26 and 2026-04-01 we saw 184-188 failures (commit 10f031e-57f9-4658)"
+    ).map((e) => e.canonicalName);
+    expect(names).not.toContain("2026-03-26");
+    expect(names).not.toContain("2026-04-01");
+    expect(names).not.toContain("184-188");
+    expect(names).not.toContain("10f031e-57f9-4658");
+  });
+
+  it("does not extract names with embedded ISO timestamps", () => {
+    const names = extractEntities(
+      "saved to results-2026-03-26T14-30-00.json for later analysis"
+    ).map((e) => e.canonicalName);
+    expect(names.some((n) => n.includes("2026-03-26t14"))).toBe(false);
+  });
+
+  it("normalizes trailing sentence punctuation instead of minting dup entities", () => {
+    const entities = extractEntities("we hardened multi-session. Later multi-session retrieval improved");
+    const matches = entities.filter((e) => e.canonicalName.startsWith("multi-session"));
+    expect(matches).toHaveLength(1);
+    expect(matches[0].canonicalName).toBe("multi-session");
+  });
+
+  it("still extracts real hyphenated packages", () => {
+    // (better-sqlite3 resolves through ALIAS_MAP → canonical "sqlite",
+    // so use packages outside the alias map here.)
+    const names = extractEntities(
+      "we use drizzle-orm and node-fetch in the worker"
+    ).map((e) => e.canonicalName);
+    expect(names).toContain("drizzle-orm");
+    expect(names).toContain("node-fetch");
+  });
+});
+
+describe("isJunkEntityName", () => {
+  it("flags numeric/date/range/hex shapes", () => {
+    expect(isJunkEntityName("2026-03-26")).toBe(true);
+    expect(isJunkEntityName("1-2")).toBe(true);
+    expect(isJunkEntityName("184-188")).toBe(true);
+    expect(isJunkEntityName("1920x1080-3.5")).toBe(true);
+    expect(isJunkEntityName("10f031e-57f9-4658-84c2")).toBe(true);
+  });
+
+  it("keeps real package-like names", () => {
+    expect(isJunkEntityName("better-sqlite3")).toBe(false);
+    expect(isJunkEntityName("node-fetch")).toBe(false);
+    expect(isJunkEntityName("gpt-4o")).toBe(false);
+    // all-hex English compound without digits stays
+    expect(isJunkEntityName("added-fee")).toBe(false);
+  });
+});
 
 describe("extractEntities", () => {
   it("should return empty array for empty input", () => {

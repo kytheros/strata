@@ -231,7 +231,45 @@ const TAG_FRAGMENT_DENYLIST = new Set([
   "function-calls",
   "function-call",
   "antml-function",
+  // Tool/agent output artifact tags (2026-06-12 audit: "output-file" was
+  // the #2 entity in the founder corpus with 638 mentions, typed LIBRARY)
+  "output-file",
+  "local-command-caveat",
+  "local-command-stdout",
+  "local-command-stderr",
+  "teammate-message",
+  "tool-output",
+  "command-output",
+  "session-start",
+  "session-end",
+  "task-prompt",
+  "task-result",
 ]);
+
+/**
+ * Junk-name heuristics for npm-pattern candidates. These shapes can never
+ * be real packages:
+ *   - pure numbers / dates / numeric ranges ("2026-03-26", "1-2", "184-188")
+ *   - UUID/hex fragments ("10f031e-57f9-4658-84c…")
+ *   - names with an embedded ISO timestamp (benchmark filenames, temp paths)
+ */
+export function isJunkEntityName(name: string): boolean {
+  const n = name.toLowerCase().trim();
+
+  // Pure numeric / date / range (optionally dotted or comma'd, x for dims)
+  if (/^[\d.,]+(?:[-x][\d.,]+)*[.,]?$/.test(n)) return true;
+
+  // Embedded ISO timestamp
+  if (/\d{4}-\d{2}-\d{2}t\d{2}/.test(n)) return true;
+
+  // UUID/hex fragment: every hyphen segment is hex, at least one digit,
+  // and long enough that an English compound can't satisfy it.
+  if (n.length >= 12 && /\d/.test(n) && /^[0-9a-f]+(?:-[0-9a-f]+)+$/.test(n)) {
+    return true;
+  }
+
+  return false;
+}
 
 /**
  * Extract entities from text using heuristic patterns and the alias map.
@@ -275,7 +313,11 @@ export function extractEntities(text: string): ExtractedEntity[] {
   // 2. npm packages not in alias map — run against stripped text only
   const npmMatches = clean.match(NPM_PATTERN);
   if (npmMatches) {
-    for (const match of npmMatches) {
+    for (const rawMatch of npmMatches) {
+      // Normalize sentence-boundary punctuation — NPM_PATTERN allows dots,
+      // so "multi-session." and "multi-session" used to become two entities.
+      const match = rawMatch.replace(/[.,;:]+$/, "");
+      if (!match) continue;
       // Skip if it's already covered by alias map
       const lower = match.toLowerCase();
       if (SUPPRESSION_LIST.has(lower)) continue;
@@ -284,6 +326,8 @@ export function extractEntities(text: string): ExtractedEntity[] {
       if (!match.startsWith("@") && !match.includes("-")) continue;
       // Secondary deny-list: reject known tag-fragment patterns
       if (TAG_FRAGMENT_DENYLIST.has(lower)) continue;
+      // Shape-based junk: dates, ranges, hex fragments, timestamped names
+      if (isJunkEntityName(lower)) continue;
       const canonical = lower;
       if (!found.has(canonical)) {
         found.set(canonical, {
