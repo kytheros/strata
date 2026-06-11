@@ -10,7 +10,7 @@
  * Register in ~/.claude/settings.json as a Stop hook.
  */
 
-import { existsSync } from "fs";
+import { existsSync, readSync } from "fs";
 import { basename, dirname } from "path";
 import { parseSessionFile } from "../parsers/session-parser.js";
 import { extractEvaluatedKnowledge } from "../knowledge/knowledge-extractor.js";
@@ -28,11 +28,14 @@ async function main(): Promise<void> {
 
   try {
     let input = "";
-    // Read stdin synchronously
+    // Read stdin synchronously. This module runs as pure ESM under
+    // `node dist/hooks/session-stop-hook.js` — a bare require() call here
+    // throws ReferenceError and silently no-ops the whole hook (which is
+    // exactly what kept the summaries table empty until 2026-06-12).
     const buf = Buffer.alloc(1024 * 64);
     let bytesRead: number;
     try {
-      bytesRead = require("fs").readSync(0, buf, 0, buf.length, null);
+      bytesRead = readSync(0, buf, 0, buf.length, null);
       input = buf.toString("utf-8", 0, bytesRead);
     } catch {
       // stdin may not be available

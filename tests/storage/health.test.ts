@@ -49,4 +49,18 @@ describe("deriveHealth", () => {
     expect(h.overall.score).toBeGreaterThanOrEqual(0);
     expect(h.overall.score).toBeLessThanOrEqual(100);
   });
+
+  it("clamps summary-coverage at 1 when summaries outnumber knowledge sessions", () => {
+    const now = Date.now();
+    // 1 session with knowledge, but 5 summarized sessions (a backfill
+    // covers every document session, including knowledge-free ones).
+    db.prepare("INSERT INTO knowledge (id, type, project, session_id, timestamp, summary, details, tags, related_files, importance) VALUES ('k1', 'fact', 'p', 's1', ?, 'a', 'b', '[]', '[]', 0.5)").run(now);
+    for (let i = 0; i < 5; i++) {
+      db.prepare("INSERT INTO summaries (session_id, project, tool, topic, start_time, end_time, message_count, tools_used, data) VALUES (?, 'p', 'x', 't', ?, ?, 1, '[]', '{}')").run(`s${i}`, now, now);
+    }
+    const h = deriveHealth(db);
+    const coverage = h.checks.find((c) => c.name === "summary-coverage")!;
+    expect(coverage.value).toBe(1);
+    expect(h.overall.score).toBeLessThanOrEqual(100);
+  });
 });

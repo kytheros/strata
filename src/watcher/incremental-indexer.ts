@@ -13,6 +13,13 @@ export interface IndexManagerLike {
   save?(): unknown;
   /** Database handle for training data capture (optional — only SQLite backend exposes this) */
   db?: import("better-sqlite3").Database;
+  /** Summary store for the summaries-table dual-write (optional — SQLite backend exposes this) */
+  summaries?: {
+    save(
+      summary: import("../knowledge/session-summarizer.js").SessionSummary,
+      tool?: string
+    ): Promise<void>;
+  };
 }
 import { parseSessionFile } from "../parsers/session-parser.js";
 import type { SessionFileInfo, ParsedSession } from "../parsers/session-parser.js";
@@ -287,6 +294,16 @@ export class IncrementalIndexer {
           ? await smartSummarize(session, summaryProvider, this.indexManager.db)
           : summarizeSession(session);
         cacheSummary(summary);
+        // Dual-write to the summaries TABLE — the dashboard, session list,
+        // and the summary-coverage health check read the table, not the
+        // JSON file cache. Non-fatal: the file cache above already landed.
+        if (this.indexManager.summaries) {
+          try {
+            await this.indexManager.summaries.save(summary, tool);
+          } catch (err) {
+            console.warn("[summaries] table write failed:", err);
+          }
+        }
 
         // ── TIRQDP-1.8: TIR turn-write branch ────────────────────────────
         // Runs AFTER the existing knowledge-extraction lane (chunk path above

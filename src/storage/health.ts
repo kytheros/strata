@@ -49,7 +49,10 @@ function embeddingCoverage(db: Database.Database): HealthCheck {
 function summaryCoverage(db: Database.Database): HealthCheck {
   const sessionsWithKnowledge = row1(db, "SELECT COUNT(DISTINCT session_id) AS c FROM knowledge WHERE session_id IS NOT NULL AND session_id != ''");
   const summarized = row1(db, "SELECT COUNT(*) AS c FROM summaries");
-  const value = sessionsWithKnowledge === 0 ? 1 : summarized / sessionsWithKnowledge;
+  // Clamp: sessions can be summarized without producing knowledge (the
+  // backfill covers every document session), so the raw ratio can exceed
+  // 1 — an unclamped value inflates the overall score past 100.
+  const value = sessionsWithKnowledge === 0 ? 1 : Math.min(1, summarized / sessionsWithKnowledge);
   const { ok, warn } = CONFIG.health.thresholds.summary_coverage;
   return {
     name: "summary-coverage",
