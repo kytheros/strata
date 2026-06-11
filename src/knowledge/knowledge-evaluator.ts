@@ -116,7 +116,11 @@ export function sanitizeAndValidateSummary(raw: string): SummaryValidation {
     return { ok: false, repaired, reason: "mostly non-letters (code/output shrapnel)" };
   }
 
-  if ((repaired.match(/\|/g) ?? []).length >= 3) {
+  // Markdown-table debris — but pipes inside backtick-quoted code spans
+  // are legitimate CLI syntax ("`daemon start|stop|status`"), so count
+  // pipes only outside code spans.
+  const outsideCode = repaired.replace(/`[^`]*`/g, "");
+  if ((outsideCode.match(/\|/g) ?? []).length >= 3) {
     return { ok: false, repaired, reason: "markdown-table debris" };
   }
 

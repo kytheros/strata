@@ -71,6 +71,13 @@ describe("sanitizeAndValidateSummary", () => {
     expect(v.ok).toBe(true);
     expect(v.repaired).toBe("`npm ci` then rebuild native deps");
   });
+
+  it("does not count pipes inside backtick code spans as table debris", () => {
+    const v = sanitizeAndValidateSummary(
+      "Procedure: daemon lifecycle — `halcyon daemon start|stop|status|logs`."
+    );
+    expect(v.ok).toBe(true);
+  });
 });
 
 describe("SqliteKnowledgeStore.addEntry — summary gate", () => {
