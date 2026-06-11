@@ -60,7 +60,7 @@ import type { PromptVariant } from "./answer.js";
 import { judgeAnswer } from "./judge.js";
 import { createAnswerProvider, createJudgeProvider } from "./providers/provider-factory.js";
 import { handleSearchHistory } from "../../src/tools/search-history.js";
-import type { SearchHistoryArgs } from "../../src/tools/search-history.js";
+import type { SearchHistoryArgs, DeepPathTrace } from "../../src/tools/search-history.js";
 import { buildRecommendedPrompt } from "../../src/prompts/recommended-agent-prompt.js";
 import { computeRecall, strataSessionIdToIndex } from "./retrieve.js";
 import { appendResult, loadCompleted } from "./checkpoint.js";
@@ -163,6 +163,8 @@ function parseArgs(): {
    * Used to validate the new write-path reproduces the published number (#30).
    */
   ingestMode: "direct" | "api";
+  /** Parsed --ids filter set, or null when no filter is active. */
+  ID_FILTER: Set<string> | null;
 } {
   const args = process.argv.slice(2);
 
@@ -226,7 +228,14 @@ function parseArgs(): {
   const ingestArg = args.find((a) => a.startsWith("--ingest="));
   const ingestMode = (ingestArg?.split("=")[1] ?? "direct") as "direct" | "api";
 
-  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode };
+  // --ids=<comma-separated question IDs>: restrict the run to these questions.
+  // Enables MS-slice gate runs (~22 min) instead of full-500 (~1h24m). #37 Step 1.
+  const idsArg = args.find((a) => a.startsWith("--ids="));
+  const ID_FILTER: Set<string> | null = idsArg
+    ? new Set(idsArg.slice("--ids=".length).split(",").map((s) => s.trim()).filter(Boolean))
+    : null;
+
+  return { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode, ID_FILTER };
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +599,10 @@ export interface PcpRunResult {
   rerankerActive?: boolean;
   /** Evidence recall@20 for the agent-format arm (model-independent Strata guarantee) */
   evidenceRecall20?: number;
+  /** The answer string the model produced (spec §9 instrumentation gap). */
+  predictedAnswer?: string;
+  /** True final-context session IDs from the deep-path trace (resolves #43 for --deep). */
+  contextSessionIds?: string[];
   /** Metadata block per the master guardrail */
   metadata: {
     benchmarkFromFile: false;
@@ -678,6 +691,11 @@ async function runOneQuestion(
       ...(AGENT_FORMAT ? { format: "agent" as const } : {}),
     };
 
+    let _traceSessionIds: string[] | undefined;
+    const traceCollector = DEEP_RETRIEVAL
+      ? (trace: DeepPathTrace) => { _traceSessionIds = trace.finalSlice.map((e) => e.sessionId); }
+      : undefined;
+
     const rawString = await handleSearchHistory(
       ingested.searchEngine,
       searchArgs,
@@ -685,6 +703,7 @@ async function runOneQuestion(
       asyncSearch,
       ingested.knowledgeStore,
       ingested.turnStore,
+      traceCollector,
     );
 
     bridgeActive = _bridgeReturnedNonNull;
@@ -866,6 +885,8 @@ async function runOneQuestion(
       bridgeActive,
       denseTurnStoreActive,
       ...(evidenceRecall20 !== undefined ? { evidenceRecall20 } : {}),
+      predictedAnswer: answer,
+      ...(_traceSessionIds ? { contextSessionIds: _traceSessionIds } : {}),
       metadata: {
         benchmarkFromFile: false,
         harness: "prod-consumer-parity.ts",
@@ -1657,7 +1678,7 @@ function verifyFromDisk(
 
 async function main(): Promise<void> {
   loadEnv();
-  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode } = parseArgs();
+  const { arm, runIdBase, smokeN, judgeVotes, limit, maxChars, promptVariant, agentFormat, deep, structured, kuCot, noFull, ingestMode, ID_FILTER } = parseArgs();
   PROMPT_VARIANT = promptVariant;
   AGENT_FORMAT = agentFormat;
   DEEP_RETRIEVAL = deep;
@@ -1792,6 +1813,10 @@ async function main(): Promise<void> {
   };
 
   let questions = dataset;
+  if (ID_FILTER) {
+    questions = questions.filter((q) => ID_FILTER.has(q.question_id));
+    console.log(`--ids filter active: ${questions.length} questions selected`);
+  }
   if (Number.isFinite(limit) && limit < dataset.length) {
     questions = dataset.slice(0, limit);
     console.log(`\nDEBUG: capped to first ${limit} questions.`);
