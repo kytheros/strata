@@ -1,10 +1,17 @@
 # Retrieval Quality Benchmarks
 
-This document describes Strata's retrieval quality benchmark methodology and results. The benchmark compares Strata (hybrid BM25 + vector + RRF) and Mem0 on a standardized corpus of operational engineering knowledge.
+This document covers two different kinds of measurement. Read the difference before quoting any number:
+
+1. **LongMemEval-S (third-party benchmark) — the defensible number.** A standard academic benchmark with an external dataset and published rubric. On the full 500-question split, Strata's BM25/FTS5 retrieval hits **94.9% evidence recall@20, MRR 0.907, ~16 ms p95**. This is the result to cite. See [LongMemEval](#longmemeval) below.
+2. **Operational-learnings corpus — illustrative, self-authored.** A small in-repo corpus we wrote ourselves, with ground-truth labels we assigned ourselves, used as a smoke test and a rough directional comparison against Mem0. **It is not a neutral third-party benchmark and its near-perfect scores should not be read as one.** The corpus is easy by construction, has no independent baseline, and the labels favor keyword retrieval. Treat it as a sanity check, not proof of superiority.
+
+> **On the operational-learnings numbers below:** the corpus (50 items) and its 20 queries with ground-truth labels were authored by the Strata maintainers, not an independent party. A system evaluated on questions its own authors wrote and labeled will score high — that is the classic easy-benchmark / no-baseline trap. We keep this benchmark because it is fast and reproducible for catching regressions, not because a 1.000 recall means Strata is three times better than Mem0 in the wild. For a claim you can stand behind, use the LongMemEval-S retrieval numbers.
 
 ---
 
-## Methodology
+## Illustrative benchmark: Operational Learnings (self-authored)
+
+*Reminder: self-authored corpus and labels — directional smoke test, not a neutral comparison. See the disclaimer above.*
 
 ### Corpus: Operational Learnings
 
@@ -83,9 +90,11 @@ The Mem0 benchmark requires a valid API key. If `MEM0_API_KEY` is not set, the M
 
 ---
 
-## Results
+## Results (illustrative)
 
 Last updated: 2026-04-30
+
+*These are the self-authored-corpus results. The near-perfect Strata scores reflect a corpus and label set written by the maintainers, not independent difficulty — see the disclaimer at the top of this doc. Use the [LongMemEval](#longmemeval) numbers for anything load-bearing.*
 
 ### Summary
 
@@ -165,17 +174,37 @@ The operational-learnings benchmark above tests retrieval quality on the coding-
 
 ### LongMemEval
 
-[LongMemEval](https://arxiv.org/abs/2410.10813) is the standard academic benchmark for long-term conversational memory — multi-session question answering where a system must recall and reason over facts spread across many prior conversations.
+[LongMemEval](https://arxiv.org/abs/2410.10813) is the standard academic benchmark for long-term conversational memory — multi-session question answering where a system must recall and reason over facts spread across many prior conversations. It uses an external dataset and a published rubric, so results here are directly comparable to other systems' — unlike the illustrative corpus above.
+
+#### Retrieval quality — the defensible number (deterministic, no LLM)
+
+This is the metric to cite. Pure BM25/FTS5 retrieval over the full 500-question LongMemEval-S split, measuring whether Strata surfaces the correct evidence session from a haystack of ~40 sessions per question. No vector search, no LLM, no API key.
 
 | Metric | Value |
 |--------|-------|
-| **Task-averaged accuracy (LongMemEval-500)** | **81.1%** |
+| **Evidence recall@20** | **94.9%** |
+| Evidence recall@10 | 92.3% |
+| Evidence recall@5 | 88.2% |
+| **MRR** | **0.907** |
+| p50 latency | 11 ms |
+| p95 latency | 16 ms |
+| Questions | 500 |
+| System / mode | Strata Community, `bm25` (FTS5, Porter stemming) |
+
+Source: `benchmarks/longmemeval/results/retrieval-baseline-bm25.json`. Recall@20 of 94.9% means keyword search alone puts the right conversation in the top 20 for nearly every question — deterministic, sub-20 ms, and dependency-free.
+
+#### End-to-end QA accuracy — a stack result, read the conditions
+
+| Metric | Value |
+|--------|-------|
+| Task-averaged accuracy (LongMemEval-500) | 81.1% |
 | Answer model | GPT-4o (`gpt-4o-2024-08-06`) |
 | Judge model | GPT-4o |
 | Extraction provider | Gemini 2.5 Flash |
+| Agent loop budget | 40K tokens / question |
 | Run date | 2026-03-27 |
 
-The 500-question run uses the official LongMemEval split, the published evaluation rubric, and the same answer/judge models referenced in the upstream paper for direct comparability. Strata's retrieval pipeline (the same hybrid BM25 + vector + RRF that ships in Community) is wrapped in an agent loop with a 40K-token budget per question.
+The 81.1% is **not a retrieval number** — it measures a full stack: Strata's retrieval wrapped in a GPT-4o-answered, GPT-4o-judged agent loop with a 40K-token-per-question budget and Gemini extraction on the ingest side. It uses the official LongMemEval split, the published rubric, and the same answer/judge models as the upstream paper for comparability, but the accuracy figure depends heavily on the answer model and budget, not on Strata alone. Quote the retrieval@20 number for Strata's contribution; quote 81.1% only with these conditions attached.
 
 Reproducibility: see `evals/longmemeval/` in this repository for the harness, the wrapper-prompt templates, and the run logs.
 

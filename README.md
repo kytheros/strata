@@ -7,9 +7,11 @@
 [![CI](https://github.com/kytheros/strata/actions/workflows/ci.yml/badge.svg)](https://github.com/kytheros/strata/actions)
 ![Status: Beta](https://img.shields.io/badge/status-beta-orange.svg)
 
+> **An MCP memory server that gives AI coding assistants persistent, quality-gated memory across sessions and tools.**
+
 **Persistent memory for AI agents.** Agents forget. Context windows roll over and the bug you fixed, the decision you made, and the pattern you found are gone. Strata captures these as structured knowledge while you work and gives them back to the next session — through the [Model Context Protocol](https://modelcontextprotocol.io), the open standard supported by Claude Code, Cursor, Cline, Continue, Claude Desktop, Codex CLI, and Gemini CLI.
 
-**81.1% on LongMemEval-500** with the same BM25 + vector + RRF stack documented below — see [Benchmarks](docs/benchmarks.md). Runs locally on SQLite, on Cloudflare Workers + D1, or on Google Cloud Run.
+**Retrieval that survives measurement.** On the full 500-question [LongMemEval-S](https://arxiv.org/abs/2410.10813) benchmark, Strata's deterministic BM25/FTS5 retrieval finds the correct evidence in the top 20 results for **94.9% of questions** (MRR 0.907, ~16 ms p95 latency) — keyword search alone, no LLM, no API key, fully local. That's the number to trust. Wrapped in an agent loop, it also scores **81.1% end-to-end QA accuracy** on LongMemEval-500 — but that figure requires a GPT-4o answer model, a GPT-4o judge, Gemini extraction, and a 40K-token-per-question budget, so treat it as a stack result, not a retrieval result. Full conditions in [Benchmarks](docs/benchmarks.md). Runs locally on SQLite, on Cloudflare Workers + D1, or on Google Cloud Run.
 
 ```mermaid
 sequenceDiagram
@@ -24,11 +26,7 @@ sequenceDiagram
     S-->>B: [HIGH] Use bcrypt cost factor 12
 ```
 
-**For AI coding assistants:** Strata auto-indexes your conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a shared knowledge base. Store a decision in Claude Code, recall it from Gemini CLI.
-
-**For agents you build:** Deploy Strata as memory infrastructure via HTTP or multi-tenant transport. Ingest conversations from any source, search with BM25 + vector hybrid ranking, and give your agents the ability to learn from their own history. Deploy on [Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) or [Google Cloud Run](#deploy-on-gcp-cloud-run).
-
-**For game engines (NEW in v2):** Drop the REST transport into Unity, Godot, or Unreal for per-NPC memory. Two-tier auth (admin tokens issue player tokens), dialogue-shaped `/recall` endpoint that returns ready-to-prompt context, world/agent scoping. See [Game Engine REST API](https://strata.kytheros.dev/docs/game-engine-api).
+**The wedge — AI coding assistants:** Strata auto-indexes your conversations from Claude Code, Codex CLI, Aider, Cline, and Gemini CLI into a shared knowledge base. Store a decision in Claude Code, recall it from Gemini CLI. This is what Strata is built for and what the benchmarks above measure.
 
 **Semantic search included.** Add a free [Gemini API key](https://aistudio.google.com/apikey) to enable hybrid BM25 + vector search with 3072-dimensional embeddings, LLM-powered knowledge extraction, and training data accumulation for local model distillation. Falls back to keyword search without it.
 
@@ -36,13 +34,35 @@ sequenceDiagram
 
 No cloud required. No memory caps. Everything stays on your machine -- or deploy anywhere.
 
-> **Status:** Beta. The data model and MCP tool surface are stable; CLI flags and deploy commands may shift between minor versions. Used in production by Kytheros LLC and design partners.
+**Also supports:**
+
+- **Agents you build** — deploy Strata as memory infrastructure via HTTP or multi-tenant transport. Ingest conversations from any source, search with BM25 + vector hybrid ranking, and let your agents learn from their own history. Deploy on [Cloudflare Workers + D1](#deploy-on-cloudflare-workers--d1) (production-ready) or [Google Cloud Run / AWS](#deploy-on-gcp-cloud-run) (template-grade — see [What works today vs. roadmap](#what-works-today-vs-roadmap)).
+- **Game engines** — drop the REST transport into Unity, Godot, or Unreal for per-NPC memory: two-tier auth (admin tokens issue player tokens), a dialogue-shaped `/recall` endpoint that returns ready-to-prompt context, and world/agent scoping. See [Game Engine REST API](https://strata.kytheros.dev/docs/game-engine-api). (A first-party Unity package is [on the roadmap](https://github.com/kytheros/strata/issues/2).)
+
+> **Status:** Beta. The data model and MCP tool surface are stable; CLI flags and deploy commands may shift between minor versions. Built and dogfooded by [Kytheros LLC](https://kytheros.dev) across its own agent workflows.
 >
 > **Who builds this:** Strata is built and maintained by **[Kytheros LLC](https://kytheros.dev)**. This edition is **Apache 2.0 licensed and free forever** — the feature set documented here is committed, not bait-and-switch.
 >
 > **Support development:** [polar.sh/kytheros](https://polar.sh/kytheros) — sponsorships fund development.
 >
 > **Privacy:** Strata stores everything locally in `~/.strata/strata.db` by default and works fully offline with FTS5 keyword search. If you set `GEMINI_API_KEY`, queries and stored content are sent to Google's Gemini API for embeddings and extraction (subject to [Google's API terms](https://ai.google.dev/terms)). [Local LLM Inference](#local-llm-inference-gemma-4) removes the Gemini dependency entirely.
+
+---
+
+## What works today vs. roadmap
+
+Strata is Beta, and this table is the honest line between what ships and what's designed but not done. If it's under **Today**, it runs now; if it's under **Roadmap**, don't build on it yet.
+
+| Area | Today | Roadmap |
+|------|-------|---------|
+| **Local memory** | SQLite MCP server, 15 tools, hybrid BM25/FTS5 retrieval (vectors optional, `GEMINI_API_KEY`-gated) | — |
+| **Edge deploy** | Cloudflare Workers + D1, published & production-ready | Parity eval vs. local SQLite |
+| **Cloud deploy** | AWS (Fargate/Aurora/Cognito) and GCP (Cloud Run) **templates** — reference-grade, self-host-ready | Multi-tenant hardening validated under load; "production-proven" status |
+| **Embedding quantization** | TurboQuant 4-bit on SQLite and D1 (write path) | Postgres quantization (read-side dispatch + migration exist; write path still stores float32) |
+| **Python SDK** | Published to PyPI, **alpha (0.1.0)** | Stable API, full framework coverage |
+| **npm package** | `strata-mcp` v2.3.0 published; release Worker deployed | — |
+| **Game engines** | REST transport (Unity/Godot/Unreal via HTTP) | First-party Unity package ([#2](https://github.com/kytheros/strata/issues/2)) |
+| **Teams / RBAC** | — | Designed, not wired |
 
 ---
 
@@ -54,7 +74,7 @@ No cloud required. No memory caps. Everything stays on your machine -- or deploy
 | **Conversation ingestion**   | Auto-parses Claude / Codex / Aider / Cline / Gemini transcripts | Explicit `add()` calls | Explicit          | DIY           |
 | **Quality control on writes**| Evaluator pipeline (3 deterministic gates) | Stores all     | Stores all         | None          |
 | **Search**                   | BM25 + vector + RRF + recency + decay | Vector              | Vector             | Vector        |
-| **Embedding storage**        | Quantized across SQLite / D1 / Postgres (Lloyd-Max + Hadamard + TurboQuant) | Backend-defined | Backend-defined | Backend-specific |
+| **Embedding storage**        | TurboQuant 4-bit quantization on SQLite & D1 (Postgres stores float32 today — [quant on the roadmap](#what-works-today-vs-roadmap)) | Backend-defined | Backend-defined | Backend-specific |
 | **Local-only mode**          | ✓ (works fully offline w/o API key) | Hosted-default        | Configurable       | ✓             |
 | **Game engine transport**    | ✓ (REST, per-NPC scoping)           | ✗                     | ✗                  | ✗             |
 | **License**                  | Apache 2.0                          | Apache 2.0            | MIT                | Varies        |
@@ -63,7 +83,7 @@ Mem0 is the right tool when you're embedding memory inside a single application'
 
 ### Why owning the storage matters
 
-Most memory layers wrap a separately-configured vector database — Qdrant, pgvector, Pinecone, LanceDB. That's a sound abstraction, but it means the memory product can never ship features that touch the storage layout: quantization, ranking-fidelity tradeoffs, custom index types, online migration. Strata owns its storage end-to-end across every deployment target — SQLite locally, Cloudflare D1 at the edge, Postgres on GCP Cloud SQL — and ships those as first-class capabilities. That includes TurboQuant scalar quantization, an algorithm that isn't yet standard in any production vector DB.
+Most memory layers wrap a separately-configured vector database — Qdrant, pgvector, Pinecone, LanceDB. That's a sound abstraction, but it means the memory product can never ship features that touch the storage layout: quantization, ranking-fidelity tradeoffs, custom index types, online migration. Strata owns its storage end-to-end across every deployment target — SQLite locally, Cloudflare D1 at the edge, Postgres on GCP Cloud SQL. That ownership is what lets it ship TurboQuant scalar quantization (a 4-bit codec that isn't yet standard in any production vector DB) directly into the storage layer. Quantization is live on the SQLite and D1 write paths today; the Postgres path stores float32 for now, with quantization on the [roadmap](#what-works-today-vs-roadmap) (the read-side dispatch and a migration tool are already in place).
 
 ---
 
@@ -125,9 +145,12 @@ strata status
 ```
 
 ```
-Strata v2.0.0
+Strata v2.3.0
 Database: ~/.strata/strata.db
-Sessions: 142 | Documents: 3847 | Projects: 12
+Sessions: 142
+Documents: 3847 chunks
+Projects: 12
+Parsers: Claude Code (detected), Codex CLI (not found), Cline (not found), Gemini CLI (detected), Aider (not found)
 ```
 
 ---
@@ -337,7 +360,7 @@ See [Hooks and Skills](docs/HOOKS-AND-SKILLS.md) for the full configuration refe
 
 ## Deploy on Cloudflare Workers + D1
 
-Strata ships a pluggable storage layer with a Cloudflare D1 adapter. Deploy Strata as a serverless MCP server on Cloudflare's global edge — zero ops, infinite scale, $0 idle cost.
+Strata ships a pluggable storage layer with a Cloudflare D1 adapter. Deploy Strata as a serverless MCP server on Cloudflare's global edge — minimal ops, elastic scale, $0 idle cost.
 
 ```bash
 npm install strata-mcp @modelcontextprotocol/sdk
@@ -363,7 +386,7 @@ export default {
 };
 ```
 
-Full-text search (FTS5) works out of the box. Add a `GEMINI_API_KEY` secret for semantic search with 3072-dim embeddings — same quality as the local SQLite path.
+Full-text search (FTS5) works out of the box. Add a `GEMINI_API_KEY` secret for semantic search with 3072-dim embeddings. D1 uses the same retrieval pipeline and the same TurboQuant 4-bit write path as local SQLite, so quality should match — a formal parity eval against the SQLite baseline is pending.
 
 See the full deployment guide at [kytheros.dev/docs/cloudflare-workers-d1](https://kytheros.dev/docs/cloudflare-workers-d1).
 
@@ -377,6 +400,8 @@ See the full deployment guide at [kytheros.dev/docs/cloudflare-workers-d1](https
 | **Postgres** | GCP Cloud Run + Cloud SQL, multi-tenant | `strata deploy gcp --multi-tenant` |
 
 All backends support the same MCP tools, full-text search, and semantic search. The storage layer is pluggable via the `StorageContext` interface -- pass it to `createServer({ storage })`.
+
+> **Maturity:** SQLite (local) and D1 (Cloudflare) are the proven paths. The GCP/Postgres and AWS backends ship as **deployment templates** — reference-grade and self-host-ready, but not yet validated under multi-tenant production load. See [What works today vs. roadmap](#what-works-today-vs-roadmap).
 
 ---
 
@@ -453,7 +478,7 @@ The REST transport (`strata serve --rest`) has a separate token model: it signs 
 
 ## Deploy on AWS (Fargate + Aurora + Cognito)
 
-Full-stack enterprise deploy: ECS Fargate, Aurora PostgreSQL Serverless v2, ElastiCache Redis, API Gateway with Cognito JWT auth, CloudWatch dashboards, and cost guardrails. Designed for portfolio demos, enterprise self-hosting, and AI coding assistant teams that need per-tenant memory isolation on AWS.
+Full-stack enterprise deploy **template**: ECS Fargate, Aurora PostgreSQL Serverless v2, ElastiCache Redis, API Gateway with Cognito JWT auth, CloudWatch dashboards, and cost guardrails. This is a reference architecture — provisionable and self-host-ready, meant for portfolio demos, enterprise self-hosting, and teams that want a starting point for per-tenant memory isolation on AWS. It has not been run as a hardened multi-tenant production service; treat it as a template to adapt, not a turnkey SaaS.
 
 The deploy ships with a working demo app — **AWS Concierge** — that uses Strata for cross-session memory and Claude Sonnet 4.6 with read-only AWS SDK tools to answer operator questions about the live deployment ("what's running?", "any alarms firing?", "what did this cost last week?"). Useful as both a self-aware introspection agent and a reference for wiring Strata into a Next.js + Cognito app.
 
@@ -670,7 +695,7 @@ Full documentation at [kytheros.dev/docs](https://kytheros.dev/docs).
 |----------|-------------|
 | [Game Engine REST API](https://strata.kytheros.dev/docs/game-engine-api) | REST transport for Unity, Godot, Unreal — auth model, 22 routes, migration |
 | [Cloudflare Workers + D1 Guide](https://kytheros.dev/docs/cloudflare-workers-d1) | Deploy Strata as a serverless MCP server |
-| [Architecture](docs/architecture.md) | System design, storage model, retrieval pipeline |
+| [Architecture](docs/ARCHITECTURE.md) | System design, storage model, retrieval pipeline |
 | [Evaluator Pipeline](docs/evaluator-pipeline.md) | Quality gates, accepted/rejected examples, importance scoring |
 | [Provenance & Audit](docs/provenance.md) | knowledge_history table, tracing entries to origin |
 | [Benchmarks](docs/benchmarks.md) | Retrieval quality metrics and methodology |
@@ -697,7 +722,7 @@ The memory system I'd built for the harness was already working. So I asked: wha
 
 ## Where Strata Is Going
 
-Today, Strata is the best memory layer for AI coding assistants and game engines. Install it and your AI coding assistant remembers across sessions, projects, and tools; deploy `strata serve --rest` and your game's NPCs accumulate memory across player conversations. That's the product.
+Today, Strata is a memory layer purpose-built for AI coding assistants, with a REST path for game engines. Install it and your AI coding assistant remembers across sessions, projects, and tools; deploy `strata serve --rest` and your game's NPCs accumulate memory across player conversations. That's the product.
 
 The architecture extends in three directions. Storage backends (SQLite, D1, Postgres + Cloud Run) let you run Strata wherever your agents live. The HTTP and REST transports cover MCP-aware coding assistants and game engines respectively. Pluggable retrieval (BM25 + vector + RRF + per-NPC profile decay) adapts to whatever knowledge surface you point at it.
 
