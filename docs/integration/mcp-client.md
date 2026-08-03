@@ -312,7 +312,66 @@ All search tools support three output formats via the `format` parameter:
 
 ---
 
+## Per-client setup
+
+`strata init` auto-configures Claude Code and Gemini CLI. For other MCP clients, drop the snippet below into the client's MCP settings file.
+
+**Claude Desktop** — `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "strata": {
+      "command": "strata"
+    }
+  }
+}
+```
+
+**Cursor** — Settings → MCP → Add Server, or `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "strata": {
+      "command": "strata",
+      "env": {
+        "GEMINI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+**Cline** (VS Code) — Cline → Settings → MCP Servers, or `cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "strata": {
+      "command": "strata",
+      "disabled": false,
+      "autoApprove": ["search_history", "find_solutions", "get_project_context"]
+    }
+  }
+}
+```
+
+**Continue** — `~/.continue/config.yaml`:
+
+```yaml
+mcpServers:
+  - name: strata
+    command: strata
+```
+
+**Codex CLI / Aider** — both read conversation files Strata already auto-indexes. No MCP wiring needed; just run `strata init` and they show up in `strata status`.
+
+**Remote / HTTP transport** — start Strata as an HTTP server with `strata serve --port 3000` and point any MCP-compatible client at `http://localhost:3000/mcp`. For multi-user deployments, see [Deployment](../DEPLOYMENT.md) — the multi-tenant transport requires a verified auth proxy in production.
+
+---
+
 ## Further Reading
 
 - [Claude Code Integration](claude-code.md) -- specific setup for Claude Code
-- [Architecture Overview](../architecture.md) -- system design and retrieval pipeline
+- [Architecture Overview](../ARCHITECTURE.md) -- system design and retrieval pipeline
