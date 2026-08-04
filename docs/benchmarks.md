@@ -220,6 +220,13 @@ This is **not a retrieval number** — it measures a full stack: Strata's retrie
 
 > **Historical note.** An earlier run (2026-03-27) scored 81.1% task-averaged using a GPT-4o answer model in a 40K-token agent loop. It is superseded by the run above, which uses a cheaper Gemini 2.5 Flash answer model; the two are not directly comparable because the answer model changed.
 
+> **Do not cite the `pg29c` diagnostic as the headline number.** A separate internal diagnostic — the PROD-CONSUMER arm of a 4-arm prod/consumer parity check validating the production `ingestTurns` write-path (`benchmarks/longmemeval/results/pg29c/`, 2026-06-11/12) — scored **83.8–84.8% overall / 84.3–85.3% task-averaged** across three SQLite runs. That is **not** a better result under the same conditions; it is higher because the diagnostic used generous, non-default settings:
+> - **`max_chars` = 10000** (4× the 2500 default), so the answer model saw ~4× more context per question — the dominant lever.
+> - **3 judge votes** (majority-of-3) instead of a single judge pass.
+> - **`deep` retrieval strategy** (session-scoring pool 60 / sessionK 20) with the agent-format unified prompt.
+>
+> Notably its retrieval ran **FTS5/BM25-only** (the vector bridge never fired — no `GEMINI_API_KEY` in that run), yet it still scored higher than the hybrid run above, which shows the end-to-end QA figure is dominated by answer-context size and judging, not by retrieval mode. The 79.4% run above is the faithful/default-harness number; `pg29c` is a tuning/validation diagnostic.
+
 Reproducibility: see `evals/longmemeval/` for the harness and wrapper-prompt templates, and `benchmarks/longmemeval/data/` for run logs.
 
 #### TIR+QDP Delta — LongMemEval Q50 stratified (2026-05-11, partial)
