@@ -195,18 +195,32 @@ Source: `benchmarks/longmemeval/results/retrieval-baseline-bm25.json`. Recall@20
 
 #### End-to-end QA accuracy — a stack result, read the conditions
 
+Most recent full run (`benchmarks/longmemeval/data/results-full-topk20-session-rerank-onnx-2026-08-03T17-50-22-704Z.json`):
+
 | Metric | Value |
 |--------|-------|
-| Task-averaged accuracy (LongMemEval-500) | 81.1% |
-| Answer model | GPT-4o (`gpt-4o-2024-08-06`) |
-| Judge model | GPT-4o |
-| Extraction provider | Gemini 2.5 Flash |
-| Agent loop budget | 40K tokens / question |
-| Run date | 2026-03-27 |
+| Task-averaged accuracy (LongMemEval-S, 500 Q) | **79.4%** |
+| Raw accuracy | 79.6% (398 / 500) |
+| Answer model | Gemini 2.5 Flash (`gemini-2.5-flash`) |
+| Judge model | GPT-4o (`gpt-4o-2024-08-06`) |
+| Retrieval | hybrid (BM25 + vector), top-K 20, session reranking (ONNX) |
+| Prompt variant | `category` |
+| Run date | 2026-08-03 |
 
-The 81.1% is **not a retrieval number** — it measures a full stack: Strata's retrieval wrapped in a GPT-4o-answered, GPT-4o-judged agent loop with a 40K-token-per-question budget and Gemini extraction on the ingest side. It uses the official LongMemEval split, the published rubric, and the same answer/judge models as the upstream paper for comparability, but the accuracy figure depends heavily on the answer model and budget, not on Strata alone. Quote the retrieval@20 number for Strata's contribution; quote 81.1% only with these conditions attached.
+Per-ability breakdown:
 
-Reproducibility: see `evals/longmemeval/` in this repository for the harness, the wrapper-prompt templates, and the run logs.
+| Ability | Accuracy |
+|---------|----------|
+| Information extraction | 84.0% (131/156) |
+| Temporal reasoning | 82.0% (109/133) |
+| Knowledge update | 79.5% (62/78) |
+| Multi-session reasoning | 72.2% (96/133) |
+
+This is **not a retrieval number** — it measures a full stack: Strata's retrieval feeding a Gemini-2.5-Flash-answered, GPT-4o-judged pipeline. It uses the official LongMemEval-S split and the published rubric, but the accuracy figure depends heavily on the answer model, retrieval config, and reranker, not on Strata alone — earlier runs with different answer models and configs have landed anywhere from ~79% to ~85%. Quote the deterministic retrieval@20 number for Strata's own contribution; quote the QA number only with its conditions and run date attached.
+
+> **Historical note.** An earlier run (2026-03-27) scored 81.1% task-averaged using a GPT-4o answer model in a 40K-token agent loop. It is superseded by the run above, which uses a cheaper Gemini 2.5 Flash answer model; the two are not directly comparable because the answer model changed.
+
+Reproducibility: see `evals/longmemeval/` for the harness and wrapper-prompt templates, and `benchmarks/longmemeval/data/` for run logs.
 
 #### TIR+QDP Delta — LongMemEval Q50 stratified (2026-05-11, partial)
 
